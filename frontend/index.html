@@ -1,0 +1,1011 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>ValueBets 3.0</title>
+    <style>
+        :root {
+            --bg-main: #0b0f19;
+            --bg-card: #151d2f;
+            --bg-input: #1e293b;
+            --border: #293548;
+            --accent: #38bdf8;
+            --success: #10b981;
+            --danger: #ef4444;
+            --text-muted: #94a3b8;
+            --sb-color: #f59e0b;
+            --sts-color: #3b82f6;
+            --betclic-color: #ef4444;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { background: var(--bg-main); color: #f1f5f9; display: flex; height: 100vh; overflow: hidden; }
+
+        .dock {
+            background: #0d1525;
+            border-right: 1px solid var(--border);
+            width: 270px;
+            min-width: 270px;
+            display: flex;
+            flex-direction: column;
+            transition: width 0.2s ease, min-width 0.2s ease;
+            position: relative;
+            z-index: 20;
+        }
+        .dock-right {
+            border-right: none;
+            border-left: 1px solid var(--border);
+        }
+        .dock.collapsed {
+            width: 36px;
+            min-width: 36px;
+        }
+        .dock.collapsed .dock-content, .dock.collapsed .dock-title {
+            display: none;
+        }
+        .dock-header {
+            padding: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            background: #111a2e;
+        }
+        .dock-title { font-size: 13px; font-weight: 700; color: var(--accent); }
+        .dock-toggle {
+            background: transparent; border: 1px solid var(--border); color: var(--text-muted);
+            border-radius: 4px; cursor: pointer; width: 22px; height: 22px; line-height: 18px; text-align: center;
+        }
+        .dock-toggle:hover { color: #fff; border-color: var(--accent); }
+        .dock-content {
+            padding: 10px;
+            overflow-y: auto;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .item-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 8px;
+            font-size: 12px;
+            cursor: pointer;
+            position: relative;
+        }
+        .item-card:hover { border-color: var(--accent); background: #1a253c; }
+        .item-card .card-date { font-size: 10px; color: var(--text-muted); margin-bottom: 3px; }
+        .item-card .card-title { font-weight: 700; color: #fff; margin-bottom: 4px; }
+        .item-card .card-sub { font-size: 11px; color: var(--text-muted); }
+        .card-del {
+            position: absolute; right: 6px; top: 6px; color: var(--danger);
+            border: none; background: transparent; cursor: pointer; font-weight: bold;
+        }
+
+        .main-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 14px 18px;
+            overflow-y: auto;
+            min-width: 800px;
+        }
+
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+        .title-box h1 { font-size: 20px; font-weight: 800; color: var(--accent); }
+        .panel { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+
+        .inputs-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 10px; }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr 1.2fr auto; gap: 10px; align-items: end; }
+
+        .input-group label { display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 4px; font-weight: 600; }
+        .input-group input { width: 100%; background: var(--bg-input); border: 1px solid var(--border); color: #fff; padding: 6px 10px; border-radius: 6px; font-size: 12px; height: 34px; outline: none; }
+        .input-group input:focus { border-color: var(--accent); }
+
+        .slider-wrap { display: flex; align-items: center; gap: 10px; height: 34px; }
+        .slider-wrap input[type=range] { flex: 1; accent-color: var(--accent); cursor: pointer; }
+        .slider-val { font-size: 12px; font-weight: 700; color: var(--accent); min-width: 45px; }
+
+        .btn-primary { background: var(--success); color: #022c22; font-weight: 700; padding: 0 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; height: 34px; transition: all 0.2s ease; }
+        .btn-primary:hover { filter: brightness(1.1); }
+        .btn-primary:disabled { cursor: not-allowed; opacity: 0.65; }
+
+        .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+        .filter-select, .search-box { background: var(--bg-card); border: 1px solid var(--border); color: #fff; padding: 6px 8px; border-radius: 6px; font-size: 12px; height: 32px; outline: none; }
+        .search-box { flex: 1; }
+
+        .table-wrap { flex: 1; overflow-x: auto; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
+        thead { position: sticky; top: 0; background: #0f172a; z-index: 10; }
+        th { padding: 8px 10px; color: var(--text-muted); font-weight: 600; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; }
+        th:hover { color: #fff; }
+        th.sort-active { color: var(--accent); }
+        td { padding: 7px 10px; border-bottom: 1px solid #1e293b; }
+        tr:hover { background: #1a2438; }
+        .result-row { cursor: pointer; }
+
+        .badge-bm { font-weight: 800; font-size: 10px; padding: 2px 5px; border-radius: 4px; }
+        .bm-SUPERBET { background: rgba(245, 158, 11, 0.15); color: var(--sb-color); border: 1px solid var(--sb-color); }
+        .bm-STS { background: rgba(59, 130, 246, 0.15); color: var(--sts-color); border: 1px solid var(--sts-color); }
+        .bm-BETCLIC { background: rgba(239, 68, 68, 0.15); color: var(--betclic-color); border: 1px solid var(--betclic-color); }
+
+        .badge-value { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); padding: 2px 5px; border-radius: 4px; font-size: 10px; font-weight: 700; }
+        .badge-trap { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); padding: 2px 5px; border-radius: 4px; font-size: 10px; font-weight: 700; }
+        .badge-neutral { color: #64748b; font-size: 10px; font-weight: 700; }
+        .no-offer { color: var(--text-muted); text-align: center; }
+
+        th.th-SUPERBET, td.bm-cell[data-bm="SUPERBET"] { background: rgba(245, 158, 11, 0.07); }
+        th.th-BETCLIC, td.bm-cell[data-bm="BETCLIC"] { background: rgba(239, 68, 68, 0.07); }
+        th.th-STS, td.bm-cell[data-bm="STS"] { background: rgba(59, 130, 246, 0.07); }
+        .best-odds { background: rgba(16, 185, 129, 0.22) !important; }
+
+        .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; }
+        .stat-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; text-align: center; }
+        .stat-card .label { font-size: 11px; color: var(--text-muted); font-weight: 600; margin-bottom: 4px; }
+        .stat-card .val { font-size: 24px; font-weight: 800; color: #fff; }
+
+        .chart-modal {
+            display: none; position: fixed; inset: 0; z-index: 1000;
+            align-items: center; justify-content: center; padding: 24px;
+            background: rgba(2, 6, 23, 0.82);
+        }
+        .chart-modal.is-open { display: flex; }
+        .chart-dialog {
+            width: min(900px, 100%); max-height: calc(100vh - 48px); overflow-y: auto;
+            background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 16px;
+        }
+        .chart-header { display: flex; gap: 12px; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+        .chart-header h2 { margin: 0; color: #fff; font-size: 18px; }
+        .chart-header p { margin: 4px 0 0; color: var(--text-muted); font-size: 12px; }
+        .chart-close { background: transparent; border: 1px solid var(--border); color: var(--text-muted); border-radius: 5px; cursor: pointer; font-size: 18px; line-height: 24px; width: 28px; height: 28px; }
+        .chart-close:hover { color: #fff; border-color: var(--accent); }
+        .chart-summary { display: flex; flex-wrap: wrap; gap: 14px; color: var(--text-muted); font-size: 12px; margin-bottom: 8px; }
+        .chart-summary b { color: #fff; }
+        .sample-chart { display: block; width: 100%; min-height: 330px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 7px; }
+        .chart-legend { display: flex; flex-wrap: wrap; gap: 14px; color: var(--text-muted); font-size: 11px; margin-top: 10px; }
+        .legend-item { display: flex; align-items: center; gap: 5px; }
+        .legend-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+    </style>
+</head>
+<body>
+
+<div class="dock" id="dockLeft">
+    <div class="dock-header">
+        <span class="dock-title">🕒 Ostatnie spotkania</span>
+        <button class="dock-toggle" onclick="toggleDock('dockLeft')">◀</button>
+    </div>
+    <div class="dock-content" id="historyList"></div>
+</div>
+
+<div class="main-container">
+    <div class="header">
+        <div class="title-box">
+            <h1>ValueBets 3.0</h1>
+            <p style="color: var(--text-muted); font-size: 12px;">LPM na zdarzeniu pokazuje wykres próbki, PPM dodaje do MyBets. Kliknij nagłówek kolumny aby posortować.</p>
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="inputs-grid">
+            <div class="input-group">
+                <label>Link Superbet:</label>
+                <input type="text" id="sbInput" placeholder="https://superbet.pl/kursy/..." oninput="handleUrlChange(this.value, 'sb')">
+            </div>
+            <div class="input-group">
+                <label>Link Betclic:</label>
+                <input type="text" id="betclicInput" placeholder="https://www.betclic.pl/..." oninput="handleUrlChange(this.value, 'betclic')">
+            </div>
+            <div class="input-group">
+                <label>Link STS:</label>
+                <input type="text" id="stsInput" placeholder="https://www.sts.pl/kursy/..." oninput="handleUrlChange(this.value, 'sts')">
+            </div>
+        </div>
+
+        <div class="stats-grid">
+            <div class="input-group">
+                <label>ID StatsHub (Gospodarze):</label>
+                <input type="text" id="homeIdInput" placeholder="np. 267828 lub URL" onchange="checkAndLoadTournaments()">
+            </div>
+            <div class="input-group">
+                <label>ID StatsHub (Goście):</label>
+                <input type="text" id="awayIdInput" placeholder="np. 267829 lub URL" onchange="checkAndLoadTournaments()">
+            </div>
+            <div class="input-group">
+                <label>Zakres próbki:</label>
+                <div class="slider-wrap">
+                    <input type="range" id="matchSlider" min="1" max="30" value="10" oninput="document.getElementById('sliderVal').innerText = this.value + ' m.'">
+                    <span class="slider-val" id="sliderVal">10 m.</span>
+                </div>
+            </div>
+            <button class="btn-primary" id="btnAnalyze" onclick="runAnalysis()">Analizuj</button>
+        </div>
+
+        <div id="leagueSelectorWrap" style="display:none; margin-top:10px; padding:8px 12px; background:var(--bg-input); border-radius:6px; font-size:12px; border:1px solid var(--border);">
+            <span style="font-weight:700; color:var(--accent); margin-right:12px;">Rozgrywki:</span>
+            <span id="leagueCheckboxes"></span>
+        </div>
+    </div>
+
+    <div class="toolbar">
+        <input type="text" id="searchBox" class="search-box" placeholder="Szukaj zawodnika, np. szymanski..." onkeyup="renderFiltered()">
+        <button id="compareToggle" class="filter-select" style="cursor:pointer; font-weight:700;" onclick="toggleCompareMode()">🔀 Widok: Lista</button>
+        <select id="bmFilter" class="filter-select" onchange="renderFiltered()">
+            <option value="ALL">Wszyscy bukmacherzy</option>
+            <option value="SUPERBET">Superbet</option>
+            <option value="BETCLIC">Betclic</option>
+            <option value="STS">STS</option>
+        </select>
+        <select id="marketFilter" class="filter-select" onchange="renderFiltered()">
+            <option value="ALL">Wszystkie rynki</option>
+            <option value="SHOTS_TOTAL">Strzały</option>
+            <option value="SHOTS_ON_TARGET">Strzały celne</option>
+            <option value="SHOTS_BLOCKED">Strzały zablokowane</option>
+            <option value="SHOTS_OFF_TARGET">Strzały niecelne</option>
+            <option value="TACKLES">Odbiory</option>
+            <option value="FOULS_COMMITTED">Faule popełnione</option>
+            <option value="FOULS_DRAWN">Faule wywalczone</option>
+            <option value="INTERCEPTIONS">Przechwyty</option>
+            <option value="OFFSIDES">Spalone</option>
+        </select>
+        <select id="verdictFilter" class="filter-select" onchange="renderFiltered()">
+            <option value="ALL">Wszystkie typy</option>
+            <option value="VALUE">🟢 Tylko VALUE</option>
+            <option value="TRAP">🔴 Tylko PUŁAPKI</option>
+        </select>
+    </div>
+
+    <div class="stats-row">
+        <div class="stat-card">
+            <div class="label">Przeanalizowane rynki</div>
+            <div class="val" id="statTotal">0</div>
+        </div>
+        <div class="stat-card">
+            <div class="label" style="color: var(--success);">Znalezione Value Bety</div>
+            <div class="val" id="statValue" style="color: var(--success);">0</div>
+        </div>
+        <div class="stat-card">
+            <div class="label" style="color: var(--danger);">Wykryte Pułapki</div>
+            <div class="val" id="statTraps" style="color: var(--danger);">0</div>
+        </div>
+    </div>
+
+    <div class="table-wrap">
+        <table>
+            <thead id="tableHead"></thead>
+            <tbody id="resultsBody">
+            <tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--text-muted);">Uzupełnij linki bukmacherów i kliknij Analizuj.</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="chart-modal" id="chartModal" role="dialog" aria-modal="true" aria-labelledby="chartTitle" onclick="closeChartOnBackdrop(event)">
+    <div class="chart-dialog">
+        <div class="chart-header">
+            <div>
+                <h2 id="chartTitle">Próbka zawodnika</h2>
+                <p id="chartSubtitle"></p>
+            </div>
+            <div style="display:flex; align-items:center; gap:10px;">
+                <button id="superSubToggle" class="filter-select" style="cursor:pointer; font-weight:700;" onclick="toggleSuperSubInChart()">⚡ SuperSub: WŁ</button>
+                <button class="chart-close" type="button" aria-label="Zamknij wykres" onclick="closeChart()">×</button>
+            </div>
+        </div>
+        <div class="chart-summary" id="chartSummary"></div>
+        <svg id="sampleChart" class="sample-chart" role="img" aria-labelledby="chartTitle chartSubtitle"></svg>
+        <div class="chart-legend">
+            <span class="legend-item"><span class="legend-swatch" style="background:var(--success)"></span>trafiona próba</span>
+            <span class="legend-item"><span class="legend-swatch" style="background:var(--danger)"></span>nietrafiona próba</span>
+            <span class="legend-item"><span class="legend-swatch" style="background:var(--accent)"></span>linia zakładu</span>
+        </div>
+    </div>
+</div>
+
+<div class="dock dock-right" id="dockRight">
+    <div class="dock-header">
+        <button class="dock-toggle" onclick="toggleDock('dockRight')">▶</button>
+        <span class="dock-title">⭐ MyBets (<span id="myBetsCount">0</span>)</span>
+    </div>
+    <div class="dock-content" id="myBetsList"></div>
+</div>
+
+<script>
+    let rawBets = [];
+    let compareMode = false;
+    let myBets = [];
+    let sortCol = "hitRate";
+    let sortAsc = false;
+    let currentMatchKey = null;
+
+    let currentChartBet = null;
+    let useSuperSub = true;
+
+    const MARKET_LABELS = {
+        SHOTS_TOTAL: "Strzały", SHOTS_ON_TARGET: "Strzały celne",
+        SHOTS_BLOCKED: "Strzały zablokowane", SHOTS_OFF_TARGET: "Strzały niecelne",
+        TACKLES: "Odbiory", DISPOSSESSED: "Dispossessed (odbiór/strata)", FOULS_COMMITTED: "Faule popełnione",
+        FOULS_DRAWN: "Faule wywalczone", INTERCEPTIONS: "Przechwyty", OFFSIDES: "Spalone"
+    };
+
+    const BOOKMAKERS = ["SUPERBET", "BETCLIC", "STS"];
+
+    window.onload = async () => {
+        renderTableHeaders();
+        // Initialize SuperSub button based on default state
+        try {
+            const btn = document.getElementById('superSubToggle');
+            if (btn) {
+                btn.textContent = useSuperSub ? "⚡ SuperSub: WŁ" : "⚡ SuperSub: WYŁ";
+                btn.style.borderColor = useSuperSub ? "var(--accent)" : "var(--border)";
+                btn.style.color = useSuperSub ? "var(--accent)" : "#fff";
+            }
+        } catch(e) {}
+
+        try {
+            if (window.go?.main?.App?.LoadMatchHistory) {
+                const list = await window.go.main.App.LoadMatchHistory();
+                renderHistory(list);
+            }
+        } catch(e) {}
+    };
+
+    function toggleDock(id) {
+        const d = document.getElementById(id);
+        d.classList.toggle('collapsed');
+        const btn = d.querySelector('.dock-toggle');
+        if (id === 'dockLeft') {
+            btn.textContent = d.classList.contains('collapsed') ? '▶' : '◀';
+        } else {
+            btn.textContent = d.classList.contains('collapsed') ? '◀' : '▶';
+        }
+    }
+
+    function renderTableHeaders() {
+        const th = (key, label) => {
+            const active = sortCol === key ? (sortAsc ? ' ▲' : ' ▼') : '';
+            const cls = sortCol === key ? 'class="sort-active"' : '';
+            return `<th ${cls} onclick="setSort('${key}')">${label}${active}</th>`;
+        };
+
+        if (!compareMode) {
+            document.getElementById('tableHead').innerHTML = `<tr>
+                ${th('bookmaker', 'Buk')}
+                ${th('playerName', 'Zawodnik')}
+                ${th('marketLabel', 'Rynek')}
+                ${th('line', 'Linia')}
+                ${th('bookmakerOdds', 'Kurs')}
+                ${th('fairOdds', 'Fair Kurs')}
+                ${th('hitRate', 'Hit-Rate')}
+                ${th('edgePercent', 'Edge')}
+                ${th('evWithTax', 'EV (Podatek)')}
+                ${th('matchesSample', 'Próbka')}
+                ${th('verdict', 'Ocena')}
+            </tr>`;
+        } else {
+            document.getElementById('tableHead').innerHTML = `<tr>
+                ${th('playerName', 'Zawodnik')}
+                ${th('marketType', 'Rynek')}
+                ${th('line', 'Linia')}
+                ${th('fairOdds', 'Fair Kurs')}
+                ${th('hitRate', 'Hit-Rate')}
+                ${th('matchesSample', 'Próbka')}
+                ${th('bookmakerSpread', 'Różnica kursów')}
+                <th class="th-SUPERBET">Superbet</th><th class="th-BETCLIC">Betclic</th><th class="th-STS">STS</th>
+            </tr>`;
+        }
+    }
+
+    function setSort(col) {
+        if (sortCol === col) {
+            sortAsc = !sortAsc;
+        } else {
+            sortCol = col;
+            sortAsc = false;
+        }
+        renderTableHeaders();
+        renderFiltered();
+    }
+
+    function applySort(list) {
+        return list.sort((a, b) => {
+            let valA = a[sortCol];
+            let valB = b[sortCol];
+            if (typeof valA === "string") {
+                return sortAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
+            }
+            return sortAsc ? (valA - valB) : (valB - valA);
+        });
+    }
+
+    async function checkAndLoadTournaments() {
+        const home = document.getElementById('homeIdInput').value.trim();
+        const away = document.getElementById('awayIdInput').value.trim();
+        if (!home) return;
+
+        try {
+            if (window.go?.main?.App?.GetAvailableTournaments) {
+                const list = await window.go.main.App.GetAvailableTournaments(home, away);
+                const container = document.getElementById('leagueCheckboxes');
+                const wrap = document.getElementById('leagueSelectorWrap');
+                if (!list || list.length === 0) {
+                    wrap.style.display = 'none';
+                    return;
+                }
+                container.innerHTML = list.map((l, i) => `
+                    <label style="margin-right:12px; cursor:pointer;">
+                        <input type="checkbox" class="league-cb" value="${l.id}" ${i === 0 ? 'checked' : ''}> ${l.name}
+                    </label>
+                `).join('');
+                wrap.style.display = 'block';
+            }
+        } catch(e) {}
+    }
+
+    async function handleUrlChange(url, source) {
+        if (!url || url.length < 15) return;
+        try {
+            const detected = await window.go.main.App.DetectTeamsFromURL(url);
+            if (!detected.homeSlug && !detected.awaySlug) return;
+
+            const key = (detected.homeId && detected.awayId)
+                ? [detected.homeId, detected.awayId].sort().join('|')
+                : null;
+
+            if (key !== null && currentMatchKey !== null && currentMatchKey !== key) {
+                const fieldMap = { sb: 'sbInput', betclic: 'betclicInput', sts: 'stsInput' };
+                for (const [k, id] of Object.entries(fieldMap)) {
+                    if (k !== source) document.getElementById(id).value = '';
+                }
+                document.getElementById('homeIdInput').value = '';
+                document.getElementById('awayIdInput').value = '';
+                document.getElementById('leagueSelectorWrap').style.display = 'none';
+            }
+            if (key !== null) currentMatchKey = key;
+
+            if (detected.homeId) document.getElementById('homeIdInput').value = detected.homeId;
+            if (detected.awayId) document.getElementById('awayIdInput').value = detected.awayId;
+
+            checkAndLoadTournaments();
+        } catch (e) {}
+    }
+
+    async function runAnalysis() {
+        const btn = document.getElementById('btnAnalyze');
+        const tbody = document.getElementById("resultsBody");
+
+        const sb = document.getElementById('sbInput').value.trim();
+        const betclic = document.getElementById('betclicInput').value.trim();
+        const sts = document.getElementById('stsInput').value.trim();
+        const home = document.getElementById('homeIdInput').value.trim();
+        const away = document.getElementById('awayIdInput').value.trim();
+        const limit = parseInt(document.getElementById('matchSlider').value, 10) || 10;
+
+        const checkedBoxes = Array.from(document.querySelectorAll('.league-cb:checked'));
+        let selectedTournaments = "";
+        if (checkedBoxes.length > 0) {
+            selectedTournaments = checkedBoxes.map(cb => cb.value).join(',');
+        } else {
+            selectedTournaments = "ALL";
+        }
+
+        btn.disabled = true;
+        btn.style.opacity = "0.7";
+        btn.innerHTML = `⏳ Analizowanie...`;
+        tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 40px; color: var(--accent);">
+            <div style="font-size:16px; font-weight:700; margin-bottom:8px;">Pobieranie kursów bukmacherskich i statystyk...</div>
+            <div style="font-size:12px; color:var(--text-muted);">Pobieranie strumieni Betclic gRPC oraz STS WebSocket...</div>
+        </td></tr>`;
+
+        try {
+            rawBets = await window.go.main.App.AnalyzeThreeBookmakers(sb, betclic, sts, home, away, limit, selectedTournaments);
+            renderFiltered();
+            updateStats();
+
+            let title = "Mecz";
+            const sampleUrl = sb || betclic || sts;
+            if (sampleUrl) {
+                const det = await window.go.main.App.DetectTeamsFromURL(sampleUrl);
+                if (det.homeId && det.awayId && det.homeSlug && det.awaySlug) {
+                    title = `${det.homeSlug} vs ${det.awaySlug}`;
+                }
+            }
+
+            if (window.go?.main?.App?.SaveMatchHistory) {
+                const hist = await window.go.main.App.SaveMatchHistory({
+                    title, sbUrl: sb, betclicUrl: betclic, stsUrl: sts,
+                    homeStatsId: home, awayStatsId: away
+                });
+                renderHistory(hist);
+            }
+        } catch (e) {
+            alert("Błąd analizy: " + e);
+            tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--danger);">Wystąpił błąd podczas analizy. Sprawdź terminal.</td></tr>`;
+        } finally {
+            btn.disabled = false;
+            btn.style.opacity = "1";
+            btn.innerHTML = `Analizuj`;
+        }
+    }
+
+    function renderHistory(list) {
+        const container = document.getElementById('historyList');
+        container.innerHTML = "";
+        list.forEach((item, idx) => {
+            const div = document.createElement("div");
+            div.className = "item-card";
+            div.innerHTML = `
+                <button class="card-del" onclick="deleteHistoryEntry(${idx}, event)">✕</button>
+                <div class="card-title">${item.title}</div>
+                <div class="card-date">${item.timestamp || ''}</div>
+                <div class="card-sub">SH: ${item.homeStatsId || '-'} / ${item.awayStatsId || '-'}</div>
+            `;
+            div.onclick = () => {
+                document.getElementById('sbInput').value = item.sbUrl || '';
+                document.getElementById('betclicInput').value = item.betclicUrl || '';
+                document.getElementById('stsInput').value = item.stsUrl || '';
+                document.getElementById('homeIdInput').value = item.homeStatsId || '';
+                document.getElementById('awayIdInput').value = item.awayStatsId || '';
+                currentMatchKey = (item.homeStatsId && item.awayStatsId)
+                    ? [item.homeStatsId, item.awayStatsId].sort().join('|')
+                    : null;
+                checkAndLoadTournaments();
+            };
+            container.appendChild(div);
+        });
+    }
+
+    function updateStats() {
+        document.getElementById('statTotal').textContent = rawBets.length;
+        document.getElementById('statValue').textContent = rawBets.filter(b => b.verdict === 'VALUE').length;
+        document.getElementById('statTraps').textContent = rawBets.filter(b => b.verdict === 'TRAP').length;
+    }
+
+    async function deleteHistoryEntry(index, evt) {
+        evt.stopPropagation();
+        if (window.go?.main?.App?.DeleteMatchHistory) {
+            const hist = await window.go.main.App.DeleteMatchHistory(index);
+            renderHistory(hist);
+        }
+    }
+
+    function toggleCompareMode() {
+        compareMode = !compareMode;
+        if (!compareMode && sortCol === 'bookmakerSpread') {
+            sortCol = 'hitRate';
+            sortAsc = false;
+        }
+        document.getElementById('compareToggle').textContent = compareMode ? "📊 Widok: Porównanie" : "🔀 Widok: Lista";
+        renderTableHeaders();
+        renderFiltered();
+    }
+
+    function buildComparisonRows(bets) {
+        const groups = new Map();
+        for (const b of bets) {
+            const key = `${b.playerName}|${b.marketType}|${b.line}|${b.isUnder}`;
+            if (!groups.has(key)) {
+                groups.set(key, {
+                    playerName: b.playerName,
+                    marketType: b.marketType,
+                    marketLabel: b.marketLabel,
+                    line: b.line,
+                    isUnder: b.isUnder,
+                    fairOdds: b.fairOdds,
+                    hitRate: b.hitRate,
+                    matchesSample: b.matchesSample,
+                    sampleValues: b.sampleValues || [],
+                    sampleValuesSuperSub: b.sampleValuesSuperSub || [],
+                    sampleMinutes: b.sampleMinutes || [],
+                    samplePositions: b.samplePositions || [],
+                    sampleOpponents: b.sampleOpponents || [],
+                    sampleDates: b.sampleDates || [],
+                    bookmakerSpread: 0,
+                    books: {}
+                });
+            }
+            groups.get(key).books[b.bookmaker] = {
+                odds: b.bookmakerOdds, edgePercent: b.edgePercent, evWithTax: b.evWithTax, verdict: b.verdict
+            };
+        }
+        return Array.from(groups.values()).map(group => {
+            const odds = Object.values(group.books).map(book => book.odds);
+            group.bookmakerSpread = odds.length >= 2 ? Math.max(...odds) - Math.min(...odds) : 0;
+            return group;
+        });
+    }
+
+    function normalizeSearchText(value) {
+        return String(value ?? "")
+            .toLocaleLowerCase('pl-PL')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/ł/g, 'l');
+    }
+
+    function renderFiltered() {
+        const q = normalizeSearchText(document.getElementById("searchBox").value);
+        const bm = document.getElementById("bmFilter").value;
+        const market = document.getElementById("marketFilter").value;
+        const verdict = document.getElementById("verdictFilter").value;
+
+        if (!compareMode) {
+            let filtered = rawBets.filter(b => {
+                const matchQuery = normalizeSearchText(b.playerName).includes(q);
+                const matchBm = (bm === "ALL") || (b.bookmaker === bm);
+                const matchMarket = (market === "ALL") || (b.marketType === market);
+                const matchVerdict = (verdict === "ALL") || (b.verdict === verdict);
+                return matchQuery && matchBm && matchMarket && matchVerdict;
+            });
+            filtered = applySort(filtered);
+            renderListMode(filtered);
+            return;
+        }
+
+        let rows = buildComparisonRows(rawBets).filter(g => {
+            const matchQuery = normalizeSearchText(g.playerName).includes(q);
+            const matchMarket = (market === "ALL") || (g.marketType === market);
+            const matchBm = (bm === "ALL") || !!g.books[bm];
+            const matchVerdict = (verdict === "ALL") || Object.values(g.books).some(o => o.verdict === verdict);
+            return matchQuery && matchMarket && matchBm && matchVerdict;
+        });
+        rows = applySort(rows);
+        renderCompareMode(rows);
+    }
+
+    function createSvgElement(name, attributes = {}) {
+        const element = document.createElementNS('http://www.w3.org/2000/svg', name);
+        Object.entries(attributes).forEach(([key, value]) => element.setAttribute(key, String(value)));
+        return element;
+    }
+
+    function closeChart() {
+        document.getElementById('chartModal').classList.remove('is-open');
+    }
+
+    function closeChartOnBackdrop(event) {
+        if (event.target === document.getElementById('chartModal')) closeChart();
+    }
+
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape') closeChart();
+    });
+
+    function toggleSuperSubInChart() {
+        useSuperSub = !useSuperSub;
+        const btn = document.getElementById('superSubToggle');
+        btn.textContent = useSuperSub ? "⚡ SuperSub: WŁ" : "⚡ SuperSub: WYŁ";
+        btn.style.borderColor = useSuperSub ? "var(--accent)" : "var(--border)";
+        btn.style.color = useSuperSub ? "var(--accent)" : "#fff";
+        if (currentChartBet) {
+            drawCurrentBetChart();
+        }
+    }
+
+    function openSampleChart(bet) {
+        currentChartBet = bet;
+        // Open chart with SuperSub enabled by default
+        useSuperSub = true;
+        const btn = document.getElementById('superSubToggle');
+        if (btn) {
+            btn.textContent = "⚡ SuperSub: WŁ";
+            btn.style.borderColor = "var(--accent)";
+            btn.style.color = "var(--accent)";
+        }
+        drawCurrentBetChart();
+        document.getElementById('chartModal').classList.add('is-open');
+    }
+
+    function drawCurrentBetChart() {
+        const bet = currentChartBet;
+        const playerValues = bet.sampleValues || [];
+        const superSubValues = bet.sampleValuesSuperSub || [];
+
+        if (playerValues.length === 0) {
+            alert('Brak danych próbki.');
+            return;
+        }
+
+        const hasSuperSubSample = superSubValues.length === playerValues.length;
+        const values = (useSuperSub && hasSuperSubSample) ? superSubValues : playerValues;
+        const superSubDeltas = (useSuperSub && hasSuperSubSample)
+            ? playerValues.map((v, i) => Math.max(0, (superSubValues[i] || 0) - v))
+            : [];
+
+        const minutes = bet.sampleMinutes || [];
+        const positions = bet.samplePositions || [];
+        const opponents = bet.sampleOpponents || [];
+        const dates = bet.sampleDates || [];
+        const marketLabel = bet.marketLabel || MARKET_LABELS[bet.marketType] || bet.marketType;
+        const hitCount = values.filter(value => bet.isUnder ? value <= bet.line : value > bet.line).length;
+        const average = values.reduce((sum, value) => sum + value, 0) / values.length;
+        const averageMinutes = minutes.length === values.length
+            ? minutes.reduce((sum, value) => sum + value, 0) / minutes.length
+            : null;
+
+        document.getElementById('chartTitle').textContent = `${bet.playerName} — ${marketLabel}`;
+        document.getElementById('chartSubtitle').textContent = `Ostatnie ${values.length} meczów z aktualnej próbki; mecz 1 jest najnowszy.` +
+            (useSuperSub
+                ? ' SuperSub jest wliczony do słupków, średniej i hit rate; plakietka "+N" pokazuje wkład zmiennika.'
+                : '');
+        document.getElementById('chartSummary').innerHTML = `
+            <span>Linia: <b>${bet.isUnder ? 'under' : 'over'} ${bet.line}</b></span>
+            <span>Średnia: <b>${average.toFixed(2)}</b></span>
+            <span>Hit rate: <b>${Math.round((hitCount / values.length) * 100)}% (${hitCount}/${values.length})</b></span>
+            ${averageMinutes !== null ? `<span>Śr. minut: <b>${averageMinutes.toFixed(1)}</b></span>` : ''}
+        `;
+
+        renderSampleChart(values, minutes, positions, opponents, dates, bet.line, bet.isUnder, marketLabel, superSubDeltas);
+    }
+
+    function renderSampleChart(values, minutes, positions, opponents, dates, line, isUnder, marketLabel, superSubDeltas) {
+        superSubDeltas = superSubDeltas || [];
+        const svg = document.getElementById('sampleChart');
+        const width = 820;
+        const height = 340;
+        const margin = { top: 32, right: 32, bottom: 62, left: 52 };
+        const plotWidth = width - margin.left - margin.right;
+        const plotHeight = height - margin.top - margin.bottom;
+
+        const rawMax = Math.max(1, line, ...values);
+        const domainMax = Math.max(3, Math.ceil(rawMax + 0.8));
+
+        const yFor = value => margin.top + plotHeight - (value / domainMax) * plotHeight;
+        const barSlot = plotWidth / values.length;
+        const barWidth = Math.min(48, Math.max(6, barSlot * 0.65));
+
+        svg.replaceChildren();
+        svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+        svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+
+        const title = createSvgElement('title');
+        title.textContent = `${marketLabel}: ostatnie ${values.length} meczów`;
+        svg.appendChild(title);
+
+        const step = domainMax <= 6 ? 1 : Math.ceil(domainMax / 5);
+        for (let val = 0; val <= domainMax; val += step) {
+            const y = yFor(val);
+            svg.appendChild(createSvgElement('line', {
+                x1: margin.left, y1: y, x2: width - margin.right, y2: y,
+                stroke: 'var(--border)', 'stroke-width': 1, 'stroke-dasharray': '2 2'
+            }));
+            const label = createSvgElement('text', {
+                x: margin.left - 8, y: y + 4, 'text-anchor': 'end', fill: 'var(--text-muted)', 'font-size': 11
+            });
+            label.textContent = val;
+            svg.appendChild(label);
+        }
+
+        const referenceY = yFor(line);
+        svg.appendChild(createSvgElement('line', {
+            x1: margin.left, y1: referenceY, x2: width - margin.right, y2: referenceY,
+            stroke: 'var(--accent)', 'stroke-width': 2, 'stroke-dasharray': '6 4'
+        }));
+        const lineLabel = createSvgElement('text', {
+            x: width - margin.right, y: Math.max(margin.top + 12, referenceY - 6),
+            'text-anchor': 'end', fill: 'var(--accent)', 'font-size': 11, 'font-weight': 'bold'
+        });
+        lineLabel.textContent = `linia ${line}`;
+        svg.appendChild(lineLabel);
+
+        values.forEach((value, index) => {
+            const hit = isUnder ? value <= line : value > line;
+            const x = margin.left + index * barSlot + (barSlot - barWidth) / 2;
+            const y = yFor(value);
+            const barH = Math.max(3, margin.top + plotHeight - y);
+
+            const bar = createSvgElement('rect', {
+                x, y, width: barWidth, height: barH,
+                fill: hit ? 'var(--success)' : 'var(--danger)',
+                rx: 3
+            });
+
+            const opp = opponents[index] || 'Mecz ' + (index + 1);
+            const d = dates[index] ? ` (${dates[index]})` : '';
+            const posText = positions[index] ? ` · Poz: ${positions[index]}` : '';
+            const minText = minutes[index] !== undefined ? ` · ${minutes[index]} min` : '';
+
+            const delta = superSubDeltas[index] || 0;
+            const tooltip = createSvgElement('title');
+            tooltip.textContent = `vs ${opp}${d}: wynik ${value}${delta > 0 ? ` (w tym +${delta} zmiennika)` : ''}${posText}${minText} · ${hit ? 'Trafiony' : 'Nietrafiony'}`;
+            bar.appendChild(tooltip);
+            svg.appendChild(bar);
+
+            const valLabel = createSvgElement('text', {
+                x: x + barWidth / 2,
+                y: Math.max(margin.top + 10, y - 5),
+                'text-anchor': 'middle',
+                fill: '#ffffff',
+                'font-size': 11,
+                'font-weight': '700'
+            });
+            valLabel.textContent = value;
+            svg.appendChild(valLabel);
+
+            if (delta > 0) {
+                const badgeY = Math.max(margin.top - 2, y - 34);
+                const badgeW = 20;
+                const badgeH = 16;
+                const badge = createSvgElement('rect', {
+                    x: x + barWidth / 2 - badgeW / 2, y: badgeY,
+                    width: badgeW, height: badgeH, rx: 4,
+                    fill: '#2dd4bf'
+                });
+                const badgeTitle = createSvgElement('title');
+                badgeTitle.textContent = `+${delta} od zmiennika w tym samym meczu (SuperSub)`;
+                badge.appendChild(badgeTitle);
+                svg.appendChild(badge);
+
+                const badgeLabel = createSvgElement('text', {
+                    x: x + barWidth / 2, y: badgeY + badgeH / 2 + 4,
+                    'text-anchor': 'middle', fill: '#022c22',
+                    'font-size': 10, 'font-weight': '800'
+                });
+                badgeLabel.textContent = `+${delta}`;
+                svg.appendChild(badgeLabel);
+            }
+
+            const oppLabel = createSvgElement('text', {
+                x: x + barWidth / 2,
+                y: height - margin.bottom + 16,
+                'text-anchor': 'middle',
+                fill: '#ffffff',
+                'font-size': 10,
+                'font-weight': '600'
+            });
+            oppLabel.textContent = opp;
+            svg.appendChild(oppLabel);
+
+            if (dates[index]) {
+                const dateLabel = createSvgElement('text', {
+                    x: x + barWidth / 2,
+                    y: height - margin.bottom + 28,
+                    'text-anchor': 'middle',
+                    fill: 'var(--text-muted)',
+                    'font-size': 9
+                });
+                dateLabel.textContent = dates[index];
+                svg.appendChild(dateLabel);
+            }
+        });
+    }
+
+    function renderListMode(filtered) {
+        const tbody = document.getElementById("resultsBody");
+        tbody.innerHTML = "";
+        if (filtered.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--text-muted);">Brak zakładów spełniających kryteria.</td></tr>';
+            return;
+        }
+
+        filtered.forEach(b => {
+            const tr = document.createElement("tr");
+            tr.className = 'result-row';
+            let badge = '<span class="badge-neutral">NEUTRALNY</span>';
+            if (b.verdict === "VALUE") badge = '<span class="badge-value">🟢 VALUE</span>';
+            if (b.verdict === "TRAP") badge = '<span class="badge-trap">🔴 PUŁAPKA</span>';
+
+            tr.innerHTML = `
+                <td><span class="badge-bm bm-${b.bookmaker}">${b.bookmaker}</span></td>
+                <td><b>${b.playerName}</b></td>
+                <td>${b.marketLabel}</td>
+                <td>${b.isUnder ? 'under' : 'over'} ${b.line}</td>
+                <td><b>${b.bookmakerOdds.toFixed(2)}</b></td>
+                <td>${b.fairOdds.toFixed(2)}</td>
+                <td style="font-weight:700; color:var(--accent);">${b.hitRate}%</td>
+                <td style="color:${b.edgePercent >= 0 ? 'var(--success)' : 'var(--danger)'}">${b.edgePercent > 0 ? '+' : ''}${b.edgePercent}%</td>
+                <td style="font-weight:700; color:${b.evWithTax >= 0 ? 'var(--success)' : 'var(--danger)'}">${b.evWithTax > 0 ? '+' : ''}${b.evWithTax}%</td>
+                <td>${b.matchesSample} meczów</td>
+                <td>${badge}</td>
+            `;
+
+            tr.oncontextmenu = (e) => {
+                e.preventDefault();
+                addToMyBets(b);
+            };
+            tr.onclick = () => openSampleChart(b);
+            tbody.appendChild(tr);
+        });
+    }
+
+    function renderCompareMode(rows) {
+        const tbody = document.getElementById("resultsBody");
+        tbody.innerHTML = "";
+        if (rows.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; padding: 25px; color: var(--text-muted);">Brak zdarzeń spełniających kryteria.</td></tr>';
+            return;
+        }
+
+        rows.forEach(g => {
+            let bestBm = null, bestOdds = -1;
+            for (const bmKey of BOOKMAKERS) {
+                const o = g.books[bmKey];
+                if (o && o.odds > bestOdds) { bestOdds = o.odds; bestBm = bmKey; }
+            }
+
+            const bmCells = BOOKMAKERS.map(bmKey => {
+                const o = g.books[bmKey];
+                if (!o) return `<td class="no-offer bm-cell" data-bm="${bmKey}">—</td>`;
+                const cls = bmKey === bestBm ? "best-odds" : "";
+                const edgeColor = o.edgePercent >= 0 ? "var(--success)" : "var(--danger)";
+                return `<td class="${cls} bm-cell" data-bm="${bmKey}">
+                    <b>${o.odds.toFixed(2)}</b>
+                    <div style="font-size:10px; color:${edgeColor};">${o.edgePercent > 0 ? '+' : ''}${o.edgePercent}%</div>
+                </td>`;
+            }).join("");
+
+            const tr = document.createElement("tr");
+            tr.className = 'result-row';
+            const spreadText = Object.keys(g.books).length >= 2 ? g.bookmakerSpread.toFixed(2) : '—';
+            tr.innerHTML = `
+                <td><b>${g.playerName}</b></td>
+                <td>${MARKET_LABELS[g.marketType] || g.marketType}</td>
+                <td>${g.isUnder ? 'under' : 'over'} ${g.line}</td>
+                <td>${g.fairOdds.toFixed(2)}</td>
+                <td style="font-weight:700; color:var(--accent);">${g.hitRate}%</td>
+                <td>${g.matchesSample} meczów</td>
+                <td style="font-weight:700; color:var(--accent);">${spreadText}</td>
+                ${bmCells}
+            `;
+
+            tr.querySelectorAll('.bm-cell').forEach(cell => {
+                const bmKey = cell.dataset.bm;
+                const o = g.books[bmKey];
+                if (!o) return;
+                cell.oncontextmenu = (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    addToMyBets({
+                        bookmaker: bmKey,
+                        playerName: g.playerName,
+                        marketLabel: MARKET_LABELS[g.marketType] || g.marketType,
+                        line: g.line,
+                        isUnder: g.isUnder,
+                        bookmakerOdds: o.odds,
+                        hitRate: g.hitRate
+                    });
+                };
+            });
+            tr.onclick = () => openSampleChart(g);
+
+            tbody.appendChild(tr);
+        });
+    }
+
+    function addToMyBets(bet) {
+        const id = `${bet.bookmaker}_${bet.playerName}_${bet.marketLabel}_${bet.line}_${bet.isUnder}`;
+        // Toggle: if already present, remove on second right-click
+        if (myBets.some(b => b.id === id)) {
+            removeMyBet(id);
+            return;
+        }
+        myBets.push({ id, ...bet });
+        renderMyBets();
+    }
+
+    function removeMyBet(id) {
+        myBets = myBets.filter(b => b.id !== id);
+        renderMyBets();
+    }
+
+    function renderMyBets() {
+        const container = document.getElementById("myBetsList");
+        document.getElementById("myBetsCount").textContent = myBets.length;
+        container.innerHTML = "";
+        myBets.forEach(b => {
+            const card = document.createElement("div");
+            card.className = "item-card";
+            card.innerHTML = `
+                <button class="card-del" onclick="removeMyBet('${b.id}')">✕</button>
+                <div class="card-title">${b.playerName}</div>
+                <div class="card-sub">${b.marketLabel} (${b.isUnder ? 'under' : 'over'} ${b.line})</div>
+                <div style="margin-top:4px; font-weight:700; color:var(--accent);">
+                    @${b.bookmakerOdds ? b.bookmakerOdds.toFixed(2) : '-'} | HR: ${b.hitRate}% [${b.bookmaker}]
+                </div>
+            `;
+            container.appendChild(card);
+        });
+    }
+</script>
+</body>
+</html>
