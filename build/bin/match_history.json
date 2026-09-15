@@ -1,74 +1,29 @@
 [
   {
-    "timestamp": "2026-09-12 20:35:22",
-    "title": "atalanta vs cagliari",
-    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/atalanta-vs-cagliari-13615858?t=offer-prematch-104\u0026mdt=o",
-    "betclicUrl": "https://www.betclic.pl/pilka-nozna-sfootball/serie-a-c6/atalanta-cagliari-m1211846713434112",
-    "stsUrl": "https://www.sts.pl/kursy/atalanta-cagliari/f2867749",
-    "homeStatsId": "2686",
-    "awayStatsId": "2719"
+    "timestamp": "2026-09-15 15:23:16",
+    "title": "rakow-czestochowa vs zaglebie-lubin",
+    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/rakow-czestochowa-vs-zaglebie-lubin-14700869?t=offer-prematch-644\u0026mdt=o",
+    "betclicUrl": "https://www.betclic.pl/pilka-nozna-sfootball/ekstraklasa-c221/rakow-czestochowa-zaglebie-lubin-m1220047978659840",
+    "stsUrl": "https://www.sts.pl/kursy/rakow-czestochowa-zaglebie-lubin/f3382131",
+    "homeStatsId": "35268",
+    "awayStatsId": "3113"
   },
   {
-    "timestamp": "2026-09-12 20:20:30",
-    "title": "real-madryt vs rayo-vallecano",
-    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/real-madryt-vs-rayo-vallecano-13847079?t=offer-prematch-98\u0026mdt=o",
-    "betclicUrl": "https://www.betclic.pl/pilka-nozna-sfootball/la-liga-c7/real-madryt-rayo-vallecano-m1211917735596032",
-    "stsUrl": "https://www.sts.pl/kursy/real-madryt-rayo-vallecano/f2976973",
-    "homeStatsId": "2829",
-    "awayStatsId": "2818"
+    "timestamp": "2026-09-15 15:01:57",
+    "title": "korona-kielce vs gornik-zabrze",
+    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/korona-kielce-vs-gornik-zabrze-14670497?t=offer-prematch-644\u0026mdt=o",
+    "betclicUrl": "https://www.betclic.pl/pilka-nozna-sfootball/ekstraklasa-c221/korona-kielce-gornik-zabrze-m1223653929787392",
+    "stsUrl": "https://www.sts.pl/kursy/korona-kielce-gornik-zabrze/f3350044",
+    "homeStatsId": "5065",
+    "awayStatsId": "3110"
   },
   {
-    "timestamp": "2026-09-12 20:12:32",
-    "title": "sunderland vs arsenal",
-    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/sunderland-vs-arsenal-13691291?t=offer-prematch-106\u0026mdt=o",
-    "betclicUrl": "https://www.betclic.pl/pilka-nozna-sfootball/premier-league-c3/sunderland-arsenal-m1211722256883712",
-    "stsUrl": "https://www.sts.pl/kursy/sunderland-arsenal/f2921838",
-    "homeStatsId": "41",
-    "awayStatsId": "42"
-  },
-  {
-    "timestamp": "2026-09-12 19:58:46",
-    "title": "paris-fc vs olympique-lyon",
-    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/paris-fc-vs-olympique-lyon-13615904?t=offer-prematch-100\u0026mdt=o",
-    "betclicUrl": "https://www.betclic.pl/pilka-nozna-sfootball/ligue-1-c4/paris-fc-lyon-m1211753514962944",
-    "stsUrl": "https://www.sts.pl/kursy/paris-fc-olympique-lyon/f2867757",
-    "homeStatsId": "6070",
-    "awayStatsId": "1649"
-  },
-  {
-    "timestamp": "2026-09-12 19:31:38",
-    "title": "real-madryt vs rayo-vallecano",
-    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/real-madryt-vs-rayo-vallecano-13847079?t=offer-prematch-98\u0026marketGroup=-2\u0026mdt=o",
-    "betclicUrl": "https://www.betclic.pl/pilka-nozna-sfootball/la-liga-c7/real-madryt-rayo-vallecano-m1211917735596032",
-    "stsUrl": "https://www.sts.pl/kursy/real-madryt-rayo-vallecano/f2976973",
-    "homeStatsId": "2829",
-    "awayStatsId": "2818"
-  },
-  {
-    "timestamp": "2026-09-12 19:13:40",
-    "title": "fortuna-sittard vs ajax-amsterdam",
-    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/fortuna-sittard-vs-ajax-amsterdam-13615897?t=offer-prematch-256\u0026mdt=o",
-    "betclicUrl": "https://www.betclic.pl/pilka-nozna-sfootball/holandia-eredivisie-c21/fortuna-sittard-ajax-m1211740573437952",
-    "stsUrl": "https://www.sts.pl/kursy/fortuna-sittard-ajax-amsterdam/f2912165",
-    "homeStatsId": "2957",
-    "awayStatsId": "2953"
-  },
-  {
-    "timestamp": "2026-09-12 18:49:00",
-    "title": "le-havre vs angers",
-    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/le-havre-vs-angers-13615900?t=offer-prematch-100\u0026mdt=o",
-    "betclicUrl": "https://www.betclic.pl/pilka-nozna-sfootball/ligue-1-c4/le-havre-angers-m1211752333217792",
-    "stsUrl": "https://www.sts.pl/kursy/le-havre-ac-angers-sco/f2867761",
-    "homeStatsId": "1662",
-    "awayStatsId": "1684"
-  },
-  {
-    "timestamp": "2026-09-12 18:29:42",
-    "title": "rb-lipsk vs hamburger",
-    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/rb-lipsk-vs-hamburger-13870889?t=offer-prematch-245\u0026mdt=o",
-    "betclicUrl": "https://www.betclic.pl/pilka-nozna-sfootball/bundesliga-c5/rb-leipzig-hamburger-sv-m1211775691268096",
-    "stsUrl": "https://www.sts.pl/kursy/rb-lipsk-hamburger-sv/f3137238",
-    "homeStatsId": "36360",
-    "awayStatsId": "2676"
+    "timestamp": "2026-09-15 14:32:10",
+    "title": "rayo-vallecano vs espanyol",
+    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/rayo-vallecano-vs-espanyol-13847083?t=offer-prematch-98\u0026mdt=o",
+    "betclicUrl": "https://www.betclic.pl/pilka-nozna-sfootball/la-liga-c7/rayo-vallecano-espanyol-m1217980178391040",
+    "stsUrl": "https://www.sts.pl/kursy/rayo-vallecano-espanyol/f2976971",
+    "homeStatsId": "2818",
+    "awayStatsId": "2814"
   }
 ]
