@@ -111,9 +111,41 @@
         .btn-primary:hover { filter: brightness(1.1); }
         .btn-primary:disabled { cursor: not-allowed; opacity: 0.65; }
 
-        .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+        .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
         .filter-select, .search-box { background: var(--bg-card); border: 1px solid var(--border); color: #fff; padding: 6px 8px; border-radius: 6px; font-size: 12px; height: 32px; outline: none; }
         .search-box { flex: 1; }
+
+        .fullwidth-slider-bar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 6px 12px;
+            margin-bottom: 12px;
+            width: 100%;
+        }
+        .fullwidth-slider-bar label {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-weight: 700;
+            white-space: nowrap;
+        }
+        .fullwidth-slider-bar input[type=range] {
+            flex: 1;
+            accent-color: var(--accent);
+            cursor: pointer;
+            height: 6px;
+        }
+        .fullwidth-slider-bar .slider-val {
+            font-size: 13px;
+            font-weight: 800;
+            color: var(--accent);
+            min-width: 50px;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
 
         .table-wrap { flex: 1; overflow-x: auto; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; }
         table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
@@ -177,13 +209,6 @@
         .risk-kv b { color: #fff; font-variant-numeric: tabular-nums; }
         .risk-warn { background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.4); color: #fca5a5;
             border-radius: 6px; padding: 8px 10px; font-size: 12px; margin-bottom: 8px; }
-        .risk-note { background: rgba(56,189,248,0.10); border: 1px solid rgba(56,189,248,0.35); color: #bae6fd;
-            border-radius: 6px; padding: 8px 10px; font-size: 12px; margin-bottom: 8px; }
-        .risk-verdict { border-radius: 8px; padding: 10px 12px; font-size: 13px; font-weight: 700; margin-top: 10px; }
-        .risk-controls { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; font-size: 12px;
-            color: var(--text-muted); margin-bottom: 10px; }
-        .risk-controls input[type=number] { width: 90px; background: var(--bg-input); border: 1px solid var(--border);
-            color: #fff; border-radius: 5px; padding: 4px 8px; height: 28px; }
         .risk-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 8px; }
         .risk-table th, .risk-table td { padding: 5px 7px; border-bottom: 1px solid #1e293b; text-align: left; }
         .risk-table th { color: var(--text-muted); font-weight: 600; }
@@ -208,7 +233,7 @@
     <div class="header">
         <div class="title-box">
             <h1>ValueBets 3.0</h1>
-            <p style="color: var(--text-muted); font-size: 12px;">LPM na zdarzeniu pokazuje wykres próbki, PPM dodaje do MyBets. Kliknij nagłówek kolumny aby posortować.</p>
+            <p style="color: var(--text-muted); font-size: 12px;">LPM na zdarzeniu pokazuje wykres próbki, PPM dodaje do MyBets. Kliknij nagłówek kolumny aby posortować.[cite: 2]</p>
         </div>
     </div>
 
@@ -262,7 +287,7 @@
                 <input type="text" id="fmAwayId" placeholder="np. 528">
             </div>
         </div>
-        <div class="fm-status" id="fmStatus">Strzały z / spoza pola karnego liczone są z FootyMetrics. ID zapisują się w team_cache.json obok ID StatsHub.</div>
+        <div class="fm-status" id="fmStatus">Strzały z / spoza pola karnego liczone są z FootyMetrics. ID zapisują się w team_cache.json obok ID StatsHub.[cite: 2]</div>
 
         <div id="leagueSelectorWrap" style="display:none; margin-top:10px; padding:8px 12px; background:var(--bg-input); border-radius:6px; font-size:12px; border:1px solid var(--border);">
             <span style="font-weight:700; color:var(--accent); margin-right:12px;">Rozgrywki:</span>
@@ -270,6 +295,13 @@
         </div>
     </div>
 
+    <div class="fullwidth-slider-bar">
+        <label>Minimalny kurs:</label>
+        <input type="range" id="minOddsSlider" min="1.05" max="5.00" step="0.01" value="1.05" oninput="document.getElementById('minOddsVal').innerText = parseFloat(this.value).toFixed(2); renderFiltered();">
+        <span class="slider-val" id="minOddsVal">1.05</span>
+    </div>
+
+    <!-- PASKI FILTROWANIA -->
     <div class="toolbar">
         <input type="text" id="searchBox" class="search-box" placeholder="Szukaj zawodnika, np. szymanski..." onkeyup="renderFiltered()">
         <button id="compareToggle" class="filter-select" style="cursor:pointer; font-weight:700;" onclick="toggleCompareMode()">🔀 Widok: Lista</button>
@@ -319,7 +351,7 @@
         <table>
             <thead id="tableHead"></thead>
             <tbody id="resultsBody">
-            <tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--text-muted);">Uzupełnij linki bukmacherów i kliknij Analizuj.</td></tr>
+            <tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--text-muted);">Uzupełnij linki bukmacherów i kliknij Analizuj.[cite: 2]</td></tr>
             </tbody>
         </table>
     </div>
@@ -347,36 +379,35 @@
     </div>
 </div>
 
+<!-- KALKULATOR AKO / SOLO & PROPOZYCJE -->
 <div class="chart-modal" id="riskModal" role="dialog" aria-modal="true" aria-labelledby="riskTitle" onclick="closeRiskOnBackdrop(event)">
-    <div class="chart-dialog">
+    <div class="chart-dialog" style="max-width: 860px;">
         <div class="chart-header">
             <div>
-                <h2 id="riskTitle">Ryzyko: AKO vs solo</h2>
-                <p id="riskSubtitle"></p>
+                <h2 id="riskTitle">🎯 Doradca Kuponu (AKO vs Solo)</h2>
+                <p id="riskSubtitle" style="color:var(--text-muted); font-size:12px; margin-top:3px;"></p>
             </div>
             <button class="chart-close" type="button" aria-label="Zamknij" onclick="closeRisk()">×</button>
         </div>
 
-        <div class="risk-controls">
-            <label>Budżet łączny:
-                <input type="number" id="riskBankroll" value="100" min="1" step="10" oninput="renderRisk()"> zł
+        <div style="display:flex; align-items:center; gap:16px; margin-bottom:14px; background:var(--bg-input); padding:10px 14px; border-radius:8px; border:1px solid var(--border);">
+            <label style="font-size:12px; font-weight:600; color:#fff;">Twój budżet na tę grę:
+                <input type="number" id="riskBankroll" value="100" min="5" step="5" style="width:85px; margin-left:6px; background:#0b0f19; border:1px solid var(--border); color:#fff; padding:4px 8px; border-radius:4px; font-weight:700;" oninput="renderRisk()"> zł
             </label>
-            <label style="flex:1; display:flex; align-items:center; gap:8px;" title="Ujemna: nogi z przeciwnych drużyn. Dodatnia: nogi z tej samej drużyny.">
-                Korelacja nóg:
-                <input type="range" id="riskCorr" min="-60" max="60" value="0" step="5"
-                       style="flex:1; accent-color: var(--accent);" oninput="riskCorrTouched = true; renderRisk()">
-                <span id="riskCorrVal" style="color:var(--accent); font-weight:700; min-width:96px;">0%</span>
-            </label>
+            <span style="font-size:11px; color:var(--text-muted);">(Podatek bukmacherski 12% od wygranych jest automatycznie odliczony)</span>
         </div>
 
-        <div id="riskWarnings"></div>
-        <div class="risk-grid">
+        <div style="font-size:13px; font-weight:700; color:var(--accent); margin-bottom:8px;">💡 Proponowane połączenia o najlepszym stosunku zysku do ryzyka:</div>
+        <div id="optimizerCards" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:10px; margin-bottom:14px;"></div>
+
+        <div style="font-size:13px; font-weight:700; color:#fff; margin-bottom:8px;">⚖️ Porównanie dla wszystkich wybranych zdarzeń w MyBets:</div>
+        <div class="risk-grid" style="margin-top:0;">
             <div class="risk-card" id="riskAko"></div>
             <div class="risk-card" id="riskSolo"></div>
         </div>
-        <svg id="riskChart" class="sample-chart" style="min-height:190px;"></svg>
-        <div id="riskLegs"></div>
-        <div id="riskVerdict"></div>
+
+        <div id="riskWarnings" style="margin-top:10px;"></div>
+        <div id="riskLegs" style="margin-top:10px;"></div>
     </div>
 </div>
 
@@ -384,7 +415,7 @@
     <div class="dock-header">
         <button class="dock-toggle" onclick="toggleDock('dockRight')">▶</button>
         <span class="dock-title">⭐ MyBets (<span id="myBetsCount">0</span>)</span>
-        <button class="dock-toggle" style="width:auto; padding:0 6px;" title="Ryzyko AKO / solo"
+        <button class="dock-toggle" style="width:auto; padding:0 6px;" title="Kalkulator AKO / solo"
                 onclick="openRiskModal()">📉</button>
     </div>
     <div class="dock-content" id="myBetsList"></div>
@@ -415,7 +446,6 @@
 
     window.onload = async () => {
         renderTableHeaders();
-        // Initialize SuperSub button based on default state
         try {
             const btn = document.getElementById('superSubToggle');
             if (btn) {
@@ -527,10 +557,6 @@
         autofillFootyMetrics();
     }
 
-    // ==========================================
-    // FOOTYMETRICS: ID drużyn
-    // ==========================================
-
     function updateFmStatus(extra) {
         const hEl = document.getElementById('fmHomeId');
         const aEl = document.getElementById('fmAwayId');
@@ -544,7 +570,6 @@
                 : `Brakuje ID FootyMetrics dla ${missing.join(' i ')}. Wklej raz dowolny link z FootyMetrics (drużyna, liga albo h2h) i kliknij „Pobierz ID".`);
     }
 
-    // Uzupełnienie po ID StatsHub — używane po ręcznej zmianie pól.
     async function autofillFootyMetrics() {
         if (!window.go?.main?.App?.GetFootyMetricsIDs) return;
         const home = document.getElementById('homeIdInput').value.trim();
@@ -561,8 +586,6 @@
         } catch (e) {}
     }
 
-    // Automat po wklejeniu linku bukmachera: cache, a gdy znana jest tylko jedna
-    // drużyna — backend dociąga drugą z listy jej przeciwników.
     async function resolveFootyMetricsForMatch() {
         if (!window.go?.main?.App?.ResolveFootyMetricsForMatch) return;
         const hEl = document.getElementById('fmHomeId');
@@ -632,13 +655,42 @@
             if (detected.homeId) document.getElementById('homeIdInput').value = detected.homeId;
             if (detected.awayId) document.getElementById('awayIdInput').value = detected.awayId;
 
-            // ID FootyMetrics z cache przychodzą od razu razem z detekcją drużyn.
             if (detected.homeFmId) document.getElementById('fmHomeId').value = detected.homeFmId;
             if (detected.awayFmId) document.getElementById('fmAwayId').value = detected.awayFmId;
 
             checkAndLoadTournaments();
             resolveFootyMetricsForMatch();
         } catch (e) {}
+    }
+
+    function syncMinOddsSliderRange() {
+        const slider = document.getElementById("minOddsSlider");
+        if (!slider) return;
+
+        if (rawBets.length === 0) {
+            slider.min = "1.05";
+            slider.max = "5.00";
+            slider.value = "1.05";
+            document.getElementById("minOddsVal").innerText = "1.05";
+            return;
+        }
+
+        let allOdds = [];
+        rawBets.forEach(b => {
+            if (b.bookmakerOdds && b.bookmakerOdds > 1) {
+                allOdds.push(b.bookmakerOdds);
+            }
+        });
+
+        if (allOdds.length > 0) {
+            const minO = Math.floor(Math.min(...allOdds) * 100) / 100;
+            const maxO = Math.ceil(Math.max(...allOdds) * 100) / 100;
+
+            slider.min = minO.toFixed(2);
+            slider.max = (maxO > minO ? maxO : minO + 1.0).toFixed(2);
+            slider.value = minO.toFixed(2);
+            document.getElementById("minOddsVal").innerText = minO.toFixed(2);
+        }
     }
 
     async function runAnalysis() {
@@ -672,6 +724,8 @@
 
         try {
             rawBets = await window.go.main.App.AnalyzeThreeBookmakers(sb, betclic, sts, home, away, limit, selectedTournaments, fmHome, fmAway);
+
+            syncMinOddsSliderRange();
             renderFiltered();
             updateStats();
 
@@ -805,6 +859,7 @@
         const bm = document.getElementById("bmFilter").value;
         const market = document.getElementById("marketFilter").value;
         const verdict = document.getElementById("verdictFilter").value;
+        const minOdds = parseFloat(document.getElementById("minOddsSlider")?.value || "1.05");
 
         if (!compareMode) {
             let filtered = rawBets.filter(b => {
@@ -812,7 +867,8 @@
                 const matchBm = (bm === "ALL") || (b.bookmaker === bm);
                 const matchMarket = (market === "ALL") || (b.marketType === market);
                 const matchVerdict = (verdict === "ALL") || (b.verdict === verdict);
-                return matchQuery && matchBm && matchMarket && matchVerdict;
+                const matchOdds = b.bookmakerOdds >= minOdds;
+                return matchQuery && matchBm && matchMarket && matchVerdict && matchOdds;
             });
             filtered = applySort(filtered);
             renderListMode(filtered);
@@ -824,7 +880,8 @@
             const matchMarket = (market === "ALL") || (g.marketType === market);
             const matchBm = (bm === "ALL") || !!g.books[bm];
             const matchVerdict = (verdict === "ALL") || Object.values(g.books).some(o => o.verdict === verdict);
-            return matchQuery && matchMarket && matchBm && matchVerdict;
+            const matchOdds = Object.values(g.books).some(o => o.odds >= minOdds);
+            return matchQuery && matchMarket && matchBm && matchVerdict && matchOdds;
         });
         rows = applySort(rows);
         renderCompareMode(rows);
@@ -866,11 +923,9 @@
         }
 
         currentChartBet = bet;
-        // Open chart with SuperSub enabled by default
         useSuperSub = true;
         const btn = document.getElementById('superSubToggle');
         if (btn) {
-            // FootyMetrics nie zna zmienników, więc przełącznik nie ma tam czego pokazać.
             btn.style.display = bet.statsSource === 'FOOTYMETRICS' ? 'none' : '';
             btn.textContent = "⚡ SuperSub: WŁ";
             btn.style.borderColor = "var(--accent)";
@@ -1172,7 +1227,6 @@
 
     function addToMyBets(bet) {
         const id = `${bet.bookmaker}_${bet.playerName}_${bet.marketLabel}_${bet.line}_${bet.isUnder}`;
-        // Toggle: if already present, remove on second right-click
         if (myBets.some(b => b.id === id)) {
             removeMyBet(id);
             return;
@@ -1205,8 +1259,6 @@
                 ${hasSample ? '<div style="font-size:10px; color:var(--text-muted); margin-top:3px;">kliknij, aby zobaczyć wykres</div>' : ''}
             `;
 
-            // Przycisk tworzymy osobno: nazwiska z apostrofem (N'Golo, O'Brien)
-            // rozbijały inline'owy onclick.
             const del = document.createElement("button");
             del.className = "card-del";
             del.textContent = "✕";
@@ -1227,359 +1279,149 @@
         }
     }
 
-    // ==========================================
-    // RYZYKO: AKO vs SOLO
-    // ==========================================
-    // Model podatkowy jak w backendzie: wypłata brutto x 0,88.
-    const TAX_MULT = 0.88;
+    // ============================================================
+    // NOWY KALKULATOR AKO / SOLO & AUTOMATYCZNY OPTYMALIZATOR
+    // ============================================================
 
     function closeRisk() { document.getElementById('riskModal').classList.remove('is-open'); }
     function closeRiskOnBackdrop(e) { if (e.target === document.getElementById('riskModal')) closeRisk(); }
 
     function openRiskModal() {
         if (myBets.length === 0) {
-            alert('Dodaj najpierw zdarzenia do MyBets (prawy przycisk myszy na wierszu).');
+            alert('Dodaj najpierw zdarzenia do MyBets (prawy przycisk myszy na wierszu w tabeli).');
             return;
         }
         document.getElementById('riskModal').classList.add('is-open');
         renderRisk();
     }
 
-    // Prawdopodobieństwo modelu = odwrotność fair kursu (hit-rate 65% + Poisson 35%).
-    function betProbability(b) {
-        if (b.fairOdds && b.fairOdds > 1.0001) return 1 / b.fairOdds;
-        if (typeof b.hitRate === 'number' && b.hitRate > 0) {
-            return Math.min(0.95, Math.max(0.005, b.hitRate / 100));
+    function getCombinations(arr, k) {
+        if (k === 1) return arr.map(e => [e]);
+        const result = [];
+        for (let i = 0; i <= arr.length - k; i++) {
+            const head = arr[i];
+            const tail = getCombinations(arr.slice(i + 1), k - 1);
+            for (const t of tail) result.push([head, ...t]);
         }
-        return null;
-    }
-
-    // Rozkład Poissona-binomialnego: P(dokładnie k trafień) dla nóg o różnych p.
-    function poissonBinomial(ps) {
-        let dist = [1];
-        for (const p of ps) {
-            const next = new Array(dist.length + 1).fill(0);
-            for (let k = 0; k < dist.length; k++) {
-                next[k] += dist[k] * (1 - p);
-                next[k + 1] += dist[k] * p;
-            }
-            dist = next;
-        }
-        return dist;
-    }
-
-    // Prawdopodobieństwo wejścia całego kuponu.
-    // corr = 0  -> nogi niezależne, zwykły iloczyn.
-    // corr > 0  -> nogi idą w tę samą stronę (ta sama drużyna dominuje: kilku
-    //              zawodników strzela więcej naraz). Szansa rośnie w stronę
-    //              górnej granicy Frecheta, czyli min(p).
-    // corr < 0  -> nogi się wykluczają (zawodnicy z przeciwnych drużyn albo
-    //              dwóch napastników walczących o te same piłki). Szansa spada
-    //              w stronę dolnej granicy Frecheta: max(0, sum(p) - (n-1)).
-    function jointProbability(ps, corr) {
-        const product = ps.reduce((a, p) => a * p, 1);
-        if (corr === 0) return product;
-        if (corr > 0) {
-            return (1 - corr) * product + corr * Math.min(...ps);
-        }
-        const lower = Math.max(0, ps.reduce((a, p) => a + p, 0) - (ps.length - 1));
-        return (1 + corr) * product + (-corr) * lower;
-    }
-
-    function kellyFraction(p, odds) {
-        const b = TAX_MULT * odds - 1;
-        if (b <= 0) return 0;
-        return Math.max(0, (TAX_MULT * p * odds - 1) / b);
-    }
-
-    function computeRisk(bets, bankroll, corr) {
-        const legs = [];
-        for (const b of bets) {
-            const p = betProbability(b);
-            if (!p || !b.bookmakerOdds || b.bookmakerOdds <= 1) continue;
-            legs.push({
-                name: b.playerName,
-                label: `${b.marketLabel} ${b.isUnder ? 'under' : 'over'} ${b.line}`,
-                bookmaker: b.bookmaker,
-                side: b.teamSide || '',
-                sample: b.matchesSample || (b.sampleValues ? b.sampleValues.length : 0),
-                p,
-                odds: b.bookmakerOdds,
-                ev: (TAX_MULT * p * b.bookmakerOdds - 1) * 100,
-                kelly: kellyFraction(p, b.bookmakerOdds) * 100
-            });
-        }
-        if (legs.length === 0) return null;
-
-        const n = legs.length;
-        const ps = legs.map(l => l.p);
-        const odds = legs.map(l => l.odds);
-
-        // --- AKO ---
-        const akoOdds = odds.reduce((a, o) => a * o, 1);
-        const pIndependent = ps.reduce((a, p) => a * p, 1);
-        const pAko = jointProbability(ps, corr);
-
-        const akoProfit = bankroll * (TAX_MULT * akoOdds - 1);
-        const akoEV = bankroll * (TAX_MULT * pAko * akoOdds - 1);
-        const akoSigma = bankroll * TAX_MULT * akoOdds * Math.sqrt(pAko * (1 - pAko));
-
-        // --- SOLO (równy podział budżetu) ---
-        const unit = bankroll / n;
-        const soloEV = legs.reduce((s, l) => s + unit * (TAX_MULT * l.p * l.odds - 1), 0);
-        const soloVar = legs.reduce((s, l) => s + Math.pow(unit * TAX_MULT * l.odds, 2) * l.p * (1 - l.p), 0);
-        const soloSigma = Math.sqrt(soloVar);
-
-        const dist = poissonBinomial(ps);
-
-        // --- Test wrażliwości: każde p zawyżone o 10% względnie ---
-        const stressPs = ps.map(p => p * 0.9);
-        const akoEVStress = bankroll * (TAX_MULT * jointProbability(stressPs, corr) * akoOdds - 1);
-        const soloEVStress = legs.reduce((s, l, i) => s + unit * (TAX_MULT * stressPs[i] * l.odds - 1), 0);
-
-        return {
-            legs, n, bankroll, corr,
-            ako: {
-                odds: akoOdds, p: pAko, pIndependent, fair: 1 / pAko,
-                ev: akoEV, evPct: (akoEV / bankroll) * 100, evStress: akoEVStress,
-                sigma: akoSigma, profit: akoProfit,
-                kelly: kellyFraction(pAko, akoOdds) * 100
-            },
-            solo: {
-                unit, ev: soloEV, evPct: (soloEV / bankroll) * 100, evStress: soloEVStress,
-                sigma: soloSigma, dist, pAtLeastOne: 1 - dist[0],
-                expectedHits: ps.reduce((s, p) => s + p, 0),
-                kellySum: legs.reduce((s, l) => s + l.kelly, 0)
-            }
-        };
-    }
-
-    function riskWarnings(r) {
-        const out = [];
-
-        const byPlayer = {};
-        r.legs.forEach(l => { byPlayer[l.name] = (byPlayer[l.name] || 0) + 1; });
-        const dupes = Object.keys(byPlayer).filter(k => byPlayer[k] > 1);
-        if (dupes.length) {
-            out.push(`<div class="risk-warn">Ten sam zawodnik w kilku nogach: <b>${dupes.join(', ')}</b>.
-                Większość bukmacherów zablokuje taki kupon, a nawet jeśli przejdzie — te zdarzenia są
-                skrajnie skorelowane i mnożenie prawdopodobieństw daje wynik oderwany od rzeczywistości.</div>`);
-        }
-
-        if (r.n >= 2) {
-            const sides = new Set(r.legs.map(l => l.side).filter(Boolean));
-            if (sides.size > 1) {
-                out.push(`<div class="risk-note">Nogi pochodzą z <b>obu drużyn</b>. Te zdarzenia zwykle
-                    wykluczają się nawzajem: gdy jedna drużyna dominuje, zawodnicy drugiej oddają mniej
-                    strzałów. Korelacja jest tu ujemna, więc realna szansa wejścia kuponu jest
-                    <b>niższa</b> niż iloczyn prawdopodobieństw.</div>`);
-            } else if (sides.size === 1) {
-                out.push(`<div class="risk-note">Wszystkie nogi to zawodnicy <b>tej samej drużyny</b>.
-                    Gdy drużyna dominuje, kilku z nich strzela naraz — korelacja jest dodatnia, więc szansa
-                    wejścia kuponu jest <b>wyższa</b> niż iloczyn prawdopodobieństw. Bukmacher wycenia takie
-                    kupony zwykłym mnożeniem kursów, więc to jedyny układ, w którym AKO ma przewagę nad
-                    solówkami wynikającą z samej konstrukcji, a nie z modelu.</div>`);
-            }
-            out.push(`<div class="risk-note">Korelacja rusza wyłącznie EV kuponu. EV solówek jest sumą
-                niezależnych składników, więc nie zmienia jej wcale — zmienia się tylko ich rozrzut.</div>`);
-        }
-
-        const bad = r.legs.filter(l => l.ev < 0);
-        if (bad.length) {
-            out.push(`<div class="risk-warn">${bad.length} ${bad.length === 1 ? 'noga ma' : 'nogi mają'}
-                ujemne EV. W kuponie błędy się mnożą, więc jedna słaba noga potrafi zjeść przewagę
-                wszystkich pozostałych.</div>`);
-        }
-
-        const thin = r.legs.filter(l => l.sample > 0 && l.sample < 8);
-        if (thin.length) {
-            out.push(`<div class="risk-warn">${thin.length} ${thin.length === 1 ? 'noga opiera się' : 'nogi opierają się'}
-                na próbce krótszej niż 8 meczów. Przy tak małej próbce hit-rate potrafi się mylić o kilkanaście
-                punktów procentowych, a w AKO ten błąd podnosi się do potęgi.</div>`);
-        }
-
-        return out.join('');
-    }
-
-    function riskVerdict(r) {
-        const akoBetter = r.ako.ev > r.solo.ev;
-        const akoSurvives = r.ako.evStress > 0;
-        const soloSurvives = r.solo.evStress > 0;
-
-        const sides = new Set(r.legs.map(l => l.side).filter(Boolean));
-        const mixedSides = sides.size > 1;
-
-        let text, color;
-        if (mixedSides && r.corr >= 0) {
-            text = 'Ustaw korelację na minus. Kupon łączy zawodników z przeciwnych drużyn, więc ich wyniki ' +
-                'się wykluczają, a liczenie ich jako niezależnych zawyża szansę wejścia AKO.';
-            color = 'var(--danger)';
-        } else if (r.ako.ev <= 0) {
-            text = 'AKO ma ujemne EV — przy tych nogach kupon jest gorszy od niegrania.';
-            color = 'var(--danger)';
-        } else if (!akoSurvives && soloSurvives) {
-            text = 'Graj solo. AKO wychodzi na plus tylko przy założeniu, że model jest idealny — ' +
-                'wystarczy 10% zawyżenia szans i przewaga znika. Solówki to przeżywają.';
-            color = 'var(--danger)';
-        } else if (r.n >= 4) {
-            text = `${r.n} nóg to za dużo. Błąd oceny każdej nogi mnoży się ${r.n} razy, a szansa wejścia ` +
-                `kuponu spada do ${(r.ako.p * 100).toFixed(1)}%. Rozbij na solówki.`;
-            color = 'var(--danger)';
-        } else if (akoBetter && akoSurvives) {
-            text = `AKO obronne: przewaga mnoży się szybciej niż błąd, ale kupon wchodzi tylko ` +
-                `${(r.ako.p * 100).toFixed(1)}% razy i ma ${(r.ako.sigma / Math.max(r.solo.sigma, 0.01)).toFixed(1)}x ` +
-                `większą zmienność niż solówki. Graj małą stawką.`;
-            color = 'var(--success)';
-        } else {
-            text = 'Solo daje niższe EV, ale wielokrotnie mniejszą zmienność i szybszą weryfikację modelu. ' +
-                'Przy tej wielkości próbki to lepszy wybór.';
-            color = 'var(--accent)';
-        }
-
-        return `<div class="risk-verdict" style="background:rgba(148,163,184,0.10); border:1px solid ${color}; color:${color};">
-            ${text}</div>`;
-    }
-
-    function renderRiskChart(dist) {
-        const svg = document.getElementById('riskChart');
-        const width = 820, height = 190;
-        const margin = { top: 26, right: 20, bottom: 34, left: 24 };
-        const plotW = width - margin.left - margin.right;
-        const plotH = height - margin.top - margin.bottom;
-
-        svg.replaceChildren();
-        svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-        svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-
-        const max = Math.max(...dist, 0.01);
-        const slot = plotW / dist.length;
-        const barW = Math.min(70, Math.max(8, slot * 0.6));
-
-        const caption = createSvgElement('text', {
-            x: margin.left, y: 16, fill: 'var(--text-muted)', 'font-size': 11
-        });
-        caption.textContent = 'Rozkład liczby trafionych nóg przy grze solo';
-        svg.appendChild(caption);
-
-        dist.forEach((p, k) => {
-            const h = Math.max(2, (p / max) * plotH);
-            const x = margin.left + k * slot + (slot - barW) / 2;
-            const y = margin.top + plotH - h;
-
-            svg.appendChild(createSvgElement('rect', {
-                x, y, width: barW, height: h, rx: 3,
-                fill: k === 0 ? 'var(--danger)' : 'var(--success)',
-                opacity: k === 0 ? 0.85 : 0.35 + 0.65 * (k / Math.max(1, dist.length - 1))
-            }));
-
-            const pctLabel = createSvgElement('text', {
-                x: x + barW / 2, y: y - 5, 'text-anchor': 'middle', fill: '#fff',
-                'font-size': 11, 'font-weight': 700
-            });
-            pctLabel.textContent = `${(p * 100).toFixed(1)}%`;
-            svg.appendChild(pctLabel);
-
-            const axisLabel = createSvgElement('text', {
-                x: x + barW / 2, y: height - margin.bottom + 18, 'text-anchor': 'middle',
-                fill: 'var(--text-muted)', 'font-size': 11
-            });
-            axisLabel.textContent = `${k}/${dist.length - 1}`;
-            svg.appendChild(axisLabel);
-        });
-    }
-
-    let riskCorrTouched = false;
-
-    // Dopóki użytkownik sam nie ruszy suwaka, ustawiamy znak korelacji z układu
-    // kuponu: jedna drużyna -> dodatnia, obie drużyny -> ujemna.
-    function suggestedCorrelation() {
-        const sides = new Set(myBets.map(b => b.teamSide).filter(Boolean));
-        if (sides.size > 1) return -20;
-        if (sides.size === 1 && myBets.length > 1) return 20;
-        return 0;
+        return result;
     }
 
     function renderRisk() {
-        const slider = document.getElementById('riskCorr');
-        if (!riskCorrTouched) slider.value = String(suggestedCorrelation());
+        const bankroll = Math.max(5, parseFloat(document.getElementById('riskBankroll').value) || 100);
+        const legs = myBets.filter(b => b.bookmakerOdds && b.bookmakerOdds > 1.05);
 
-        const bankroll = Math.max(1, parseFloat(document.getElementById('riskBankroll').value) || 100);
-        const corr = (parseInt(slider.value, 10) || 0) / 100;
-
-        const corrWord = corr > 0 ? 'ta sama drużyna' : (corr < 0 ? 'przeciwne drużyny' : 'niezależne');
-        document.getElementById('riskCorrVal').textContent = `${Math.round(corr * 100)}% (${corrWord})`;
-
-        const r = computeRisk(myBets, bankroll, corr);
-        if (!r) {
-            document.getElementById('riskWarnings').innerHTML =
-                '<div class="risk-warn">Brak nóg z kompletem danych (kurs + fair kurs).</div>';
+        if (legs.length === 0) {
+            document.getElementById('optimizerCards').innerHTML = `<div style="grid-column:1/-1; padding:12px; background:var(--bg-input); border-radius:6px; color:var(--text-muted);">Brak typów z kursem w MyBets. Dodaj typy klikając na nie PPM w tabeli.</div>`;
             document.getElementById('riskAko').innerHTML = '';
             document.getElementById('riskSolo').innerHTML = '';
             document.getElementById('riskLegs').innerHTML = '';
-            document.getElementById('riskVerdict').innerHTML = '';
-            document.getElementById('riskChart').replaceChildren();
+            document.getElementById('riskWarnings').innerHTML = '';
             return;
         }
 
-        const money = v => `${v >= 0 ? '+' : ''}${v.toFixed(2)} zł`;
-        const pct = v => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
-        const col = v => v >= 0 ? 'var(--success)' : 'var(--danger)';
+        document.getElementById('riskSubtitle').textContent = `Wybrano ${legs.length} zdarzeń w MyBets · Budżet: ${bankroll.toFixed(0)} zł`;
 
-        document.getElementById('riskSubtitle').textContent =
-            `${r.n} ${r.n === 1 ? 'noga' : 'nogi'} · budżet ${bankroll.toFixed(0)} zł · podatek 12% wliczony`;
+        const dupes = {};
+        legs.forEach(l => dupes[l.playerName] = (dupes[l.playerName] || 0) + 1);
+        const dupeNames = Object.keys(dupes).filter(k => dupes[k] > 1);
+        let warnHtml = '';
+        if (dupeNames.length > 0) {
+            warnHtml = `<div class="risk-warn">⚠️ Wykryto tego samego zawodnika w kilku typach (<b>${dupeNames.join(', ')}</b>). Bukmacherzy zazwyczaj blokują łączenie takich typów na jednym kuponie AKO!</div>`;
+        }
+        document.getElementById('riskWarnings').innerHTML = warnHtml;
 
-        document.getElementById('riskWarnings').innerHTML = riskWarnings(r);
+        let allCandidates = [];
+        const maxK = Math.min(3, legs.length);
+        for (let k = 1; k <= maxK; k++) {
+            const combs = getCombinations(legs, k);
+            for (const comb of combs) {
+                const names = new Set(comb.map(c => c.playerName));
+                if (names.size !== comb.length) continue;
+
+                const totalOdds = comb.reduce((acc, c) => acc * c.bookmakerOdds, 1);
+                const winChance = comb.reduce((acc, c) => acc * (Math.min(95, Math.max(5, c.hitRate)) / 100), 1);
+                const netWin = (bankroll * totalOdds * 0.88) - bankroll;
+                const expectedScore = winChance * (netWin > 0 ? netWin : 0);
+
+                allCandidates.push({
+                    type: k === 1 ? 'Typ Pojedynczy (Solo)' : (k === 2 ? 'Dubel (2 zdarzenia)' : 'Trepl (3 zdarzenia)'),
+                    items: comb,
+                    odds: totalOdds,
+                    chance: winChance * 100,
+                    netWin: netWin,
+                    score: expectedScore
+                });
+            }
+        }
+
+        const safest = [...allCandidates].sort((a,b) => b.chance - a.chance)[0];
+        const balanced = [...allCandidates].filter(c => c.chance >= 35).sort((a,b) => b.score - a.score)[0] || safest;
+        const highestWin = [...allCandidates].filter(c => c.chance >= 15).sort((a,b) => b.netWin - a.netWin)[0] || balanced;
+
+        const buildCard = (title, badgeColor, opt) => `
+            <div style="background:var(--bg-input); border:1px solid var(--border); border-top:3px solid ${badgeColor}; border-radius:6px; padding:10px;">
+                <div style="font-size:11px; font-weight:700; color:${badgeColor}; text-transform:uppercase;">${title}</div>
+                <div style="font-size:12px; font-weight:700; color:#fff; margin:4px 0;">${opt.type} @${opt.odds.toFixed(2)}</div>
+                <div style="font-size:11px; color:var(--text-muted); margin-bottom:6px;">
+                    Szansa wejścia: <b style="color:#fff;">${opt.chance.toFixed(1)}%</b> | Zysk netto: <b style="color:var(--success);">+${opt.netWin.toFixed(2)} zł</b>
+                </div>
+                <div style="font-size:11px; border-top:1px solid #293548; padding-top:6px; line-height:1.4;">
+                    ${opt.items.map(i => `• <b>${i.playerName}</b>: ${i.marketLabel} (${i.isUnder ? 'under' : 'over'} ${i.line})`).join('<br>')}
+                </div>
+            </div>
+        `;
+
+        document.getElementById('optimizerCards').innerHTML = `
+            ${buildCard('🛡️ Najbezpieczniejszy zysk', 'var(--accent)', safest)}
+            ${buildCard('⭐ Złoty środek (Optymalne)', 'var(--success)', balanced)}
+            ${buildCard('🚀 Największa potencjalna wygrana', 'var(--sb-color)', highestWin)}
+        `;
+
+        const akoOdds = legs.reduce((acc, l) => acc * l.bookmakerOdds, 1);
+        const akoChance = legs.reduce((acc, l) => acc * (Math.min(95, Math.max(5, l.hitRate)) / 100), 1) * 100;
+        const akoNetWin = (bankroll * akoOdds * 0.88) - bankroll;
 
         document.getElementById('riskAko').innerHTML = `
-            <h3>AKO (${r.n}x) — cały budżet na kupon</h3>
-            <div class="risk-kv"><span>Kurs łączny</span><b>${r.ako.odds.toFixed(2)}</b></div>
-            <div class="risk-kv"><span>Szansa wejścia</span><b>${(r.ako.p * 100).toFixed(1)}%</b></div>
-            <div class="risk-kv"><span>...przy nogach niezależnych</span><b>${(r.ako.pIndependent * 100).toFixed(1)}%</b></div>
-            <div class="risk-kv"><span>Fair kurs</span><b>${r.ako.fair.toFixed(2)}</b></div>
-            <div class="risk-kv"><span>Wygrana netto</span><b>${money(r.ako.profit)}</b></div>
-            <div class="risk-kv"><span>EV</span><b style="color:${col(r.ako.ev)}">${money(r.ako.ev)} (${pct(r.ako.evPct)})</b></div>
-            <div class="risk-kv"><span>Odchylenie std.</span><b>${r.ako.sigma.toFixed(2)} zł</b></div>
-            <div class="risk-kv"><span>Kelly</span><b>${r.ako.kelly.toFixed(1)}% banku</b></div>
-            <div class="risk-kv" style="border-top:1px solid var(--border); margin-top:6px; padding-top:6px;">
-                <span>EV przy p zawyżonym o 10%</span><b style="color:${col(r.ako.evStress)}">${money(r.ako.evStress)}</b></div>
+            <h3>Kupon AKO (${legs.length} zdarzeń naraz)</h3>
+            <div class="risk-kv"><span>Łączny kurs kuponu:</span><b>${akoOdds.toFixed(2)}</b></div>
+            <div class="risk-kv"><span>Realna szansa trafienia całości:</span><b style="color:${akoChance > 25 ? 'var(--success)' : 'var(--danger)'};">${akoChance.toFixed(1)}%</b></div>
+            <div class="risk-kv"><span>Czysty zysk przy trafieniu:</span><b style="color:var(--success);">+${akoNetWin.toFixed(2)} zł</b></div>
+            <div class="risk-kv"><span>Ryzyko wpadki:</span><b>${akoChance < 20 ? 'BARDZO WYSOKIE' : (akoChance < 40 ? 'ŚREDNIE' : 'NISKIE')}</b></div>
+            <p style="font-size:11px; color:var(--text-muted); margin-top:8px;">Wystarczy 1 błąd na ${legs.length} typów i tracisz całe ${bankroll.toFixed(0)} zł.</p>
         `;
+
+        const stakePerBet = bankroll / legs.length;
+        const avgHitRate = legs.reduce((acc, l) => acc + l.hitRate, 0) / legs.length;
+        const expectedHits = (avgHitRate / 100) * legs.length;
+        const avgOdds = legs.reduce((acc, l) => acc + l.bookmakerOdds, 0) / legs.length;
+        const estSoloWin = (expectedHits * (stakePerBet * avgOdds * 0.88)) - bankroll;
 
         document.getElementById('riskSolo').innerHTML = `
-            <h3>Solo — ${r.solo.unit.toFixed(2)} zł na nogę</h3>
-            <div class="risk-kv"><span>Szansa min. 1 trafienia</span><b>${(r.solo.pAtLeastOne * 100).toFixed(1)}%</b></div>
-            <div class="risk-kv"><span>Szansa zera trafień</span><b>${(r.solo.dist[0] * 100).toFixed(1)}%</b></div>
-            <div class="risk-kv"><span>Oczekiwane trafienia</span><b>${r.solo.expectedHits.toFixed(2)} / ${r.n}</b></div>
-            <div class="risk-kv"><span>EV</span><b style="color:${col(r.solo.ev)}">${money(r.solo.ev)} (${pct(r.solo.evPct)})</b></div>
-            <div class="risk-kv"><span>Odchylenie std.</span><b>${r.solo.sigma.toFixed(2)} zł</b></div>
-            <div class="risk-kv"><span>Kelly (suma nóg)</span><b>${r.solo.kellySum.toFixed(1)}% banku</b></div>
-            <div class="risk-kv" style="border-top:1px solid var(--border); margin-top:6px; padding-top:6px;">
-                <span>EV przy p zawyżonym o 10%</span><b style="color:${col(r.solo.evStress)}">${money(r.solo.evStress)}</b></div>
+            <h3>Pojedyncze zakłady (${stakePerBet.toFixed(2)} zł na każdy)</h3>
+            <div class="risk-kv"><span>Średni kurs pojedynczego meczu:</span><b>${avgOdds.toFixed(2)}</b></div>
+            <div class="risk-kv"><span>Przewidywana liczba trafień:</span><b>${expectedHits.toFixed(1)} z ${legs.length}</b></div>
+            <div class="risk-kv"><span>Przewidywany bilans (zysk/strata):</span><b style="color:${estSoloWin >= 0 ? 'var(--success)' : 'var(--danger)'};">${estSoloWin >= 0 ? '+' : ''}${estSoloWin.toFixed(2)} zł</b></div>
+            <div class="risk-kv"><span>Ryzyko utraty całości:</span><b style="color:var(--success);">BARDZO NISKIE</b></div>
+            <p style="font-size:11px; color:var(--text-muted); margin-top:8px;">Nawet jeśli część typów nie wejdzie, wygrane z pozostałych ratują Twój budżet.</p>
         `;
-
-        renderRiskChart(r.solo.dist);
 
         document.getElementById('riskLegs').innerHTML = `
             <table class="risk-table">
                 <thead><tr>
-                    <th>Zawodnik</th><th>Zdarzenie</th><th>Buk</th><th>Kurs</th>
-                    <th>p modelu</th><th>Próbka</th><th>EV</th><th>Kelly</th>
+                    <th>Zawodnik</th><th>Typ</th><th>Bukmacher</th><th>Kurs</th><th>Skuteczność</th><th>Opłacalność</th>
                 </tr></thead>
                 <tbody>
-                    ${r.legs.map(l => `<tr>
-                        <td><b>${l.name}</b></td>
-                        <td>${l.label}</td>
+                    ${legs.map(l => `<tr>
+                        <td><b>${l.playerName}</b></td>
+                        <td>${l.marketLabel} (${l.isUnder ? 'under' : 'over'} ${l.line})</td>
                         <td>${l.bookmaker}</td>
-                        <td>${l.odds.toFixed(2)}</td>
-                        <td>${(l.p * 100).toFixed(1)}%</td>
-                        <td>${l.sample || '—'}</td>
-                        <td style="color:${col(l.ev)}">${pct(l.ev)}</td>
-                        <td>${l.kelly.toFixed(1)}%</td>
+                        <td><b>${l.bookmakerOdds.toFixed(2)}</b></td>
+                        <td style="color:var(--accent); font-weight:700;">${l.hitRate}%</td>
+                        <td>${l.verdict === 'VALUE' ? '<span style="color:var(--success); font-weight:700;">🟢 Dobry kurs (Value)</span>' : (l.verdict === 'TRAP' ? '<span style="color:var(--danger); font-weight:700;">🔴 Zaniżony kurs</span>' : 'Uczciwy kurs')}</td>
                     </tr>`).join('')}
                 </tbody>
             </table>
         `;
-
-        document.getElementById('riskVerdict').innerHTML = riskVerdict(r);
     }
 </script>
 </body>

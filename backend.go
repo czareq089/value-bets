@@ -862,8 +862,10 @@ func mapMarketCanonical(raw string) (CanonicalMarket, bool) {
 	}
 
 	// 5. Faule i spalone
+	// 5. Faule i spalone
 	switch {
-	case strings.Contains(s, "wywalczon") || strings.Contains(s, "faulowany") || strings.Contains(sd, "faulowany"):
+	case strings.Contains(s, "wywalczon") || strings.Contains(s, "faulowany") || strings.Contains(sd, "faulowany") ||
+		strings.Contains(sd, "fauli na") || strings.Contains(sd, "faule na") || strings.Contains(sd, "faul na"):
 		return MarketFoulsDrawn, true
 	case strings.Contains(s, "faul"):
 		return MarketFoulsCommitted, true
