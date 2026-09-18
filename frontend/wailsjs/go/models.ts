@@ -22,6 +22,8 @@ export namespace main {
 	    statsSource: string;
 	    teamSide: string;
 	    verdict: string;
+	    lineupStatus: string;
+	    isStartingXI: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new AnalyzedBet(source);
@@ -50,6 +52,8 @@ export namespace main {
 	        this.statsSource = source["statsSource"];
 	        this.teamSide = source["teamSide"];
 	        this.verdict = source["verdict"];
+	        this.lineupStatus = source["lineupStatus"];
+	        this.isStartingXI = source["isStartingXI"];
 	    }
 	}
 	export class FMHarvestResult {

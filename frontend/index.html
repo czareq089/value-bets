@@ -115,6 +115,84 @@
         .filter-select, .search-box { background: var(--bg-card); border: 1px solid var(--border); color: #fff; padding: 6px 8px; border-radius: 6px; font-size: 12px; height: 32px; outline: none; }
         .search-box { flex: 1; }
 
+        /* MULTI-SELECT DROPDOWNS */
+        .dropdown-check-list {
+            position: relative;
+            display: inline-block;
+        }
+        .dropdown-check-btn {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: #fff;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            height: 32px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            user-select: none;
+        }
+        .dropdown-check-btn:hover {
+            border-color: var(--accent);
+        }
+        .dropdown-check-items {
+            display: none;
+            position: absolute;
+            top: 36px;
+            left: 0;
+            background: #111a2e;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 8px;
+            z-index: 50;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.7);
+            max-height: 280px;
+            overflow-y: auto;
+            min-width: 220px;
+        }
+        .dropdown-check-list.is-open .dropdown-check-items {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .dropdown-check-items label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: #f1f5f9;
+            cursor: pointer;
+            padding: 3px 4px;
+            border-radius: 4px;
+        }
+        .dropdown-check-items label:hover {
+            background: #1e293b;
+        }
+        .dropdown-check-items input[type=checkbox] {
+            accent-color: var(--accent);
+            cursor: pointer;
+        }
+        .dropdown-actions {
+            display: flex;
+            justify-content: space-between;
+            padding-bottom: 6px;
+            margin-bottom: 6px;
+            border-bottom: 1px solid var(--border);
+        }
+        .dropdown-action-btn {
+            background: transparent;
+            border: none;
+            color: var(--accent);
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .dropdown-action-btn:hover {
+            text-decoration: underline;
+        }
+
         .fullwidth-slider-bar {
             display: flex;
             align-items: center;
@@ -202,6 +280,15 @@
         .tag-src { font-size: 9px; font-weight: 800; padding: 1px 4px; border-radius: 3px; margin-left: 5px;
             background: rgba(45,212,191,0.15); color: #2dd4bf; border: 1px solid rgba(45,212,191,0.4); }
 
+        .badge-starter {
+            font-size: 9px; font-weight: 800; padding: 1px 4px; border-radius: 3px; margin-left: 5px;
+            background: rgba(16,185,129,0.2); color: #34d399; border: 1px solid rgba(16,185,129,0.5);
+        }
+        .badge-bench {
+            font-size: 9px; font-weight: 800; padding: 1px 4px; border-radius: 3px; margin-left: 5px;
+            background: rgba(245,158,11,0.2); color: #fbbf24; border: 1px solid rgba(245,158,11,0.5);
+        }
+
         .risk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0; }
         .risk-card { background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
         .risk-card h3 { font-size: 13px; margin-bottom: 8px; color: var(--accent); }
@@ -233,7 +320,7 @@
     <div class="header">
         <div class="title-box">
             <h1>ValueBets 3.0</h1>
-            <p style="color: var(--text-muted); font-size: 12px;">LPM na zdarzeniu pokazuje wykres próbki, PPM dodaje do MyBets. Kliknij nagłówek kolumny aby posortować.[cite: 2]</p>
+            <p style="color: var(--text-muted); font-size: 12px;">LPM na zdarzeniu pokazuje wykres próbki, PPM dodaje do MyBets. Kliknij nagłówek kolumny aby posortować.</p>
         </div>
     </div>
 
@@ -287,7 +374,7 @@
                 <input type="text" id="fmAwayId" placeholder="np. 528">
             </div>
         </div>
-        <div class="fm-status" id="fmStatus">Strzały z / spoza pola karnego liczone są z FootyMetrics. ID zapisują się w team_cache.json obok ID StatsHub.[cite: 2]</div>
+        <div class="fm-status" id="fmStatus">Strzały ze stref i odbiory (tackles won) liczone są z FootyMetrics. ID zapisują się w team_cache.json obok ID StatsHub.</div>
 
         <div id="leagueSelectorWrap" style="display:none; margin-top:10px; padding:8px 12px; background:var(--bg-input); border-radius:6px; font-size:12px; border:1px solid var(--border);">
             <span style="font-weight:700; color:var(--accent); margin-right:12px;">Rozgrywki:</span>
@@ -305,26 +392,54 @@
     <div class="toolbar">
         <input type="text" id="searchBox" class="search-box" placeholder="Szukaj zawodnika, np. szymanski..." onkeyup="renderFiltered()">
         <button id="compareToggle" class="filter-select" style="cursor:pointer; font-weight:700;" onclick="toggleCompareMode()">🔀 Widok: Lista</button>
-        <select id="bmFilter" class="filter-select" onchange="renderFiltered()">
-            <option value="ALL">Wszyscy bukmacherzy</option>
-            <option value="SUPERBET">Superbet</option>
-            <option value="BETCLIC">Betclic</option>
-            <option value="STS">STS</option>
-        </select>
-        <select id="marketFilter" class="filter-select" onchange="renderFiltered()">
-            <option value="ALL">Wszystkie rynki</option>
-            <option value="SHOTS_TOTAL">Strzały</option>
-            <option value="SHOTS_ON_TARGET">Strzały celne</option>
-            <option value="SHOTS_BLOCKED">Strzały zablokowane</option>
-            <option value="SHOTS_OFF_TARGET">Strzały niecelne</option>
-            <option value="SHOTS_OUTSIDE_BOX">Strzały spoza pola karnego</option>
-            <option value="SHOTS_INSIDE_BOX">Strzały z pola karnego</option>
-            <option value="TACKLES">Odbiory</option>
-            <option value="FOULS_COMMITTED">Faule popełnione</option>
-            <option value="FOULS_DRAWN">Faule wywalczone</option>
-            <option value="INTERCEPTIONS">Przechwyty</option>
-            <option value="OFFSIDES">Spalone</option>
-        </select>
+
+        <!-- Bukmacherzy Dropdown Checkboxes -->
+        <div class="dropdown-check-list" id="bmDropdown">
+            <div class="dropdown-check-btn" onclick="toggleDropdown('bmDropdown')">
+                <span id="bmBtnLabel">Bukmacherzy (Wszyscy)</span> ▼
+            </div>
+            <div class="dropdown-check-items">
+                <div class="dropdown-actions">
+                    <button type="button" class="dropdown-action-btn" onclick="setAllCheckboxes('bm-cb', true)">Wszyscy</button>
+                    <button type="button" class="dropdown-action-btn" onclick="setAllCheckboxes('bm-cb', false)">Wyczyść</button>
+                </div>
+                <label><input type="checkbox" class="bm-cb" value="SUPERBET" checked onchange="handleFilterChange()"> Superbet</label>
+                <label><input type="checkbox" class="bm-cb" value="BETCLIC" checked onchange="handleFilterChange()"> Betclic</label>
+                <label><input type="checkbox" class="bm-cb" value="STS" checked onchange="handleFilterChange()"> STS</label>
+            </div>
+        </div>
+
+        <!-- Rynki Dropdown Checkboxes -->
+        <div class="dropdown-check-list" id="marketDropdown">
+            <div class="dropdown-check-btn" onclick="toggleDropdown('marketDropdown')">
+                <span id="marketBtnLabel">Rynki (Wszystkie)</span> ▼
+            </div>
+            <div class="dropdown-check-items">
+                <div class="dropdown-actions">
+                    <button type="button" class="dropdown-action-btn" onclick="setAllCheckboxes('market-cb', true)">Wszystkie</button>
+                    <button type="button" class="dropdown-action-btn" onclick="setAllCheckboxes('market-cb', false)">Wyczyść</button>
+                </div>
+                <label><input type="checkbox" class="market-cb" value="SHOTS_TOTAL" checked onchange="handleFilterChange()"> Strzały</label>
+                <label><input type="checkbox" class="market-cb" value="SHOTS_ON_TARGET" checked onchange="handleFilterChange()"> Strzały celne</label>
+                <label><input type="checkbox" class="market-cb" value="SHOTS_BLOCKED" checked onchange="handleFilterChange()"> Strzały zablokowane</label>
+                <label><input type="checkbox" class="market-cb" value="SHOTS_OFF_TARGET" checked onchange="handleFilterChange()"> Strzały niecelne</label>
+                <label><input type="checkbox" class="market-cb" value="SHOTS_OUTSIDE_BOX" checked onchange="handleFilterChange()"> Strzały spoza pola karnego (FM)</label>
+                <label><input type="checkbox" class="market-cb" value="SHOTS_INSIDE_BOX" checked onchange="handleFilterChange()"> Strzały z pola karnego (FM)</label>
+                <label><input type="checkbox" class="market-cb" value="TACKLES" checked onchange="handleFilterChange()"> Odbiory (FM)</label>
+                <label><input type="checkbox" class="market-cb" value="FOULS_COMMITTED" checked onchange="handleFilterChange()"> Faule popełnione</label>
+                <label><input type="checkbox" class="market-cb" value="FOULS_DRAWN" checked onchange="handleFilterChange()"> Faule wywalczone</label>
+                <label><input type="checkbox" class="market-cb" value="INTERCEPTIONS" checked onchange="handleFilterChange()"> Przechwyty</label>
+                <label><input type="checkbox" class="market-cb" value="OFFSIDES" checked onchange="handleFilterChange()"> Spalone</label>
+                <label><input type="checkbox" class="market-cb" value="DISPOSSESSED" checked onchange="handleFilterChange()"> Straty / Wybicia</label>
+            </div>
+        </div>
+
+        <!-- Przełącznik Starting XI -->
+        <label style="display:flex; align-items:center; gap:6px; background:var(--bg-card); border:1px solid var(--border); padding:0 10px; border-radius:6px; height:32px; font-size:12px; font-weight:700; cursor:pointer; user-select:none;">
+            <input type="checkbox" id="startingXIToggle" onchange="renderFiltered()" style="accent-color:var(--success); cursor:pointer;">
+            🟢 Tylko Starting XI
+        </label>
+
         <select id="verdictFilter" class="filter-select" onchange="renderFiltered()">
             <option value="ALL">Wszystkie typy</option>
             <option value="VALUE">🟢 Tylko VALUE</option>
@@ -351,7 +466,7 @@
         <table>
             <thead id="tableHead"></thead>
             <tbody id="resultsBody">
-            <tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--text-muted);">Uzupełnij linki bukmacherów i kliknij Analizuj.[cite: 2]</td></tr>
+            <tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--text-muted);">Uzupełnij linki bukmacherów i kliknij Analizuj.</td></tr>
             </tbody>
         </table>
     </div>
@@ -379,7 +494,6 @@
     </div>
 </div>
 
-<!-- KALKULATOR AKO / SOLO & PROPOZYCJE -->
 <div class="chart-modal" id="riskModal" role="dialog" aria-modal="true" aria-labelledby="riskTitle" onclick="closeRiskOnBackdrop(event)">
     <div class="chart-dialog" style="max-width: 860px;">
         <div class="chart-header">
@@ -446,6 +560,14 @@
 
     window.onload = async () => {
         renderTableHeaders();
+        updateDropdownLabels();
+
+        window.addEventListener('click', (e) => {
+            if (!e.target.closest('.dropdown-check-list')) {
+                document.querySelectorAll('.dropdown-check-list').forEach(el => el.classList.remove('is-open'));
+            }
+        });
+
         try {
             const btn = document.getElementById('superSubToggle');
             if (btn) {
@@ -462,6 +584,49 @@
             }
         } catch(e) {}
     };
+
+    function toggleDropdown(id) {
+        const el = document.getElementById(id);
+        const isOpen = el.classList.contains('is-open');
+        document.querySelectorAll('.dropdown-check-list').forEach(d => d.classList.remove('is-open'));
+        if (!isOpen) {
+            el.classList.add('is-open');
+        }
+    }
+
+    function setAllCheckboxes(className, checked) {
+        document.querySelectorAll(`.${className}`).forEach(cb => cb.checked = checked);
+        handleFilterChange();
+    }
+
+    function handleFilterChange() {
+        updateDropdownLabels();
+        renderFiltered();
+    }
+
+    function updateDropdownLabels() {
+        const bmChecked = Array.from(document.querySelectorAll('.bm-cb:checked')).map(cb => cb.value);
+        const bmTotal = document.querySelectorAll('.bm-cb').length;
+        const bmLabel = document.getElementById('bmBtnLabel');
+        if (bmChecked.length === bmTotal) {
+            bmLabel.textContent = "Bukmacherzy (Wszyscy)";
+        } else if (bmChecked.length === 0) {
+            bmLabel.textContent = "Bukmacherzy (Żaden)";
+        } else {
+            bmLabel.textContent = `Bukmacherzy (${bmChecked.length}/${bmTotal})`;
+        }
+
+        const mChecked = Array.from(document.querySelectorAll('.market-cb:checked')).map(cb => cb.value);
+        const mTotal = document.querySelectorAll('.market-cb').length;
+        const mLabel = document.getElementById('marketBtnLabel');
+        if (mChecked.length === mTotal) {
+            mLabel.textContent = "Rynki (Wszystkie)";
+        } else if (mChecked.length === 0) {
+            mLabel.textContent = "Rynki (Żaden)";
+        } else {
+            mLabel.textContent = `Rynki (${mChecked.length}/${mTotal})`;
+        }
+    }
 
     function toggleDock(id) {
         const d = document.getElementById(id);
@@ -566,7 +731,7 @@
 
         document.getElementById('fmStatus').textContent = extra ? extra
             : (missing.length === 0
-                ? 'ID FootyMetrics gotowe — strzały z / spoza pola karnego zostaną policzone.'
+                ? 'ID FootyMetrics gotowe — strzały ze stref i odbiory (tackles won) zostaną policzone.'
                 : `Brakuje ID FootyMetrics dla ${missing.join(' i ')}. Wklej raz dowolny link z FootyMetrics (drużyna, liga albo h2h) i kliknij „Pobierz ID".`);
     }
 
@@ -718,8 +883,8 @@
         btn.style.opacity = "0.7";
         btn.innerHTML = `⏳ Analizowanie...`;
         tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 40px; color: var(--accent);">
-            <div style="font-size:16px; font-weight:700; margin-bottom:8px;">Pobieranie kursów bukmacherskich i statystyk...</div>
-            <div style="font-size:12px; color:var(--text-muted);">Pobieranie strumieni Betclic gRPC oraz STS WebSocket...</div>
+            <div style="font-size:16px; font-weight:700; margin-bottom:8px;">Pobieranie kursów bukmacherskich, składów i statystyk...</div>
+            <div style="font-size:12px; color:var(--text-muted);">Pobieranie strumieni Betclic gRPC, STS WebSocket oraz FootyMetrics...</div>
         </td></tr>`;
 
         try {
@@ -831,6 +996,8 @@
                     sampleDates: b.sampleDates || [],
                     statsSource: b.statsSource || '',
                     teamSide: b.teamSide || '',
+                    lineupStatus: b.lineupStatus || 'UNKNOWN',
+                    isStartingXI: b.isStartingXI || false,
                     bookmakerSpread: 0,
                     books: {}
                 });
@@ -856,18 +1023,27 @@
 
     function renderFiltered() {
         const q = normalizeSearchText(document.getElementById("searchBox").value);
-        const bm = document.getElementById("bmFilter").value;
-        const market = document.getElementById("marketFilter").value;
+        const selectedBMs = Array.from(document.querySelectorAll('.bm-cb:checked')).map(cb => cb.value);
+        const selectedMarkets = Array.from(document.querySelectorAll('.market-cb:checked')).map(cb => cb.value);
         const verdict = document.getElementById("verdictFilter").value;
         const minOdds = parseFloat(document.getElementById("minOddsSlider")?.value || "1.05");
+        const onlyStartingXI = document.getElementById("startingXIToggle")?.checked;
 
         if (!compareMode) {
             let filtered = rawBets.filter(b => {
                 const matchQuery = normalizeSearchText(b.playerName).includes(q);
-                const matchBm = (bm === "ALL") || (b.bookmaker === bm);
-                const matchMarket = (market === "ALL") || (b.marketType === market);
+                const matchBm = selectedBMs.includes(b.bookmaker);
+                const matchMarket = selectedMarkets.includes(b.marketType);
                 const matchVerdict = (verdict === "ALL") || (b.verdict === verdict);
                 const matchOdds = b.bookmakerOdds >= minOdds;
+
+                // Filtr Starting XI (ukrywa rezerwowych, jeśli składy są już potwierdzone)
+                if (onlyStartingXI && b.lineupStatus && b.lineupStatus !== "UNKNOWN") {
+                    if (!b.isStartingXI) {
+                        return false;
+                    }
+                }
+
                 return matchQuery && matchBm && matchMarket && matchVerdict && matchOdds;
             });
             filtered = applySort(filtered);
@@ -877,10 +1053,17 @@
 
         let rows = buildComparisonRows(rawBets).filter(g => {
             const matchQuery = normalizeSearchText(g.playerName).includes(q);
-            const matchMarket = (market === "ALL") || (g.marketType === market);
-            const matchBm = (bm === "ALL") || !!g.books[bm];
+            const matchMarket = selectedMarkets.includes(g.marketType);
+            const matchBm = selectedBMs.some(bm => !!g.books[bm]);
             const matchVerdict = (verdict === "ALL") || Object.values(g.books).some(o => o.verdict === verdict);
             const matchOdds = Object.values(g.books).some(o => o.odds >= minOdds);
+
+            if (onlyStartingXI && g.lineupStatus && g.lineupStatus !== "UNKNOWN") {
+                if (!g.isStartingXI) {
+                    return false;
+                }
+            }
+
             return matchQuery && matchMarket && matchBm && matchVerdict && matchOdds;
         });
         rows = applySort(rows);
@@ -1124,10 +1307,19 @@
             if (b.verdict === "VALUE") badge = '<span class="badge-value">🟢 VALUE</span>';
             if (b.verdict === "TRAP") badge = '<span class="badge-trap">🔴 PUŁAPKA</span>';
 
+            const isFmMarket = b.statsSource === 'FOOTYMETRICS' || b.marketType === 'TACKLES' || b.marketType === 'SHOTS_OUTSIDE_BOX' || b.marketType === 'SHOTS_INSIDE_BOX';
+
+            let lineupBadge = '';
+            if (b.lineupStatus === 'STARTER') {
+                lineupBadge = '<span class="badge-starter" title="Potwierdzona wyjściowa XI">XI</span>';
+            } else if (b.lineupStatus === 'BENCH') {
+                lineupBadge = '<span class="badge-bench" title="Ławka rezerwowych / poza kadrą">ŁAWKA</span>';
+            }
+
             tr.innerHTML = `
                 <td><span class="badge-bm bm-${b.bookmaker}">${b.bookmaker}</span></td>
-                <td><b>${b.playerName}</b></td>
-                <td>${b.marketLabel}${b.statsSource === 'FOOTYMETRICS' ? '<span class="tag-src" title="Próbka z FootyMetrics, bez filtra rozgrywek">FM</span>' : ''}</td>
+                <td><b>${b.playerName}</b>${lineupBadge}</td>
+                <td>${b.marketLabel}${isFmMarket ? '<span class="tag-src" title="Próbka z FootyMetrics">FM</span>' : ''}</td>
                 <td>${b.isUnder ? 'under' : 'over'} ${b.line}</td>
                 <td><b>${b.bookmakerOdds.toFixed(2)}</b></td>
                 <td>${b.fairOdds.toFixed(2)}</td>
@@ -1155,9 +1347,11 @@
             return;
         }
 
+        const selectedBMs = Array.from(document.querySelectorAll('.bm-cb:checked')).map(cb => cb.value);
+
         rows.forEach(g => {
             let bestBm = null, bestOdds = -1;
-            for (const bmKey of BOOKMAKERS) {
+            for (const bmKey of selectedBMs) {
                 const o = g.books[bmKey];
                 if (o && o.odds > bestOdds) { bestOdds = o.odds; bestBm = bmKey; }
             }
@@ -1165,7 +1359,7 @@
             const bmCells = BOOKMAKERS.map(bmKey => {
                 const o = g.books[bmKey];
                 if (!o) return `<td class="no-offer bm-cell" data-bm="${bmKey}">—</td>`;
-                const cls = bmKey === bestBm ? "best-odds" : "";
+                const cls = (bmKey === bestBm && selectedBMs.includes(bmKey)) ? "best-odds" : "";
                 const edgeColor = o.edgePercent >= 0 ? "var(--success)" : "var(--danger)";
                 return `<td class="${cls} bm-cell" data-bm="${bmKey}">
                     <b>${o.odds.toFixed(2)}</b>
@@ -1173,12 +1367,21 @@
                 </td>`;
             }).join("");
 
+            const isFmMarket = g.statsSource === 'FOOTYMETRICS' || g.marketType === 'TACKLES' || g.marketType === 'SHOTS_OUTSIDE_BOX' || g.marketType === 'SHOTS_INSIDE_BOX';
+            const spreadText = Object.keys(g.books).length >= 2 ? g.bookmakerSpread.toFixed(2) : '—';
+
+            let lineupBadge = '';
+            if (g.lineupStatus === 'STARTER') {
+                lineupBadge = '<span class="badge-starter" title="Potwierdzona wyjściowa XI">XI</span>';
+            } else if (g.lineupStatus === 'BENCH') {
+                lineupBadge = '<span class="badge-bench" title="Ławka rezerwowych / poza kadrą">ŁAWKA</span>';
+            }
+
             const tr = document.createElement("tr");
             tr.className = 'result-row';
-            const spreadText = Object.keys(g.books).length >= 2 ? g.bookmakerSpread.toFixed(2) : '—';
             tr.innerHTML = `
-                <td><b>${g.playerName}</b></td>
-                <td>${MARKET_LABELS[g.marketType] || g.marketType}</td>
+                <td><b>${g.playerName}</b>${lineupBadge}</td>
+                <td>${MARKET_LABELS[g.marketType] || g.marketType}${isFmMarket ? '<span class="tag-src" title="Próbka z FootyMetrics">FM</span>' : ''}</td>
                 <td>${g.isUnder ? 'under' : 'over'} ${g.line}</td>
                 <td>${g.fairOdds.toFixed(2)}</td>
                 <td style="font-weight:700; color:var(--accent);">${g.hitRate}%</td>
@@ -1210,6 +1413,8 @@
                         matchesSample: g.matchesSample,
                         statsSource: g.statsSource,
                         teamSide: g.teamSide,
+                        lineupStatus: g.lineupStatus,
+                        isStartingXI: g.isStartingXI,
                         sampleValues: g.sampleValues,
                         sampleValuesSuperSub: g.sampleValuesSuperSub,
                         sampleMinutes: g.sampleMinutes,
@@ -1247,12 +1452,13 @@
 
         myBets.forEach(b => {
             const hasSample = Array.isArray(b.sampleValues) && b.sampleValues.length > 0;
+            const isFmMarket = b.statsSource === 'FOOTYMETRICS' || b.marketType === 'TACKLES' || b.marketType === 'SHOTS_OUTSIDE_BOX' || b.marketType === 'SHOTS_INSIDE_BOX';
 
             const card = document.createElement("div");
             card.className = "item-card";
             card.innerHTML = `
-                <div class="card-title">${b.playerName}</div>
-                <div class="card-sub">${b.marketLabel} (${b.isUnder ? 'under' : 'over'} ${b.line})</div>
+                <div class="card-title">${b.playerName} ${b.lineupStatus === 'STARTER' ? '🟢' : (b.lineupStatus === 'BENCH' ? '🟡' : '')}</div>
+                <div class="card-sub">${b.marketLabel} (${b.isUnder ? 'under' : 'over'} ${b.line})${isFmMarket ? ' [FM]' : ''}</div>
                 <div style="margin-top:4px; font-weight:700; color:var(--accent);">
                     @${b.bookmakerOdds ? b.bookmakerOdds.toFixed(2) : '-'} | HR: ${b.hitRate}% [${b.bookmaker}]
                 </div>
@@ -1278,10 +1484,6 @@
             renderRisk();
         }
     }
-
-    // ============================================================
-    // NOWY KALKULATOR AKO / SOLO & AUTOMATYCZNY OPTYMALIZATOR
-    // ============================================================
 
     function closeRisk() { document.getElementById('riskModal').classList.remove('is-open'); }
     function closeRiskOnBackdrop(e) { if (e.target === document.getElementById('riskModal')) closeRisk(); }
@@ -1366,7 +1568,7 @@
                     Szansa wejścia: <b style="color:#fff;">${opt.chance.toFixed(1)}%</b> | Zysk netto: <b style="color:var(--success);">+${opt.netWin.toFixed(2)} zł</b>
                 </div>
                 <div style="font-size:11px; border-top:1px solid #293548; padding-top:6px; line-height:1.4;">
-                    ${opt.items.map(i => `• <b>${i.playerName}</b>: ${i.marketLabel} (${i.isUnder ? 'under' : 'over'} ${i.line})`).join('<br>')}
+                    ${opt.items.map(i => `• <b>${i.playerName}</b>:${i.marketLabel} (${i.isUnder ? 'under' : 'over'} ${i.line})`).join('<br>')}
                 </div>
             </div>
         `;
