@@ -225,6 +225,82 @@
             font-variant-numeric: tabular-nums;
         }
 
+        /* DUAL RANGE FILTERS */
+        .range-filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            align-items: center;
+        }
+        .range-filter-block {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .range-filter-block label {
+            white-space: nowrap;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .dual-range {
+            position: relative;
+            width: 160px;
+            height: 20px;
+        }
+        .dual-range-track {
+            position: absolute;
+            top: 9px;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: var(--border);
+            border-radius: 2px;
+        }
+        .dual-range-fill {
+            position: absolute;
+            height: 3px;
+            background: var(--accent);
+            border-radius: 2px;
+        }
+        .dual-range input[type="range"] {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 20px;
+            margin: 0;
+            background: none;
+            pointer-events: none;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+        .dual-range input[type="range"]::-webkit-slider-thumb {
+            pointer-events: auto;
+            -webkit-appearance: none;
+            appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: var(--accent);
+            cursor: pointer;
+            border: 2px solid #fff;
+        }
+        .dual-range input[type="range"]::-moz-range-thumb {
+            pointer-events: auto;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: var(--accent);
+            cursor: pointer;
+            border: 2px solid #fff;
+        }
+        .dual-range input[type="range"]::-webkit-slider-runnable-track {
+            background: transparent;
+        }
+        .dual-range input[type="range"]::-moz-range-track {
+            background: transparent;
+        }
+
         .table-wrap { flex: 1; overflow-x: auto; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; }
         table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
         thead { position: sticky; top: 0; background: #0f172a; z-index: 10; }
@@ -385,10 +461,35 @@
         </div>
     </div>
 
-    <div class="fullwidth-slider-bar">
-        <label>Minimalny kurs:</label>
-        <input type="range" id="minOddsSlider" min="1.05" max="5.00" step="0.01" value="1.05" oninput="document.getElementById('minOddsVal').innerText = parseFloat(this.value).toFixed(2); renderFiltered();">
-        <span class="slider-val" id="minOddsVal">1.05</span>
+    <!-- ZAKRESY SUWAKÓW (FILTRY) -->
+    <div class="fullwidth-slider-bar range-filters">
+        <div class="range-filter-block">
+            <label>Kurs:</label>
+            <div class="dual-range" id="oddsRangeWrap">
+                <div class="dual-range-track"><div class="dual-range-fill" id="oddsRangeFill"></div></div>
+                <input type="range" id="oddsMinSlider" min="1.05" max="5.00" step="0.01" value="1.05" oninput="onOddsRangeInput()">
+                <input type="range" id="oddsMaxSlider" min="1.05" max="5.00" step="0.01" value="5.00" oninput="onOddsRangeInput()">
+            </div>
+            <span class="slider-val" id="oddsRangeVal">1.05 – 5.00</span>
+        </div>
+        <div class="range-filter-block">
+            <label>Hit Rate (%):</label>
+            <div class="dual-range" id="hrRangeWrap">
+                <div class="dual-range-track"><div class="dual-range-fill" id="hrRangeFill"></div></div>
+                <input type="range" id="hrMinSlider" min="0" max="100" step="1" value="0" oninput="onHrRangeInput()">
+                <input type="range" id="hrMaxSlider" min="0" max="100" step="1" value="100" oninput="onHrRangeInput()">
+            </div>
+            <span class="slider-val" id="hrRangeVal">0 – 100</span>
+        </div>
+        <div class="range-filter-block">
+            <label>Próbka (mecze):</label>
+            <div class="dual-range" id="sampleRangeWrap">
+                <div class="dual-range-track"><div class="dual-range-fill" id="sampleRangeFill"></div></div>
+                <input type="range" id="sampleMinSlider" min="1" max="30" step="1" value="1" oninput="onSampleRangeInput()">
+                <input type="range" id="sampleMaxSlider" min="1" max="30" step="1" value="30" oninput="onSampleRangeInput()">
+            </div>
+            <span class="slider-val" id="sampleRangeVal">1 – 30</span>
+        </div>
     </div>
 
     <!-- PASKI FILTROWANIA -->
@@ -589,6 +690,11 @@
         renderTableHeaders();
         updateDropdownLabels();
 
+        // Inicjalizacja wypełnienia pasków suwaków
+        updateDualRangeFill(document.getElementById("oddsMinSlider"), document.getElementById("oddsMaxSlider"), document.getElementById("oddsRangeFill"));
+        updateDualRangeFill(document.getElementById("hrMinSlider"), document.getElementById("hrMaxSlider"), document.getElementById("hrRangeFill"));
+        updateDualRangeFill(document.getElementById("sampleMinSlider"), document.getElementById("sampleMaxSlider"), document.getElementById("sampleRangeFill"));
+
         window.addEventListener('click', (e) => {
             if (!e.target.closest('.dropdown-check-list')) {
                 document.querySelectorAll('.dropdown-check-list').forEach(el => el.classList.remove('is-open'));
@@ -624,6 +730,52 @@
             }
         } catch(e) {}
     };
+
+    function updateDualRangeFill(minEl, maxEl, fillEl) {
+        if (!minEl || !maxEl || !fillEl) return;
+        const min = parseFloat(minEl.min);
+        const max = parseFloat(minEl.max);
+        const vMin = parseFloat(minEl.value);
+        const vMax = parseFloat(maxEl.value);
+        const pctMin = ((vMin - min) / (max - min)) * 100;
+        const pctMax = ((vMax - min) / (max - min)) * 100;
+        fillEl.style.left = pctMin + "%";
+        fillEl.style.width = Math.max(0, pctMax - pctMin) + "%";
+    }
+
+    function onOddsRangeInput() {
+        const minEl = document.getElementById("oddsMinSlider");
+        const maxEl = document.getElementById("oddsMaxSlider");
+        if (parseFloat(minEl.value) > parseFloat(maxEl.value)) {
+            [minEl.value, maxEl.value] = [maxEl.value, minEl.value];
+        }
+        document.getElementById("oddsRangeVal").innerText =
+            `${parseFloat(minEl.value).toFixed(2)} – ${parseFloat(maxEl.value).toFixed(2)}`;
+        updateDualRangeFill(minEl, maxEl, document.getElementById("oddsRangeFill"));
+        renderFiltered();
+    }
+
+    function onHrRangeInput() {
+        const minEl = document.getElementById("hrMinSlider");
+        const maxEl = document.getElementById("hrMaxSlider");
+        if (parseFloat(minEl.value) > parseFloat(maxEl.value)) {
+            [minEl.value, maxEl.value] = [maxEl.value, minEl.value];
+        }
+        document.getElementById("hrRangeVal").innerText = `${minEl.value} – ${maxEl.value}`;
+        updateDualRangeFill(minEl, maxEl, document.getElementById("hrRangeFill"));
+        renderFiltered();
+    }
+
+    function onSampleRangeInput() {
+        const minEl = document.getElementById("sampleMinSlider");
+        const maxEl = document.getElementById("sampleMaxSlider");
+        if (parseFloat(minEl.value) > parseFloat(maxEl.value)) {
+            [minEl.value, maxEl.value] = [maxEl.value, minEl.value];
+        }
+        document.getElementById("sampleRangeVal").innerText = `${minEl.value} – ${maxEl.value}`;
+        updateDualRangeFill(minEl, maxEl, document.getElementById("sampleRangeFill"));
+        renderFiltered();
+    }
 
     function clearAllInputs() {
         const ids = ['sbInput', 'betclicInput', 'stsInput', 'homeIdInput', 'awayIdInput', 'fmInput', 'fmHomeId', 'fmAwayId'];
@@ -803,7 +955,7 @@
             let valA = a[sortCol];
             let valB = b[sortCol];
             if (typeof valA === "string") {
-                return sortAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
+                return sortAsc ? valA.localeCompare(valB) : valB.localeCompare(a[sortCol]);
             }
             return sortAsc ? (valA - valB) : (valB - valA);
         });
@@ -845,7 +997,7 @@
         document.getElementById('fmStatus').textContent = extra ? extra
             : (missing.length === 0
                 ? 'ID FootyMetrics gotowe — strzały ze stref i odbiory (tackles won) zostaną policzone.'
-                : `Brakuje ID FootyMetrics dla ${missing.join(' i ')}. Wklej raz dowolny link z FootyMetrics (drużyna, liga albo h2h) i kliknij „Pobierz ID".`);
+                : `Brakuje ID FootyMetrics dla ${missing.join(' i ')}. Wklej raz dowolny link z FootyMetrics (drużyna, liga albo h2h) i kliknij „Pobierz ID”.`);
     }
 
     async function autofillFootyMetrics() {
@@ -942,32 +1094,34 @@
     }
 
     function syncMinOddsSliderRange() {
-        const slider = document.getElementById("minOddsSlider");
-        if (!slider) return;
+        const minEl = document.getElementById("oddsMinSlider");
+        const maxEl = document.getElementById("oddsMaxSlider");
+        if (!minEl || !maxEl) return;
 
         if (rawBets.length === 0) {
-            slider.min = "1.05";
-            slider.max = "5.00";
-            slider.value = "1.05";
-            document.getElementById("minOddsVal").innerText = "1.05";
+            minEl.min = maxEl.min = "1.05";
+            minEl.max = maxEl.max = "5.00";
+            minEl.value = "1.05";
+            maxEl.value = "5.00";
+            document.getElementById("oddsRangeVal").innerText = "1.05 – 5.00";
+            updateDualRangeFill(minEl, maxEl, document.getElementById("oddsRangeFill"));
             return;
         }
 
         let allOdds = [];
         rawBets.forEach(b => {
-            if (b.bookmakerOdds && b.bookmakerOdds > 1) {
-                allOdds.push(b.bookmakerOdds);
-            }
+            if (b.bookmakerOdds && b.bookmakerOdds > 1) allOdds.push(b.bookmakerOdds);
         });
 
         if (allOdds.length > 0) {
             const minO = Math.floor(Math.min(...allOdds) * 100) / 100;
             const maxO = Math.ceil(Math.max(...allOdds) * 100) / 100;
-
-            slider.min = minO.toFixed(2);
-            slider.max = (maxO > minO ? maxO : minO + 1.0).toFixed(2);
-            slider.value = minO.toFixed(2);
-            document.getElementById("minOddsVal").innerText = minO.toFixed(2);
+            minEl.min = maxEl.min = minO.toFixed(2);
+            minEl.max = maxEl.max = (maxO > minO ? maxO : minO + 1.0).toFixed(2);
+            minEl.value = minO.toFixed(2);
+            maxEl.value = maxEl.max;
+            document.getElementById("oddsRangeVal").innerText = `${minEl.value} – ${maxEl.value}`;
+            updateDualRangeFill(minEl, maxEl, document.getElementById("oddsRangeFill"));
         }
     }
 
@@ -1150,7 +1304,7 @@
                 });
             }
             groups.get(key).books[b.bookmaker] = {
-                odds: b.bookmakerOdds, edgePercent: b.edgePercent, evWithTax: b.evWithTax, verdict: b.verdict
+                odds: b.bookmakerOdds, edgePercent: b.edgePercent, evWithTax: b.evWithTax, verdict: b.verdict, hitRate: b.hitRate
             };
         }
         return Array.from(groups.values()).map(group => {
@@ -1174,9 +1328,15 @@
         const selectedMarkets = Array.from(document.querySelectorAll('.market-cb:checked')).map(cb => cb.value);
         const selectedTeam = document.getElementById("teamFilter")?.value || "ALL";
         const verdict = document.getElementById("verdictFilter").value;
-        const minOdds = parseFloat(document.getElementById("minOddsSlider")?.value || "1.05");
         const onlyStartingXI = document.getElementById("startingXIToggle")?.checked;
         const bufferMode = document.getElementById("bufferModeToggle")?.checked;
+
+        const minOdds = parseFloat(document.getElementById("oddsMinSlider")?.value || "1.05");
+        const maxOdds = parseFloat(document.getElementById("oddsMaxSlider")?.value || "5.00");
+        const minHr = parseFloat(document.getElementById("hrMinSlider")?.value || "0");
+        const maxHr = parseFloat(document.getElementById("hrMaxSlider")?.value || "100");
+        const minSample = parseInt(document.getElementById("sampleMinSlider")?.value || "1", 10);
+        const maxSample = parseInt(document.getElementById("sampleMaxSlider")?.value || "30", 10);
 
         if (!compareMode) {
             let filtered = rawBets.filter(b => {
@@ -1184,7 +1344,9 @@
                 const matchBm = selectedBMs.includes(b.bookmaker);
                 const matchMarket = selectedMarkets.includes(b.marketType);
                 const matchVerdict = (verdict === "ALL") || (b.verdict === verdict);
-                const matchOdds = b.bookmakerOdds >= minOdds;
+                const matchOdds = b.bookmakerOdds >= minOdds && b.bookmakerOdds <= maxOdds;
+                const matchHr = b.hitRate >= minHr && b.hitRate <= maxHr;
+                const matchSample = b.matchesSample >= minSample && b.matchesSample <= maxSample;
 
                 const bTeamKey = b.teamId || b.teamSide || '';
                 const matchTeam = (selectedTeam === "ALL") || (bTeamKey === selectedTeam);
@@ -1204,7 +1366,7 @@
                     }
                 }
 
-                return matchQuery && matchBm && matchMarket && matchVerdict && matchOdds;
+                return matchQuery && matchBm && matchMarket && matchVerdict && matchOdds && matchHr && matchSample;
             });
             filtered = applySort(filtered);
             renderListMode(filtered);
@@ -1216,7 +1378,10 @@
             const matchMarket = selectedMarkets.includes(g.marketType);
             const matchBm = selectedBMs.some(bm => !!g.books[bm]);
             const matchVerdict = (verdict === "ALL") || Object.values(g.books).some(o => o.verdict === verdict);
-            const matchOdds = Object.values(g.books).some(o => o.odds >= minOdds);
+
+            const matchOdds = Object.values(g.books).some(o => o.odds >= minOdds && o.odds <= maxOdds);
+            const matchHr = Object.values(g.books).some(o => o.hitRate >= minHr && o.hitRate <= maxHr) || (g.hitRate >= minHr && g.hitRate <= maxHr);
+            const matchSample = g.matchesSample >= minSample && g.matchesSample <= maxSample;
 
             const gTeamKey = g.teamId || g.teamSide || '';
             const matchTeam = (selectedTeam === "ALL") || (gTeamKey === selectedTeam);
@@ -1236,7 +1401,7 @@
                 }
             }
 
-            return matchQuery && matchMarket && matchBm && matchVerdict && matchOdds;
+            return matchQuery && matchMarket && matchBm && matchVerdict && matchOdds && matchHr && matchSample;
         });
         rows = applySort(rows);
         renderCompareMode(rows);
@@ -1649,6 +1814,7 @@
             card.className = "item-card";
             card.innerHTML = `
                 <div class="card-title">${b.playerName} ${b.lineupStatus === 'STARTER' ? '🟢' : (b.lineupStatus === 'BENCH' ? '🟡' : '')}</div>
+                <div style="font-size:11px; color:var(--text-muted); margin-top:-2px; margin-bottom:2px;">${b.teamName || (b.teamSide === 'HOME' ? 'Gospodarze' : (b.teamSide === 'AWAY' ? 'Goście' : ''))}</div>
                 <div class="card-sub">${b.marketLabel} (${b.isUnder ? 'under' : 'over'} ${b.line})${isFmMarket ? ' [FM]' : ''}</div>
                 <div style="margin-top:4px; font-weight:700; color:var(--accent);">
                     @${b.bookmakerOdds ? b.bookmakerOdds.toFixed(2) : '-'} | HR: ${b.hitRate}% [${b.bookmaker}]
