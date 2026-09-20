@@ -690,7 +690,6 @@
         renderTableHeaders();
         updateDropdownLabels();
 
-        // Inicjalizacja wypełnienia pasków suwaków
         updateDualRangeFill(document.getElementById("oddsMinSlider"), document.getElementById("oddsMaxSlider"), document.getElementById("oddsRangeFill"));
         updateDualRangeFill(document.getElementById("hrMinSlider"), document.getElementById("hrMaxSlider"), document.getElementById("hrRangeFill"));
         updateDualRangeFill(document.getElementById("sampleMinSlider"), document.getElementById("sampleMaxSlider"), document.getElementById("sampleRangeFill"));
@@ -710,7 +709,6 @@
             }
         } catch(e) {}
 
-        // Wczytanie utrwalonych MyBets z pliku bets_cache.json
         try {
             if (window.go?.main?.App?.LoadMyBets) {
                 const savedBets = await window.go.main.App.LoadMyBets();
@@ -1162,13 +1160,11 @@
             renderFiltered();
             updateStats();
 
-            // Zapis ręcznie podanych lub wykrytych ID StatsHub do team_cache.json
             if (window.go?.main?.App?.SaveTeamStatsHubID) {
                 if (currentHomeSlug && home) await window.go.main.App.SaveTeamStatsHubID(currentHomeSlug, home);
                 if (currentAwaySlug && away) await window.go.main.App.SaveTeamStatsHubID(currentAwaySlug, away);
             }
 
-            // Konstrukcja czytelnego tytułu w historii spotkań
             let title = "";
             if (currentHomeSlug && currentAwaySlug) {
                 title = `${currentHomeSlug} vs ${currentAwaySlug}`;
@@ -1232,7 +1228,6 @@
                 document.getElementById('fmHomeId').value = '';
                 document.getElementById('fmAwayId').value = '';
 
-                // Przywrócenie zapisanej próbki suwaka
                 if (item.sampleLimit && item.sampleLimit > 0) {
                     const slider = document.getElementById('matchSlider');
                     slider.value = item.sampleLimit;
@@ -1353,10 +1348,9 @@
 
                 if (!matchTeam) return false;
 
-                if (onlyStartingXI && b.lineupStatus && b.lineupStatus !== "UNKNOWN") {
-                    if (!b.isStartingXI) {
-                        return false;
-                    }
+                // Bezwzględny filtr Starting XI
+                if (onlyStartingXI && !b.isStartingXI) {
+                    return false;
                 }
 
                 if (bufferMode) {
@@ -1388,10 +1382,9 @@
 
             if (!matchTeam) return false;
 
-            if (onlyStartingXI && g.lineupStatus && g.lineupStatus !== "UNKNOWN") {
-                if (!g.isStartingXI) {
-                    return false;
-                }
+            // Bezwzględny filtr Starting XI
+            if (onlyStartingXI && !g.isStartingXI) {
+                return false;
             }
 
             if (bufferMode) {

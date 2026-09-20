@@ -209,17 +209,53 @@ type StatsHubEvent struct {
 	} `json:"awayTeam"`
 }
 
-type StatsHubLineupResponse struct {
-	Players []struct {
-		Player struct {
-			ID   int    `json:"id"`
-			Name string `json:"name"`
-			Slug string `json:"slug"`
-		} `json:"player"`
-		Substitute bool   `json:"substitute"`
-		Position   string `json:"position"`
-	} `json:"players"`
-	Confirmed bool `json:"confirmed"`
+type StatsHubUpcomingResponse struct {
+	Data []struct {
+		ID         int    `json:"id"`
+		Status     string `json:"status"`
+		HomeTeamID int    `json:"homeTeamId"`
+		AwayTeamID int    `json:"awayTeamId"`
+		HomeTeam   struct {
+			ID int `json:"id"`
+		} `json:"homeTeam"`
+		AwayTeam struct {
+			ID int `json:"id"`
+		} `json:"awayTeam"`
+	} `json:"data"`
+}
+
+type StatsHubPredictedLineupResponse struct {
+	HomeTeam struct {
+		Data []struct {
+			PlayerID         int    `json:"playerId"`
+			PlayerInternalID int    `json:"playerInternalId"`
+			Name             string `json:"name"`
+			IsStarter        bool   `json:"isStarter"`
+			PredictionType   string `json:"predictionType"`
+		} `json:"data"`
+	} `json:"homeTeam"`
+	AwayTeam struct {
+		Data []struct {
+			PlayerID         int    `json:"playerId"`
+			PlayerInternalID int    `json:"playerInternalId"`
+			Name             string `json:"name"`
+			IsStarter        bool   `json:"isStarter"`
+			PredictionType   string `json:"predictionType"`
+		} `json:"data"`
+	} `json:"awayTeam"`
+}
+
+type FMLineupPlayerItem struct {
+	IsPredicted  bool   `json:"isPredicted"`
+	IsConfirmed  bool   `json:"isConfirmed"`
+	PredictedSub bool   `json:"predictedSub"`
+	Detailed     string `json:"detailed"`
+	IsStarter    bool   `json:"isStarter"`
+}
+
+type FMLineupResponse struct {
+	Lineup map[string]FMLineupPlayerItem `json:"lineup"`
+	State  int                           `json:"state"`
 }
 
 // ==========================================
@@ -728,7 +764,7 @@ func FetchStatsHubTeamData(idOrURL string, tournamentIDs string) (string, error)
 
 func FindStatsHubUpcomingEventID(homeID, awayID string) string {
 	client := NewResilientClient()
-	urlStr := fmt.Sprintf("https://www.statshub.com/api/team/%s/players/performance?limit=10&location=both", homeID)
+	urlStr := fmt.Sprintf("https://www.statshub.com/api/team/%s/upcoming-events?page=1&limit=15", homeID)
 	resp, err := client.GetWithAntiBan(urlStr, true)
 	if err != nil {
 		return ""
@@ -736,56 +772,146 @@ func FindStatsHubUpcomingEventID(homeID, awayID string) string {
 	defer resp.Body.Close()
 
 	b, _ := io.ReadAll(resp.Body)
-	var sh StatsHubResponse
-	_ = json.Unmarshal(b, &sh)
+	var upcoming StatsHubUpcomingResponse
+	if err := json.Unmarshal(b, &upcoming); err != nil {
+		return ""
+	}
 
-	for _, e := range sh.Events {
-		h := strconv.Itoa(e.HomeTeam.ID)
-		a := strconv.Itoa(e.AwayTeam.ID)
-		if (h == homeID && a == awayID) || (h == awayID && a == homeID) {
-			targetID := e.Events.ID
-			if targetID == 0 {
-				targetID = e.Tournaments.ID
-			}
-			if targetID > 0 {
-				return strconv.Itoa(targetID)
+	hID, _ := strconv.Atoi(homeID)
+	aID, _ := strconv.Atoi(awayID)
+
+	for _, e := range upcoming.Data {
+		hMatch := (e.HomeTeamID == hID || e.HomeTeam.ID == hID)
+		aMatch := (e.AwayTeamID == aID || e.AwayTeam.ID == aID)
+
+		if (hMatch && aMatch) || (e.HomeTeamID == aID && e.AwayTeamID == hID) {
+			if e.ID > 0 {
+				return strconv.Itoa(e.ID)
 			}
 		}
 	}
 	return ""
 }
 
-func FetchStatsHubLineup(eventID, teamID string) (map[string]bool, bool) {
-	if eventID == "" || teamID == "" {
-		return nil, false
+func FetchStatsHubPredictedLineups(eventID string) (map[string]bool, map[string]bool, bool) {
+	if eventID == "" {
+		return nil, nil, false
 	}
 	client := NewResilientClient()
-	targetURL := fmt.Sprintf("https://www.statshub.com/api/event/%s/team-lineup?teamId=%s&heatmap=false", eventID, teamID)
+	targetURL := fmt.Sprintf("https://www.statshub.com/api/event/%s/predicted-teams-lineup", eventID)
 
 	resp, err := client.GetWithAntiBan(targetURL, true)
 	if err != nil || resp.StatusCode != http.StatusOK {
-		return nil, false
+		return nil, nil, false
 	}
 	defer resp.Body.Close()
 
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, false
+		return nil, nil, false
 	}
 
-	var lineupResp StatsHubLineupResponse
-	if err := json.Unmarshal(b, &lineupResp); err != nil || len(lineupResp.Players) == 0 {
-		return nil, false
+	var lineupResp StatsHubPredictedLineupResponse
+	if err := json.Unmarshal(b, &lineupResp); err != nil {
+		return nil, nil, false
 	}
 
-	res := make(map[string]bool)
-	for _, p := range lineupResp.Players {
-		norm := NormalizePlayerName(p.Player.Name)
-		if norm != "" {
-			res[norm] = !p.Substitute
+	homeLineup := make(map[string]bool)
+	for _, p := range lineupResp.HomeTeam.Data {
+		registerNameVariants(homeLineup, p.Name, p.IsStarter)
+	}
+
+	awayLineup := make(map[string]bool)
+	for _, p := range lineupResp.AwayTeam.Data {
+		registerNameVariants(awayLineup, p.Name, p.IsStarter)
+	}
+
+	if len(homeLineup) == 0 && len(awayLineup) == 0 {
+		return nil, nil, false
+	}
+
+	return homeLineup, awayLineup, true
+}
+
+func registerNameVariants(m map[string]bool, rawName string, isStarter bool) {
+	norm := NormalizePlayerName(rawName)
+	if norm == "" {
+		return
+	}
+	m[norm] = isStarter
+
+	parts := strings.Fields(norm)
+	if len(parts) >= 2 {
+		last := parts[len(parts)-1]
+		first := parts[0]
+
+		m[last] = isStarter
+		m[last+" "+first] = isStarter
+
+		firstR := []rune(first)
+		if len(firstR) > 0 {
+			m[string(firstR[0])+" "+last] = isStarter
+		}
+
+		if first == "alejandro" {
+			m["alex "+last] = isStarter
+		} else if first == "alex" {
+			m["alejandro "+last] = isStarter
+		}
+		if first == "johnny" {
+			m["j "+last] = isStarter
 		}
 	}
-	return res, true
+}
+
+func FetchFootyMetricsLineup(fmTeamID string, fmIdx *FMTeamIndex) (map[string]bool, bool, bool) {
+	if fmTeamID == "" {
+		return nil, false, false
+	}
+	targetURL := fmt.Sprintf("%s/api/front/teams/lineup?tid=%s", footyMetricsBase, fmTeamID)
+	raw, err := fmFetch(targetURL)
+	if err != nil {
+		return nil, false, false
+	}
+
+	var resp FMLineupResponse
+	if err := json.Unmarshal(raw, &resp); err != nil || len(resp.Lineup) == 0 {
+		return nil, false, false
+	}
+
+	hasConfirmed := false
+	lineup := make(map[string]bool)
+
+	for apidStr, item := range resp.Lineup {
+		if item.IsConfirmed {
+			hasConfirmed = true
+		}
+
+		var resolvedNames []string
+		if fmIdx != nil {
+			if hist, ok := fmIdx.Players[apidStr]; ok && hist.Name != "" {
+				resolvedNames = append(resolvedNames, hist.Name)
+			}
+		}
+
+		if len(resolvedNames) == 0 && fmIdx != nil {
+			for name, id := range fmIdx.NameMap {
+				if id == apidStr {
+					resolvedNames = append(resolvedNames, name)
+				}
+			}
+		}
+
+		for _, name := range resolvedNames {
+			registerNameVariants(lineup, name, item.IsStarter)
+		}
+	}
+
+	if len(lineup) == 0 {
+		return nil, false, false
+	}
+
+	return lineup, hasConfirmed, true
 }
 
 var numRe = regexp.MustCompile(`(\d+(?:\.\d+)?)`)
@@ -1414,6 +1540,46 @@ func matchPlayerWithScoring(targetName string, playerMap map[string]string) stri
 	}
 	surname := parts[len(parts)-1]
 
+	// Wariant 1: Dopasowanie po nazwisku z uwzględnieniem popularnych skrótów imion
+	if len(parts) >= 2 {
+		first := parts[0]
+		if first == "alex" {
+			if id, ok := playerMap["alejandro "+surname]; ok {
+				return id
+			}
+		}
+		if first == "alejandro" {
+			if id, ok := playerMap["alex "+surname]; ok {
+				return id
+			}
+		}
+		if first == "johnny" {
+			if id, ok := playerMap["j "+surname]; ok {
+				return id
+			}
+			if id, ok := playerMap[surname]; ok {
+				return id
+			}
+		}
+	}
+
+	// Wariant 2: Szukanie unikalnego nazwiska w bazie
+	var surnameMatches []string
+	seenIDs := make(map[string]bool)
+	for fullName, id := range playerMap {
+		fParts := strings.Fields(fullName)
+		if len(fParts) > 0 && fParts[len(fParts)-1] == surname {
+			if !seenIDs[id] {
+				seenIDs[id] = true
+				surnameMatches = append(surnameMatches, id)
+			}
+		}
+	}
+	if len(surnameMatches) == 1 {
+		return surnameMatches[0]
+	}
+
+	// Wariant 3: Scoring tokenów
 	var candidateNames []string
 	var candidateIDs []string
 	for fullName, id := range playerMap {
@@ -1429,14 +1595,7 @@ func matchPlayerWithScoring(targetName string, playerMap map[string]string) stri
 			candidateIDs = append(candidateIDs, id)
 		}
 	}
-	if len(candidateIDs) == 0 {
-		for fullName, id := range playerMap {
-			if strings.Contains(fullName, surname) {
-				candidateNames = append(candidateNames, fullName)
-				candidateIDs = append(candidateIDs, id)
-			}
-		}
-	}
+
 	if len(candidateIDs) == 1 {
 		return candidateIDs[0]
 	}
@@ -1454,7 +1613,7 @@ func matchPlayerWithScoring(targetName string, playerMap map[string]string) stri
 		for _, p := range parts {
 			for _, ct := range candTokens {
 				if p == ct {
-					score++
+					score += 2
 					break
 				}
 			}
@@ -1776,10 +1935,18 @@ func CalculateValueBetsWithZones(
 					strictMap[norm] = idStr
 					parts := strings.Fields(norm)
 					if len(parts) >= 2 {
-						strictMap[parts[len(parts)-1]+" "+strings.Join(parts[:len(parts)-1], " ")] = idStr
-						if len(parts) == 3 {
-							strictMap[parts[0]+" "+parts[1]] = idStr
-							strictMap[parts[1]+" "+parts[0]] = idStr
+						last := parts[len(parts)-1]
+						first := parts[0]
+						strictMap[last+" "+strings.Join(parts[:len(parts)-1], " ")] = idStr
+						strictMap[last] = idStr
+
+						if first == "alejandro" {
+							strictMap["alex "+last] = idStr
+						} else if first == "alex" {
+							strictMap["alejandro "+last] = idStr
+						}
+						if first == "johnny" {
+							strictMap["j "+last] = idStr
 						}
 					}
 				}
@@ -1817,7 +1984,7 @@ func CalculateValueBetsWithZones(
 			lineupMap = awayLineup
 		}
 
-		if lineupMap == nil || len(lineupMap) == 0 {
+		if len(lineupMap) == 0 {
 			return "UNKNOWN", false
 		}
 
@@ -1831,8 +1998,53 @@ func CalculateValueBetsWithZones(
 		parts := strings.Fields(norm)
 		if len(parts) > 0 {
 			last := parts[len(parts)-1]
+			first := parts[0]
+			firstInitial := ""
+			if len([]rune(first)) > 0 {
+				firstInitial = string([]rune(first)[0])
+			}
+
 			for lName, isStarter := range lineupMap {
-				if strings.Contains(lName, last) {
+				lParts := strings.Fields(lName)
+				if len(lParts) >= 2 {
+					lLast := lParts[len(lParts)-1]
+					lFirst := lParts[0]
+
+					if lLast == last {
+						if len(lFirst) == 1 && lFirst == firstInitial {
+							if isStarter {
+								return "STARTER", true
+							}
+							return "BENCH", false
+						}
+						if len(first) == 1 && string([]rune(lFirst)[0]) == first {
+							if isStarter {
+								return "STARTER", true
+							}
+							return "BENCH", false
+						}
+					}
+				}
+			}
+
+			matchCount := 0
+			var matchedStarter bool
+			for lName, isStarter := range lineupMap {
+				lParts := strings.Fields(lName)
+				if len(lParts) > 0 && lParts[len(lParts)-1] == last {
+					matchCount++
+					matchedStarter = isStarter
+				}
+			}
+			if matchCount == 1 {
+				if matchedStarter {
+					return "STARTER", true
+				}
+				return "BENCH", false
+			}
+
+			for lName, isStarter := range lineupMap {
+				if strings.Contains(lName, last) || strings.Contains(norm, lName) {
 					if isStarter {
 						return "STARTER", true
 					}
@@ -1840,6 +2052,7 @@ func CalculateValueBetsWithZones(
 				}
 			}
 		}
+
 		return "BENCH", false
 	}
 
@@ -1850,17 +2063,21 @@ func CalculateValueBetsWithZones(
 				bet.LineupStatus = status
 				bet.IsStartingXI = isStarting
 				results = append(results, bet)
+			} else {
+				fmt.Printf("[DROP - BRAK W INDEKSIE FM] Gracz: '%s' | Rynek: %s\n", prop.PlayerName, prop.MarketType)
 			}
 			continue
 		}
 
 		matchedID := matchPlayerStrict(prop.PlayerName, strictMap)
 		if matchedID == "" {
+			fmt.Printf("[DROP - BRAK W STATSHUB STRICTMAP] Gracz z oferty bukmachera: '%s'\n", prop.PlayerName)
 			continue
 		}
 
 		hist, exists := playerHistory[matchedID]
 		if !exists || hist.Matches == 0 {
+			fmt.Printf("[DROP - BRAK MECZÓW] Gracz: '%s' (0 rozegranych minut w pobranej próbce StatsHub)\n", prop.PlayerName)
 			continue
 		}
 
@@ -1869,11 +2086,13 @@ func CalculateValueBetsWithZones(
 			minRequired = maxMatches
 		}
 		if hist.Matches < minRequired {
+			fmt.Printf("[DROP - ZA MAŁO MECZÓW] Gracz: '%s' (%d < %d)\n", prop.PlayerName, hist.Matches, minRequired)
 			continue
 		}
 
 		values, ok := hist.MetricValues[prop.MarketType]
 		if !ok || len(values) == 0 {
+			fmt.Printf("[DROP - BRAK STATYSTYK RYNKU] Gracz: '%s' | Rynek: %s\n", prop.PlayerName, prop.MarketType)
 			continue
 		}
 		valuesSuperSub := hist.MetricValuesWithSuperSub[prop.MarketType]
@@ -2303,10 +2522,11 @@ func (a *App) AnalyzeThreeBookmakers(sbInput, betclicInput, stsInput, homeInput,
 		fmAwayID = findFMTeamIDByStatsHubID(awayID)
 	}
 
+	var fmWg sync.WaitGroup
 	if fmHomeID != "" {
-		fetchWg.Add(1)
+		fmWg.Add(1)
 		go func() {
-			defer fetchWg.Done()
+			defer fmWg.Done()
 			idx, err := FetchFootyMetricsTeamIndex(fmHomeID, matchLimit)
 			if err != nil {
 				fmt.Printf("[FOOTYMETRICS ERROR] home id=%s: %v\n", fmHomeID, err)
@@ -2317,12 +2537,12 @@ func (a *App) AnalyzeThreeBookmakers(sbInput, betclicInput, stsInput, homeInput,
 		}()
 	}
 	if fmAwayID != "" {
-		fetchWg.Add(1)
+		fmWg.Add(1)
 		go func() {
-			defer fetchWg.Done()
+			defer fmWg.Done()
 			idx, err := FetchFootyMetricsTeamIndex(fmAwayID, matchLimit)
 			if err != nil {
-				fmt.Printf("[FOOTYMETRICS ERROR] home id=%s: %v\n", fmHomeID, err)
+				fmt.Printf("[FOOTYMETRICS ERROR] away id=%s: %v\n", fmAwayID, err)
 				return
 			}
 			idx.Side = "AWAY"
@@ -2344,23 +2564,51 @@ func (a *App) AnalyzeThreeBookmakers(sbInput, betclicInput, stsInput, homeInput,
 		awayJSON, awayErr = FetchStatsHubTeamData(awayID, tournamentIDs)
 	}()
 
-	// STATSHUB SKŁADY
+	// SKŁADY: PEŁNA KADRA (STATSHUB) + OFICJALNI STARTERZY (FOOTYMETRICS)
 	var homeLineup, awayLineup map[string]bool
 	fetchWg.Add(1)
 	go func() {
 		defer fetchWg.Done()
+		fmWg.Wait()
+
+		homeLineup = make(map[string]bool)
+		awayLineup = make(map[string]bool)
+
 		eventID := FindStatsHubUpcomingEventID(homeID, awayID)
 		if eventID != "" {
-			fmt.Printf("[STATSHUB LINEUPS] Wykryto eventId=%s. Pobieranie składów...\n", eventID)
-			var hOk, aOk bool
-			homeLineup, hOk = FetchStatsHubLineup(eventID, homeID)
-			awayLineup, aOk = FetchStatsHubLineup(eventID, awayID)
-			if hOk || aOk {
-				fmt.Printf("[STATSHUB LINEUPS] Pomyślnie pobrano potwierdzone składy (Gospodarze: %d, Goście: %d)\n", len(homeLineup), len(awayLineup))
-			} else {
-				fmt.Printf("[STATSHUB LINEUPS] Składy dla eventId=%s nie są jeszcze dostępne.\n", eventID)
+			shHome, shAway, ok := FetchStatsHubPredictedLineups(eventID)
+			if ok {
+				for k, v := range shHome {
+					homeLineup[k] = v
+				}
+				for k, v := range shAway {
+					awayLineup[k] = v
+				}
+				fmt.Printf("[LINEUPS STATSHUB] Załadowano kadrę z StatsHub dla eventId=%s (Gospodarze: %d, Goście: %d)\n", eventID, len(homeLineup), len(awayLineup))
 			}
 		}
+
+		if fmHomeID != "" && fmHomeIdx != nil {
+			fmLineup, fmConf, fmOk := FetchFootyMetricsLineup(fmHomeID, fmHomeIdx)
+			if fmOk {
+				for name, isStarter := range fmLineup {
+					homeLineup[name] = isStarter
+				}
+				fmt.Printf("[LINEUPS FM HOME] Zaktualizowano gospodarzy o dane z FootyMetrics (confirmed=%v, łączna kadra: %d)\n", fmConf, len(homeLineup))
+			}
+		}
+
+		if fmAwayID != "" && fmAwayIdx != nil {
+			fmLineup, fmConf, fmOk := FetchFootyMetricsLineup(fmAwayID, fmAwayIdx)
+			if fmOk {
+				for name, isStarter := range fmLineup {
+					awayLineup[name] = isStarter
+				}
+				fmt.Printf("[LINEUPS FM AWAY] Zaktualizowano gości o dane z FootyMetrics (confirmed=%v, łączna kadra: %d)\n", fmConf, len(awayLineup))
+			}
+		}
+
+		fmt.Printf("[LINEUPS FINAL] Gotowe składy: Gospodarze: %d zawodników | Goście: %d zawodników\n", len(homeLineup), len(awayLineup))
 	}()
 
 	fetchWg.Wait()
@@ -3353,10 +3601,24 @@ func fmRegisterName(nameMap map[string]string, name, id string) {
 	last := parts[len(parts)-1]
 	first := parts[0]
 
+	if _, exists := nameMap[last]; !exists {
+		nameMap[last] = id
+	}
+
 	variants := []string{
 		first + " " + last,
 		last + " " + first,
 	}
+
+	if first == "alejandro" {
+		variants = append(variants, "alex "+last)
+	} else if first == "alex" {
+		variants = append(variants, "alejandro "+last)
+	}
+	if first == "johnny" {
+		variants = append(variants, "j "+last)
+	}
+
 	if r := []rune(first); len(r) > 0 {
 		variants = append(variants, string(r[0])+" "+last)
 	}
