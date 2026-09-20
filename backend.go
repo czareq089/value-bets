@@ -2293,6 +2293,7 @@ func (a *App) AnalyzeThreeBookmakers(sbInput, betclicInput, stsInput, homeInput,
 			defer fetchWg.Done()
 			idx, err := FetchFootyMetricsTeamIndex(fmHomeID, matchLimit)
 			if err != nil {
+				fmt.Printf("[FOOTYMETRICS ERROR] home id=%s: %v\n", fmHomeID, err)
 				return
 			}
 			idx.Side = "HOME"
@@ -2305,6 +2306,7 @@ func (a *App) AnalyzeThreeBookmakers(sbInput, betclicInput, stsInput, homeInput,
 			defer fetchWg.Done()
 			idx, err := FetchFootyMetricsTeamIndex(fmAwayID, matchLimit)
 			if err != nil {
+				fmt.Printf("[FOOTYMETRICS ERROR] home id=%s: %v\n", fmHomeID, err)
 				return
 			}
 			idx.Side = "AWAY"
@@ -2523,7 +2525,7 @@ type fmFixture struct {
 }
 
 type fmPlayer struct {
-	APID      int64  `json:"shortName"`
+	APID      int64  `json:"apid"`
 	ShortName string `json:"shortName"`
 	Slug      string `json:"slug"`
 	Position  string `json:"position"`

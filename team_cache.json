@@ -80,6 +80,10 @@
     "statshub": "2836",
     "footymetrics": "7980"
   },
+  "atletico-madryt": {
+    "statshub": "2836",
+    "footymetrics": "7980"
+  },
   "atletico-mineiro": "1977",
   "auxerre": {
     "statshub": "1646",
@@ -401,6 +405,10 @@
     "statshub": "1662",
     "footymetrics": "1055"
   },
+  "le-mans": {
+    "statshub": "1672",
+    "footymetrics": "775"
+  },
   "lecce": {
     "statshub": "2689",
     "footymetrics": "7790"
@@ -598,10 +606,6 @@
     "statshub": "2818",
     "footymetrics": "377"
   },
-  "le-mans": {
-    "statshub": "1672",
-    "footymetrics": "775"
-  },
   "rb-leipzig": {
     "statshub": "36360",
     "footymetrics": "277"
@@ -619,7 +623,10 @@
     "statshub": "2829",
     "footymetrics": "3468"
   },
-  "real-madryt": "2829",
+  "real-madryt": {
+    "statshub": "2829",
+    "footymetrics": "3468"
+  },
   "real-oviedo": {
     "statshub": "2851",
     "footymetrics": "93"
