@@ -1790,6 +1790,22 @@ func CalculateValueBetsWithZones(
 	indexSH(homeSH, homeTeamID, "HOME")
 	indexSH(awaySH, awayTeamID, "AWAY")
 
+	homeDisplayName := homeTeamID
+	awayDisplayName := awayTeamID
+	for _, h := range playerHistory {
+		if h.TeamSide == "HOME" && h.TeamName != "" {
+			homeDisplayName = h.TeamName
+		}
+		if h.TeamSide == "AWAY" && h.TeamName != "" {
+			awayDisplayName = h.TeamName
+		}
+	}
+
+	zoneMeta := map[string]zoneTeamMeta{
+		"HOME": {TeamID: homeTeamID, TeamName: homeDisplayName},
+		"AWAY": {TeamID: awayTeamID, TeamName: awayDisplayName},
+	}
+
 	results := make([]AnalyzedBet, 0)
 
 	getLineupStatus := func(pName, side string) (string, bool) {
@@ -1829,7 +1845,7 @@ func CalculateValueBetsWithZones(
 
 	for _, prop := range props {
 		if isFootyMetricsMarket(prop.MarketType) {
-			if bet, ok := BuildZoneBet(prop, []*FMTeamIndex{fmHome, fmAway}, maxMatches); ok {
+			if bet, ok := BuildZoneBet(prop, []*FMTeamIndex{fmHome, fmAway}, maxMatches, zoneMeta); ok {
 				status, isStarting := getLineupStatus(bet.PlayerName, bet.TeamSide)
 				bet.LineupStatus = status
 				bet.IsStartingXI = isStarting
@@ -3417,7 +3433,12 @@ func scoreSample(values []int, line float64, isUnder bool, odds float64) betScor
 	return betScore{HitRate: pHit, FairOdds: fair, Edge: edge, EVTax: ev, Verdict: verdict}
 }
 
-func BuildZoneBet(prop NormalizedProp, indexes []*FMTeamIndex, maxMatches int) (AnalyzedBet, bool) {
+type zoneTeamMeta struct {
+	TeamID   string
+	TeamName string
+}
+
+func BuildZoneBet(prop NormalizedProp, indexes []*FMTeamIndex, maxMatches int, meta map[string]zoneTeamMeta) (AnalyzedBet, bool) {
 	for _, idx := range indexes {
 		if idx == nil {
 			continue
@@ -3445,6 +3466,13 @@ func BuildZoneBet(prop NormalizedProp, indexes []*FMTeamIndex, maxMatches int) (
 			label += " (Poniżej)"
 		}
 
+		teamID := idx.TeamID
+		teamName := "Team " + idx.TeamID
+		if m, ok := meta[idx.Side]; ok {
+			teamID = m.TeamID
+			teamName = m.TeamName
+		}
+
 		return AnalyzedBet{
 			Bookmaker:            prop.Bookmaker,
 			PlayerName:           hist.Name,
@@ -3466,8 +3494,8 @@ func BuildZoneBet(prop NormalizedProp, indexes []*FMTeamIndex, maxMatches int) (
 			SampleDates:          fmTrimStr(hist.Dates, limit),
 			StatsSource:          "FOOTYMETRICS",
 			TeamSide:             idx.Side,
-			TeamID:               idx.TeamID,
-			TeamName:             "Team " + idx.TeamID,
+			TeamID:               teamID,
+			TeamName:             teamName,
 			Verdict:              score.Verdict,
 		}, true
 	}
