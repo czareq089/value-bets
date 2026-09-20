@@ -91,6 +91,8 @@ type AnalyzedBet struct {
 	SampleDates          []string        `json:"sampleDates"`
 	StatsSource          string          `json:"statsSource"`
 	TeamSide             string          `json:"teamSide"`
+	TeamID               string          `json:"teamId"`
+	TeamName             string          `json:"teamName"`
 	Verdict              string          `json:"verdict"`
 	LineupStatus         string          `json:"lineupStatus"` // "STARTER", "BENCH", "UNKNOWN"
 	IsStartingXI         bool            `json:"isStartingXI"`
@@ -147,6 +149,36 @@ type MatchHistoryEntry struct {
 	StsURL      string `json:"stsUrl"`
 	HomeStatsID string `json:"homeStatsId"`
 	AwayStatsID string `json:"awayStatsId"`
+	SampleLimit int    `json:"sampleLimit,omitempty"`
+}
+
+type MyBetItem struct {
+	ID                   string          `json:"id"`
+	Bookmaker            Bookmaker       `json:"bookmaker"`
+	PlayerName           string          `json:"playerName"`
+	MarketType           CanonicalMarket `json:"marketType"`
+	MarketLabel          string          `json:"marketLabel"`
+	Line                 float64         `json:"line"`
+	IsUnder              bool            `json:"isUnder"`
+	BookmakerOdds        float64         `json:"bookmakerOdds"`
+	FairOdds             float64         `json:"fairOdds"`
+	HitRate              float64         `json:"hitRate"`
+	EdgePercent          float64         `json:"edgePercent"`
+	EVWithTax            float64         `json:"evWithTax"`
+	MatchesSample        int             `json:"matchesSample"`
+	SampleValues         []int           `json:"sampleValues"`
+	SampleValuesSuperSub []int           `json:"sampleValuesSuperSub"`
+	SampleMinutes        []int           `json:"sampleMinutes"`
+	SamplePositions      []string        `json:"samplePositions"`
+	SampleOpponents      []string        `json:"sampleOpponents"`
+	SampleDates          []string        `json:"sampleDates"`
+	StatsSource          string          `json:"statsSource"`
+	TeamSide             string          `json:"teamSide"`
+	TeamID               string          `json:"teamId"`
+	TeamName             string          `json:"teamName"`
+	Verdict              string          `json:"verdict"`
+	LineupStatus         string          `json:"lineupStatus"`
+	IsStartingXI         bool            `json:"isStartingXI"`
 }
 
 type StatsHubEvent struct {
@@ -157,7 +189,7 @@ type StatsHubEvent struct {
 		TimeStartTimestamp int64  `json:"timeStartTimestamp"`
 	} `json:"events"`
 	Tournaments struct {
-		ID                 int    `json:"id"`
+		ID                 int    `json:"internalId"`
 		InternalID         int    `json:"internalId"`
 		UniqueTournamentID int    `json:"uniqueTournamentId"`
 		Name               string `json:"name"`
@@ -723,8 +755,6 @@ func FindStatsHubUpcomingEventID(homeID, awayID string) string {
 	return ""
 }
 
-// FetchStatsHubLineup pobiera skład dla drużyny ze StatsHub
-// Zwraca mapę: znormalizowana nazwa -> czy starter (true=starter, false=rezerwowy), czy składy są dostępne
 func FetchStatsHubLineup(eventID, teamID string) (map[string]bool, bool) {
 	if eventID == "" || teamID == "" {
 		return nil, false
@@ -1506,6 +1536,8 @@ type PlayerStatHistory struct {
 	ID                       int
 	FullName                 string
 	TeamSide                 string
+	TeamID                   string
+	TeamName                 string
 	Matches                  int
 	MetricValues             map[CanonicalMarket][]int
 	MetricValuesWithSuperSub map[CanonicalMarket][]int
@@ -1570,6 +1602,18 @@ func CalculateValueBetsWithZones(
 				if tid, err := strconv.Atoi(strings.TrimSpace(tidStr)); err == nil {
 					selectedMap[tid] = true
 				}
+			}
+		}
+
+		teamDisplayName := ownTeamID
+		for _, e := range sh.Events {
+			if strconv.Itoa(e.HomeTeam.ID) == ownTeamID && e.HomeTeam.Name != "" {
+				teamDisplayName = e.HomeTeam.Name
+				break
+			}
+			if strconv.Itoa(e.AwayTeam.ID) == ownTeamID && e.AwayTeam.Name != "" {
+				teamDisplayName = e.AwayTeam.Name
+				break
 			}
 		}
 
@@ -1648,6 +1692,8 @@ func CalculateValueBetsWithZones(
 				ID:                       p.ID,
 				FullName:                 p.Name,
 				TeamSide:                 side,
+				TeamID:                   ownTeamID,
+				TeamName:                 teamDisplayName,
 				MetricValues:             make(map[CanonicalMarket][]int),
 				MetricValuesWithSuperSub: make(map[CanonicalMarket][]int),
 			}
@@ -1766,7 +1812,6 @@ func CalculateValueBetsWithZones(
 			return "BENCH", false
 		}
 
-		// Dopasowanie częściowe
 		parts := strings.Fields(norm)
 		if len(parts) > 0 {
 			last := parts[len(parts)-1]
@@ -1886,6 +1931,8 @@ func CalculateValueBetsWithZones(
 			SampleDates:          append([]string(nil), hist.Dates...),
 			StatsSource:          "STATSHUB",
 			TeamSide:             hist.TeamSide,
+			TeamID:               hist.TeamID,
+			TeamName:             hist.TeamName,
 			Verdict:              verdict,
 			LineupStatus:         status,
 			IsStartingXI:         isStarting,
@@ -1972,6 +2019,67 @@ func (a *App) DeleteMatchHistory(index int) []MatchHistoryEntry {
 	out, _ := json.MarshalIndent(updated, "", "  ")
 	_ = os.WriteFile(path, out, 0644)
 	return updated
+}
+
+// Cache dla MyBets
+func (a *App) LoadMyBets() []MyBetItem {
+	cacheMutex.Lock()
+	defer cacheMutex.Unlock()
+
+	path := getCacheFilePath("bets_cache.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return []MyBetItem{}
+	}
+
+	var list []MyBetItem
+	if err := json.Unmarshal(data, &list); err != nil {
+		return []MyBetItem{}
+	}
+	return list
+}
+
+func (a *App) SaveMyBets(bets []MyBetItem) bool {
+	cacheMutex.Lock()
+	defer cacheMutex.Unlock()
+
+	path := getCacheFilePath("bets_cache.json")
+	data, err := json.MarshalIndent(bets, "", "  ")
+	if err != nil {
+		return false
+	}
+
+	return os.WriteFile(path, data, 0644) == nil
+}
+
+func (a *App) SaveTeamStatsHubID(slug, statsHubID string) bool {
+	slug = strings.TrimSpace(strings.ToLower(slug))
+	statsHubID = strings.TrimSpace(statsHubID)
+	if slug == "" || statsHubID == "" {
+		return false
+	}
+
+	cacheMutex.Lock()
+	defer cacheMutex.Unlock()
+
+	path := getCacheFilePath("team_cache.json")
+	m := make(map[string]TeamCacheEntry)
+	if data, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(data, &m)
+	}
+
+	entry := m[slug]
+	if entry.StatsHub == statsHubID {
+		return false
+	}
+	entry.StatsHub = statsHubID
+	m[slug] = entry
+
+	out, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return false
+	}
+	return os.WriteFile(path, out, 0644) == nil
 }
 
 func (a *App) DetectTeamsFromURL(rawURL string) TeamDetectionResult {
@@ -2168,7 +2276,7 @@ func (a *App) AnalyzeThreeBookmakers(sbInput, betclicInput, stsInput, homeInput,
 		}()
 	}
 
-	// FOOTYMETRICS (strzały ze stref oraz odbiory)
+	// FOOTYMETRICS
 	var fmHomeIdx, fmAwayIdx *FMTeamIndex
 	fmHomeID := strings.TrimSpace(fmHomeInput)
 	fmAwayID := strings.TrimSpace(fmAwayInput)
@@ -2218,7 +2326,7 @@ func (a *App) AnalyzeThreeBookmakers(sbInput, betclicInput, stsInput, homeInput,
 		awayJSON, awayErr = FetchStatsHubTeamData(awayID, tournamentIDs)
 	}()
 
-	// STATSHUB SKŁADY (CONFIRMED LINEUPS)
+	// STATSHUB SKŁADY
 	var homeLineup, awayLineup map[string]bool
 	fetchWg.Add(1)
 	go func() {
@@ -2272,7 +2380,7 @@ func (a *App) AnalyzeThreeBookmakers(sbInput, betclicInput, stsInput, homeInput,
 }
 
 // ==========================================
-// 7. FOOTYMETRICS — STRZAŁY ZE STREF I ODBIORY
+// 7. FOOTYMETRICS
 // ==========================================
 
 const footyMetricsBase = "https://www.footymetrics.com"
@@ -2415,7 +2523,7 @@ type fmFixture struct {
 }
 
 type fmPlayer struct {
-	APID      int64  `json:"apid"`
+	APID      int64  `json:"shortName"`
 	ShortName string `json:"shortName"`
 	Slug      string `json:"slug"`
 	Position  string `json:"position"`
@@ -3356,6 +3464,8 @@ func BuildZoneBet(prop NormalizedProp, indexes []*FMTeamIndex, maxMatches int) (
 			SampleDates:          fmTrimStr(hist.Dates, limit),
 			StatsSource:          "FOOTYMETRICS",
 			TeamSide:             idx.Side,
+			TeamID:               idx.TeamID,
+			TeamName:             "Team " + idx.TeamID,
 			Verdict:              score.Verdict,
 		}, true
 	}

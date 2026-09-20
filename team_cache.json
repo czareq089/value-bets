@@ -11,10 +11,6 @@
     "statshub": "2547",
     "footymetrics": "1079"
   },
-  "1-fsv-mainz-05": {
-    "statshub": "2556",
-    "footymetrics": "794"
-  },
   "aalesunds-fk": "677",
   "aberdeen": "2355",
   "aek-athens": "3250",
@@ -38,10 +34,23 @@
   "al-shabab": "34313",
   "al-taawoun": "56021",
   "alanyaspor": "6362",
-  "anderlecht": "2900",
-  "angers": "1684",
+  "alaves": {
+    "statshub": "2885",
+    "footymetrics": "2975"
+  },
+  "anderlecht": {
+    "statshub": "2900",
+    "footymetrics": "2555"
+  },
+  "angers": {
+    "statshub": "1684",
+    "footymetrics": "776"
+  },
   "antalyaspor": "3056",
-  "arouca": "25777",
+  "arouca": {
+    "statshub": "25777",
+    "footymetrics": "4092"
+  },
   "arsenal": {
     "statshub": "42",
     "footymetrics": "19"
@@ -112,8 +121,14 @@
     "statshub": "2685",
     "footymetrics": "8513"
   },
-  "borussia-dortmund": "2673",
-  "borussia-mgladbach": "2527",
+  "borussia-dortmund": {
+    "statshub": "2673",
+    "footymetrics": "68"
+  },
+  "borussia-mgladbach": {
+    "statshub": "2527",
+    "footymetrics": "683"
+  },
   "botafogo": "1958",
   "bournemouth": {
     "statshub": "60",
@@ -152,7 +167,10 @@
   "cesena": "2742",
   "cf-estrela-amadora": "3035",
   "chapecoense": "21845",
-  "charlton-athletic": "47",
+  "charlton-athletic": {
+    "statshub": "47",
+    "footymetrics": "4"
+  },
   "chelsea": {
     "statshub": "38",
     "footymetrics": "18"
@@ -161,7 +179,10 @@
     "statshub": "2888",
     "footymetrics": "340"
   },
-  "como": "2704",
+  "como": {
+    "statshub": "2704",
+    "footymetrics": "268"
+  },
   "corinthians": "1957",
   "coritiba": "1982",
   "coventry": {
@@ -172,7 +193,10 @@
     "statshub": "11",
     "footymetrics": "117"
   },
-  "cracovia": "4901",
+  "cracovia": {
+    "statshub": "4901",
+    "footymetrics": "1069"
+  },
   "cremonese": "2761",
   "cruzeiro": "1954",
   "crystal-palace": {
@@ -182,14 +206,13 @@
   "cs-universitatea-craiova": "116223",
   "damac-fc": "204126",
   "degerfors-if": "1807",
-  "deportivo-alaves": {
-    "statshub": "2885",
-    "footymetrics": "2975"
-  },
   "derby-county": "27",
   "djurgardens-if": "1759",
   "dynamo-kyiv": "3305",
-  "eintracht-frankfurt": "2674",
+  "eintracht-frankfurt": {
+    "statshub": "2674",
+    "footymetrics": "366"
+  },
   "elche": {
     "statshub": "2846",
     "footymetrics": "1099"
@@ -203,12 +226,21 @@
     "statshub": "4500",
     "footymetrics": "1198"
   },
-  "everton": "48",
+  "everton": {
+    "statshub": "48",
+    "footymetrics": "13"
+  },
   "excelsior": "2967",
   "eyupspor": "7040",
-  "famalicao": "49531",
+  "famalicao": {
+    "statshub": "49531",
+    "footymetrics": "3161"
+  },
   "fatih-karagumruk": "4954",
-  "fc-alverca": "190328",
+  "fc-alverca": {
+    "statshub": "190328",
+    "footymetrics": "35867"
+  },
   "fc-augsburg": {
     "statshub": "2600",
     "footymetrics": "90"
@@ -223,20 +255,29 @@
   "fc-lausanne-sport": "2446",
   "fc-midtjylland": "1289",
   "fc-noah": "262228",
-  "fc-porto": "3002",
+  "fc-porto": {
+    "statshub": "3002",
+    "footymetrics": "652"
+  },
   "fc-st-pauli": "2526",
   "fc-twente": "2955",
   "fc-utrecht": "2948",
   "fc-volendam": "2968",
   "fcsb": "3301",
   "fcv-dender-eh": "389232",
-  "fenerbahce": "3052",
+  "fenerbahce": {
+    "statshub": "3052",
+    "footymetrics": "88"
+  },
   "ferencvaros-tc": "1925",
   "feyenoord": {
     "statshub": "2959",
     "footymetrics": "73"
   },
-  "fiorentina": "2693",
+  "fiorentina": {
+    "statshub": "2693",
+    "footymetrics": "109"
+  },
   "fk-crvena-zvezda": "5149",
   "flamengo": "5981",
   "fluminense": "1961",
@@ -251,7 +292,10 @@
     "footymetrics": "11"
   },
   "gais-goteborg": "1786",
-  "galatasaray": "3061",
+  "galatasaray": {
+    "statshub": "3061",
+    "footymetrics": "34"
+  },
   "gaziantep-fk": "5138",
   "genclerbirligi": "7802",
   "genoa": {
@@ -270,7 +314,10 @@
     "statshub": "24264",
     "footymetrics": "231"
   },
-  "gks-katowice": "3112",
+  "gks-katowice": {
+    "statshub": "3112",
+    "footymetrics": "2764"
+  },
   "gnk-dinamo-zagreb": "2032",
   "go-ahead-eagles": "2979",
   "gornik-zabrze": {
@@ -280,7 +327,10 @@
   "goztepe": "3054",
   "gremio": "5926",
   "halmstads-bk": "1767",
-  "hamburger-sv": "2676",
+  "hamburger-sv": {
+    "statshub": "2676",
+    "footymetrics": "2708"
+  },
   "hamkam": "666",
   "hammarby-if": {
     "statshub": "1758",
@@ -293,7 +343,10 @@
   },
   "heracles-almelo": "2977",
   "hnk-rijeka": "2039",
-  "hoffenheim": "2569",
+  "hoffenheim": {
+    "statshub": "2569",
+    "footymetrics": "2726"
+  },
   "hsk-zrinjski-mostar": "5178",
   "hull-city": {
     "statshub": "96",
@@ -309,7 +362,10 @@
     "footymetrics": "2930"
   },
   "internacional": "1966",
-  "ipswich-town": "32",
+  "ipswich": {
+    "statshub": "32",
+    "footymetrics": "116"
+  },
   "jagiellonia-bialystok": {
     "statshub": "7691",
     "footymetrics": "890"
@@ -362,7 +418,10 @@
     "statshub": "3106",
     "footymetrics": "349"
   },
-  "leicester-city": "31",
+  "leicester-city": {
+    "statshub": "31",
+    "footymetrics": "42"
+  },
   "lens": {
     "statshub": "1648",
     "footymetrics": "271"
@@ -386,7 +445,15 @@
     "footymetrics": "9257"
   },
   "ludogorets": "43840",
+  "lyon": {
+    "statshub": "1649",
+    "footymetrics": "79"
+  },
   "maccabi-tel-aviv": "5198",
+  "mainz": {
+    "statshub": "2556",
+    "footymetrics": "794"
+  },
   "mallorca": {
     "statshub": "2826",
     "footymetrics": "645"
@@ -394,7 +461,10 @@
   "malmo-ff": "1892",
   "manchester-city": "17",
   "manchester-united": "35",
-  "mantova": "2770",
+  "mantova": {
+    "statshub": "2770",
+    "footymetrics": "10771"
+  },
   "metz": {
     "statshub": "1651",
     "footymetrics": "3513"
@@ -404,7 +474,10 @@
     "statshub": "2692",
     "footymetrics": "113"
   },
-  "millwall": "25",
+  "millwall": {
+    "statshub": "25",
+    "footymetrics": "64"
+  },
   "mirassol": "21982",
   "mjallby-aif": "1783",
   "modena": "2706",
@@ -431,21 +504,40 @@
     "statshub": "1647",
     "footymetrics": "59"
   },
-  "napoli": "2714",
+  "napoli": {
+    "statshub": "2714",
+    "footymetrics": "597"
+  },
   "nec-nijmegen": "2962",
   "neom-sc": "530631",
-  "newcastle": "39",
+  "newcastle": {
+    "statshub": "39",
+    "footymetrics": "20"
+  },
   "nice": {
     "statshub": "1661",
     "footymetrics": "450"
   },
   "nk-celje": "2413",
   "norwich-city": "263",
-  "nottingham-forest": "14",
+  "nottingham-forest": {
+    "statshub": "14",
+    "footymetrics": "63"
+  },
   "olympiacos-fc": "3245",
   "olympique-de-marseille": "1641",
-  "olympique-lyonnais": "1649",
-  "omonia-nicosia": "3395",
+  "olympique-lyon": {
+    "statshub": "1649",
+    "footymetrics": "6"
+  },
+  "olympique-lyonnais": {
+    "statshub": "1649",
+    "footymetrics": "6"
+  },
+  "omonia-nicosia": {
+    "statshub": "3395",
+    "footymetrics": "368"
+  },
   "orgryte-is": "1766",
   "osasuna": {
     "statshub": "2820",
@@ -459,7 +551,10 @@
   "palmeiras": "1963",
   "panathinaikos": "3248",
   "paok": "3251",
-  "paris-fc": "6070",
+  "paris-fc": {
+    "statshub": "6070",
+    "footymetrics": "4508"
+  },
   "paris-saint-germain": "1644",
   "parma": {
     "statshub": "2690",
@@ -477,7 +572,10 @@
     "footymetrics": "808"
   },
   "portsmouth": "2",
-  "preston-north-end": "21",
+  "preston-north-end": {
+    "statshub": "21",
+    "footymetrics": "99"
+  },
   "psv-eindhoven": "2952",
   "qarabag": "5962",
   "queens-park-rangers": "1",
@@ -500,6 +598,10 @@
     "statshub": "2818",
     "footymetrics": "377"
   },
+  "le-mans": {
+    "statshub": "1672",
+    "footymetrics": "775"
+  },
   "rb-leipzig": {
     "statshub": "36360",
     "footymetrics": "277"
@@ -509,7 +611,6 @@
     "footymetrics": "271"
   },
   "rc-sporting-charleroi": "2898",
-  "rc-strasbourg": "1659",
   "real-betis": {
     "statshub": "2816",
     "footymetrics": "485"
@@ -531,14 +632,27 @@
   "red-bull-salzburg": "2046",
   "reggiana": "24516",
   "remo": "2012",
-  "rio-ave": "3036",
-  "roma": "2702",
+  "rennes": {
+    "statshub": "1658",
+    "footymetrics": "598"
+  },
+  "rio-ave": {
+    "statshub": "3036",
+    "footymetrics": "6377"
+  },
+  "roma": {
+    "statshub": "2702",
+    "footymetrics": "37"
+  },
   "rosenborg-bk": "1161",
   "royal-antwerp-fc": "2889",
   "royale-union-saint-gilloise": "4860",
   "sampdoria": "2711",
   "sandefjord-fotball": "676",
-  "santa-clara": "3011",
+  "santa-clara": {
+    "statshub": "3011",
+    "footymetrics": "2628"
+  },
   "santos": "1968",
   "sao-paulo": "1981",
   "sarpsborg-08": "822",
@@ -546,7 +660,10 @@
     "statshub": "2793",
     "footymetrics": "2714"
   },
-  "sc-freiburg": "2538",
+  "sc-freiburg": {
+    "statshub": "2538",
+    "footymetrics": "3543"
+  },
   "sc-heerenveen": "2964",
   "sc-telstar": "2972",
   "sevilla": {
@@ -576,12 +693,25 @@
   "sparta-praha": "2218",
   "sparta-rotterdam": "2960",
   "spezia": "2735",
-  "sporting": "3001",
+  "sporting": {
+    "statshub": "3001",
+    "footymetrics": "58"
+  },
   "sporting-braga": "2999",
   "stade-brestois": "1715",
-  "stade-rennais": "1658",
+  "stade-rennais": {
+    "statshub": "1658",
+    "footymetrics": "598"
+  },
   "standard-liege": "2901",
-  "stoke-city": "29",
+  "stoke-city": {
+    "statshub": "29",
+    "footymetrics": "26"
+  },
+  "strasbourg": {
+    "statshub": "1659",
+    "footymetrics": "686"
+  },
   "stuttgart": {
     "statshub": "2677",
     "footymetrics": "3319"
@@ -591,13 +721,20 @@
     "statshub": "41",
     "footymetrics": "3"
   },
-  "sv-werder-bremen": "2534",
+  "sv-werder-bremen": {
+    "statshub": "2534",
+    "footymetrics": "82"
+  },
   "sv-zulte-waregem": "2933",
   "swansea-city": "74",
   "tondela": "38396",
   "torino": {
     "statshub": "2696",
     "footymetrics": "613"
+  },
+  "tottenham": {
+    "statshub": "33",
+    "footymetrics": "6"
   },
   "tottenham-hotspur": {
     "statshub": "33",
@@ -608,7 +745,14 @@
     "footymetrics": "289"
   },
   "trabzonspor": "3051",
-  "tromso-il": "660",
+  "tromso-il": {
+    "statshub": "660",
+    "footymetrics": "7242"
+  },
+  "troyes": {
+    "statshub": "1652",
+    "footymetrics": "7074"
+  },
   "tsg-hoffenheim": "2569",
   "udinese": {
     "statshub": "2695",
@@ -625,12 +769,18 @@
     "statshub": "2688",
     "footymetrics": "267"
   },
-  "vfb-stuttgart": "2677",
+  "vfb-stuttgart": {
+    "statshub": "2677",
+    "footymetrics": "3319"
+  },
   "vfl-wolfsburg": {
     "statshub": "2524",
     "footymetrics": "510"
   },
-  "viking-fk": "1164",
+  "viking-fk": {
+    "statshub": "1164",
+    "footymetrics": "321"
+  },
   "viktoria-plzen": "4502",
   "villarreal": {
     "statshub": "2819",
@@ -654,7 +804,7 @@
     "footymetrics": "253056"
   },
   "wisla-krakow": {
-    "statshub": "331",
+    "statshub": "3111",
     "footymetrics": "331"
   },
   "wisla-plock": {

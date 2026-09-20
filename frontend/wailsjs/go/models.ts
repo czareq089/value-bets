@@ -21,6 +21,8 @@ export namespace main {
 	    sampleDates: string[];
 	    statsSource: string;
 	    teamSide: string;
+	    teamId: string;
+	    teamName: string;
 	    verdict: string;
 	    lineupStatus: string;
 	    isStartingXI: boolean;
@@ -51,6 +53,8 @@ export namespace main {
 	        this.sampleDates = source["sampleDates"];
 	        this.statsSource = source["statsSource"];
 	        this.teamSide = source["teamSide"];
+	        this.teamId = source["teamId"];
+	        this.teamName = source["teamName"];
 	        this.verdict = source["verdict"];
 	        this.lineupStatus = source["lineupStatus"];
 	        this.isStartingXI = source["isStartingXI"];
@@ -112,6 +116,7 @@ export namespace main {
 	    stsUrl: string;
 	    homeStatsId: string;
 	    awayStatsId: string;
+	    sampleLimit?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new MatchHistoryEntry(source);
@@ -126,6 +131,69 @@ export namespace main {
 	        this.stsUrl = source["stsUrl"];
 	        this.homeStatsId = source["homeStatsId"];
 	        this.awayStatsId = source["awayStatsId"];
+	        this.sampleLimit = source["sampleLimit"];
+	    }
+	}
+	export class MyBetItem {
+	    id: string;
+	    bookmaker: string;
+	    playerName: string;
+	    marketType: string;
+	    marketLabel: string;
+	    line: number;
+	    isUnder: boolean;
+	    bookmakerOdds: number;
+	    fairOdds: number;
+	    hitRate: number;
+	    edgePercent: number;
+	    evWithTax: number;
+	    matchesSample: number;
+	    sampleValues: number[];
+	    sampleValuesSuperSub: number[];
+	    sampleMinutes: number[];
+	    samplePositions: string[];
+	    sampleOpponents: string[];
+	    sampleDates: string[];
+	    statsSource: string;
+	    teamSide: string;
+	    teamId: string;
+	    teamName: string;
+	    verdict: string;
+	    lineupStatus: string;
+	    isStartingXI: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new MyBetItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.bookmaker = source["bookmaker"];
+	        this.playerName = source["playerName"];
+	        this.marketType = source["marketType"];
+	        this.marketLabel = source["marketLabel"];
+	        this.line = source["line"];
+	        this.isUnder = source["isUnder"];
+	        this.bookmakerOdds = source["bookmakerOdds"];
+	        this.fairOdds = source["fairOdds"];
+	        this.hitRate = source["hitRate"];
+	        this.edgePercent = source["edgePercent"];
+	        this.evWithTax = source["evWithTax"];
+	        this.matchesSample = source["matchesSample"];
+	        this.sampleValues = source["sampleValues"];
+	        this.sampleValuesSuperSub = source["sampleValuesSuperSub"];
+	        this.sampleMinutes = source["sampleMinutes"];
+	        this.samplePositions = source["samplePositions"];
+	        this.sampleOpponents = source["sampleOpponents"];
+	        this.sampleDates = source["sampleDates"];
+	        this.statsSource = source["statsSource"];
+	        this.teamSide = source["teamSide"];
+	        this.teamId = source["teamId"];
+	        this.teamName = source["teamName"];
+	        this.verdict = source["verdict"];
+	        this.lineupStatus = source["lineupStatus"];
+	        this.isStartingXI = source["isStartingXI"];
 	    }
 	}
 	export class TeamDetectionResult {

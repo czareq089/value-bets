@@ -356,7 +356,10 @@
                     <span class="slider-val" id="sliderVal">10 m.</span>
                 </div>
             </div>
-            <button class="btn-primary" id="btnAnalyze" onclick="runAnalysis()">Analizuj</button>
+            <div style="display: flex; gap: 6px;">
+                <button class="btn-primary" id="btnAnalyze" onclick="runAnalysis()">Analizuj</button>
+                <button class="btn-ghost" style="height:34px; padding:0 12px; border-color:var(--border); color:var(--text-muted);" title="Wyczyść wszystkie pola" onclick="clearAllInputs()">✕</button>
+            </div>
         </div>
 
         <div class="fm-row">
@@ -393,7 +396,10 @@
         <input type="text" id="searchBox" class="search-box" placeholder="Szukaj zawodnika, np. szymanski..." onkeyup="renderFiltered()">
         <button id="compareToggle" class="filter-select" style="cursor:pointer; font-weight:700;" onclick="toggleCompareMode()">🔀 Widok: Lista</button>
 
-        <!-- Bukmacherzy Dropdown Checkboxes -->
+        <select id="teamFilter" class="filter-select" onchange="renderFiltered()">
+            <option value="ALL">🏟️ Wszystkie drużyny</option>
+        </select>
+
         <div class="dropdown-check-list" id="bmDropdown">
             <div class="dropdown-check-btn" onclick="toggleDropdown('bmDropdown')">
                 <span id="bmBtnLabel">Bukmacherzy (Wszyscy)</span> ▼
@@ -409,7 +415,6 @@
             </div>
         </div>
 
-        <!-- Rynki Dropdown Checkboxes -->
         <div class="dropdown-check-list" id="marketDropdown">
             <div class="dropdown-check-btn" onclick="toggleDropdown('marketDropdown')">
                 <span id="marketBtnLabel">Rynki (Wszystkie)</span> ▼
@@ -434,10 +439,14 @@
             </div>
         </div>
 
-        <!-- Przełącznik Starting XI -->
         <label style="display:flex; align-items:center; gap:6px; background:var(--bg-card); border:1px solid var(--border); padding:0 10px; border-radius:6px; height:32px; font-size:12px; font-weight:700; cursor:pointer; user-select:none;">
             <input type="checkbox" id="startingXIToggle" onchange="renderFiltered()" style="accent-color:var(--success); cursor:pointer;">
             🟢 Tylko Starting XI
+        </label>
+
+        <label style="display:flex; align-items:center; gap:6px; background:var(--bg-card); border:1px solid var(--border); padding:0 10px; border-radius:6px; height:32px; font-size:12px; font-weight:700; cursor:pointer; user-select:none;">
+            <input type="checkbox" id="bufferModeToggle" onchange="renderFiltered()" style="accent-color:var(--accent); cursor:pointer;">
+            🛡️ Buffer Mode (HR 100% + bufor śr.)
         </label>
 
         <select id="verdictFilter" class="filter-select" onchange="renderFiltered()">
@@ -495,20 +504,38 @@
 </div>
 
 <div class="chart-modal" id="riskModal" role="dialog" aria-modal="true" aria-labelledby="riskTitle" onclick="closeRiskOnBackdrop(event)">
-    <div class="chart-dialog" style="max-width: 860px;">
+    <div class="chart-dialog" style="max-width: 900px;">
         <div class="chart-header">
             <div>
-                <h2 id="riskTitle">🎯 Doradca Kuponu (AKO vs Solo)</h2>
+                <h2 id="riskTitle">🎯 Doradca Kuponu (Kalkulator i Generator Anty-Domino)</h2>
                 <p id="riskSubtitle" style="color:var(--text-muted); font-size:12px; margin-top:3px;"></p>
             </div>
             <button class="chart-close" type="button" aria-label="Zamknij" onclick="closeRisk()">×</button>
         </div>
 
-        <div style="display:flex; align-items:center; gap:16px; margin-bottom:14px; background:var(--bg-input); padding:10px 14px; border-radius:8px; border:1px solid var(--border);">
+        <div style="display:flex; align-items:center; gap:16px; margin-bottom:14px; background:var(--bg-input); border-radius:8px; border:1px solid var(--border); padding:10px 14px;">
             <label style="font-size:12px; font-weight:600; color:#fff;">Twój budżet na tę grę:
                 <input type="number" id="riskBankroll" value="100" min="5" step="5" style="width:85px; margin-left:6px; background:#0b0f19; border:1px solid var(--border); color:#fff; padding:4px 8px; border-radius:4px; font-weight:700;" oninput="renderRisk()"> zł
             </label>
-            <span style="font-size:11px; color:var(--text-muted);">(Podatek bukmacherski 12% od wygranych jest automatycznie odliczony)</span>
+            <span style="font-size:11px; color:var(--text-muted);">(Podatek bukmacherski 12% jest odliczony od wygranych)</span>
+        </div>
+
+        <!-- GENERATOR ANTY-DOMINO -->
+        <div style="background:var(--bg-input); border:1px solid var(--border); border-radius:8px; padding:12px; margin-bottom:14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+                <div style="font-size:13px; font-weight:700; color:var(--accent);">
+                    🛡️ Generator Kuponów Anty-Domino (Brak powtórzeń gracza i brak tej samej drużyny na kuponie)
+                </div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <label style="font-size:11px; color:var(--text-muted);">Rozmiar kuponu:</label>
+                    <select id="antiDominoSize" class="filter-select" style="height:28px;" onchange="renderRisk()">
+                        <option value="2">Duble (2 zdarzenia)</option>
+                        <option value="3" selected>Treble (3 zdarzenia)</option>
+                        <option value="4">Kupony 4-zdarzeniowe</option>
+                    </select>
+                </div>
+            </div>
+            <div id="antiDominoCoupons" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:10px;"></div>
         </div>
 
         <div style="font-size:13px; font-weight:700; color:var(--accent); margin-bottom:8px;">💡 Proponowane połączenia o najlepszym stosunku zysku do ryzyka:</div>
@@ -529,7 +556,7 @@
     <div class="dock-header">
         <button class="dock-toggle" onclick="toggleDock('dockRight')">▶</button>
         <span class="dock-title">⭐ MyBets (<span id="myBetsCount">0</span>)</span>
-        <button class="dock-toggle" style="width:auto; padding:0 6px;" title="Kalkulator AKO / solo"
+        <button class="dock-toggle" style="width:auto; padding:0 6px;" title="Kalkulator AKO / solo i Anty-Domino"
                 onclick="openRiskModal()">📉</button>
     </div>
     <div class="dock-content" id="myBetsList"></div>
@@ -577,6 +604,19 @@
             }
         } catch(e) {}
 
+        // Wczytanie utrwalonych MyBets z pliku bets_cache.json
+        try {
+            if (window.go?.main?.App?.LoadMyBets) {
+                const savedBets = await window.go.main.App.LoadMyBets();
+                if (Array.isArray(savedBets) && savedBets.length > 0) {
+                    myBets = savedBets;
+                    renderMyBets();
+                }
+            }
+        } catch (e) {
+            console.error("Błąd podczas wczytywania MyBets:", e);
+        }
+
         try {
             if (window.go?.main?.App?.LoadMatchHistory) {
                 const list = await window.go.main.App.LoadMatchHistory();
@@ -584,6 +624,52 @@
             }
         } catch(e) {}
     };
+
+    function clearAllInputs() {
+        const ids = ['sbInput', 'betclicInput', 'stsInput', 'homeIdInput', 'awayIdInput', 'fmInput', 'fmHomeId', 'fmAwayId'];
+        ids.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.value = '';
+        });
+
+        currentMatchKey = null;
+        currentHomeSlug = "";
+        currentAwaySlug = "";
+        rawBets = [];
+
+        document.getElementById('leagueSelectorWrap').style.display = 'none';
+        document.getElementById('leagueCheckboxes').innerHTML = '';
+        document.getElementById('searchBox').value = '';
+        updateFmStatus('');
+        updateStats();
+
+        document.getElementById('resultsBody').innerHTML =
+            '<tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--text-muted);">Uzupełnij linki bukmacherów i kliknij Analizuj.</td></tr>';
+    }
+
+    function passesBufferMode(item, isValue) {
+        if (!isValue) return false;
+
+        const hasSuperSub = Array.isArray(item.sampleValuesSuperSub) &&
+            item.sampleValuesSuperSub.length === (item.sampleValues || []).length;
+
+        const vals = (!item.isUnder && hasSuperSub) ? item.sampleValuesSuperSub : (item.sampleValues || []);
+        if (!vals || vals.length === 0) return false;
+
+        if (item.isUnder) {
+            const maxAllowed = Math.floor(item.line);
+            const worstMatch = Math.max(...vals);
+            const allHit = vals.every(v => v <= maxAllowed);
+
+            return allHit && (worstMatch < maxAllowed);
+        } else {
+            const minRequired = Math.floor(item.line) + 1;
+            const worstMatch = Math.min(...vals);
+            const allHit = vals.every(v => v >= minRequired);
+
+            return allHit && (worstMatch > minRequired);
+        }
+    }
 
     function toggleDropdown(id) {
         const el = document.getElementById(id);
@@ -625,6 +711,33 @@
             mLabel.textContent = "Rynki (Żaden)";
         } else {
             mLabel.textContent = `Rynki (${mChecked.length}/${mTotal})`;
+        }
+    }
+
+    function updateTeamDropdown(bets) {
+        const select = document.getElementById('teamFilter');
+        if (!select) return;
+        const currentSelected = select.value;
+
+        const teamsMap = new Map();
+        bets.forEach(b => {
+            const key = b.teamId || b.teamSide || '';
+            const name = b.teamName || (b.teamSide === 'HOME' ? 'Gospodarze' : (b.teamSide === 'AWAY' ? 'Goście' : key));
+            if (key && !teamsMap.has(key)) {
+                teamsMap.set(key, name);
+            }
+        });
+
+        let optionsHtml = '<option value="ALL">🏟️ Wszystkie drużyny</option>';
+        teamsMap.forEach((name, key) => {
+            optionsHtml += `<option value="${key}">${name}</option>`;
+        });
+
+        select.innerHTML = optionsHtml;
+        if (Array.from(select.options).some(o => o.value === currentSelected)) {
+            select.value = currentSelected;
+        } else {
+            select.value = "ALL";
         }
     }
 
@@ -890,23 +1003,46 @@
         try {
             rawBets = await window.go.main.App.AnalyzeThreeBookmakers(sb, betclic, sts, home, away, limit, selectedTournaments, fmHome, fmAway);
 
+            updateTeamDropdown(rawBets);
             syncMinOddsSliderRange();
             renderFiltered();
             updateStats();
 
-            let title = "Mecz";
-            const sampleUrl = sb || betclic || sts;
-            if (sampleUrl) {
-                const det = await window.go.main.App.DetectTeamsFromURL(sampleUrl);
-                if (det.homeId && det.awayId && det.homeSlug && det.awaySlug) {
-                    title = `${det.homeSlug} vs ${det.awaySlug}`;
+            // Zapis ręcznie podanych lub wykrytych ID StatsHub do team_cache.json
+            if (window.go?.main?.App?.SaveTeamStatsHubID) {
+                if (currentHomeSlug && home) await window.go.main.App.SaveTeamStatsHubID(currentHomeSlug, home);
+                if (currentAwaySlug && away) await window.go.main.App.SaveTeamStatsHubID(currentAwaySlug, away);
+            }
+
+            // Konstrukcja czytelnego tytułu w historii spotkań
+            let title = "";
+            if (currentHomeSlug && currentAwaySlug) {
+                title = `${currentHomeSlug} vs ${currentAwaySlug}`;
+            } else {
+                const sampleUrl = sb || betclic || sts;
+                if (sampleUrl) {
+                    const det = await window.go.main.App.DetectTeamsFromURL(sampleUrl);
+                    if (det.homeSlug && det.awaySlug) {
+                        title = `${det.homeSlug} vs ${det.awaySlug}`;
+                    }
+                }
+            }
+
+            if (!title) {
+                const homeName = rawBets.find(b => b.teamSide === 'HOME')?.teamName;
+                const awayName = rawBets.find(b => b.teamSide === 'AWAY')?.teamName;
+                if (homeName && awayName) {
+                    title = `${homeName} vs ${awayName}`;
+                } else {
+                    title = `Mecz (${home} vs ${away})`;
                 }
             }
 
             if (window.go?.main?.App?.SaveMatchHistory) {
                 const hist = await window.go.main.App.SaveMatchHistory({
                     title, sbUrl: sb, betclicUrl: betclic, stsUrl: sts,
-                    homeStatsId: home, awayStatsId: away
+                    homeStatsId: home, awayStatsId: away,
+                    sampleLimit: limit
                 });
                 renderHistory(hist);
             }
@@ -926,10 +1062,11 @@
         list.forEach((item, idx) => {
             const div = document.createElement("div");
             div.className = "item-card";
+            const sampleText = item.sampleLimit ? ` · ${item.sampleLimit} m.` : '';
             div.innerHTML = `
                 <button class="card-del" onclick="deleteHistoryEntry(${idx}, event)">✕</button>
                 <div class="card-title">${item.title}</div>
-                <div class="card-date">${item.timestamp || ''}</div>
+                <div class="card-date">${item.timestamp || ''}${sampleText}</div>
                 <div class="card-sub">SH: ${item.homeStatsId || '-'} / ${item.awayStatsId || '-'}</div>
             `;
             div.onclick = () => {
@@ -940,6 +1077,14 @@
                 document.getElementById('awayIdInput').value = item.awayStatsId || '';
                 document.getElementById('fmHomeId').value = '';
                 document.getElementById('fmAwayId').value = '';
+
+                // Przywrócenie zapisanej próbki suwaka
+                if (item.sampleLimit && item.sampleLimit > 0) {
+                    const slider = document.getElementById('matchSlider');
+                    slider.value = item.sampleLimit;
+                    document.getElementById('sliderVal').innerText = item.sampleLimit + ' m.';
+                }
+
                 currentMatchKey = (item.homeStatsId && item.awayStatsId)
                     ? [item.homeStatsId, item.awayStatsId].sort().join('|')
                     : null;
@@ -996,6 +1141,8 @@
                     sampleDates: b.sampleDates || [],
                     statsSource: b.statsSource || '',
                     teamSide: b.teamSide || '',
+                    teamId: b.teamId || '',
+                    teamName: b.teamName || '',
                     lineupStatus: b.lineupStatus || 'UNKNOWN',
                     isStartingXI: b.isStartingXI || false,
                     bookmakerSpread: 0,
@@ -1025,9 +1172,11 @@
         const q = normalizeSearchText(document.getElementById("searchBox").value);
         const selectedBMs = Array.from(document.querySelectorAll('.bm-cb:checked')).map(cb => cb.value);
         const selectedMarkets = Array.from(document.querySelectorAll('.market-cb:checked')).map(cb => cb.value);
+        const selectedTeam = document.getElementById("teamFilter")?.value || "ALL";
         const verdict = document.getElementById("verdictFilter").value;
         const minOdds = parseFloat(document.getElementById("minOddsSlider")?.value || "1.05");
         const onlyStartingXI = document.getElementById("startingXIToggle")?.checked;
+        const bufferMode = document.getElementById("bufferModeToggle")?.checked;
 
         if (!compareMode) {
             let filtered = rawBets.filter(b => {
@@ -1037,9 +1186,20 @@
                 const matchVerdict = (verdict === "ALL") || (b.verdict === verdict);
                 const matchOdds = b.bookmakerOdds >= minOdds;
 
-                // Filtr Starting XI (ukrywa rezerwowych, jeśli składy są już potwierdzone)
+                const bTeamKey = b.teamId || b.teamSide || '';
+                const matchTeam = (selectedTeam === "ALL") || (bTeamKey === selectedTeam);
+
+                if (!matchTeam) return false;
+
                 if (onlyStartingXI && b.lineupStatus && b.lineupStatus !== "UNKNOWN") {
                     if (!b.isStartingXI) {
+                        return false;
+                    }
+                }
+
+                if (bufferMode) {
+                    const isVal = b.verdict === "VALUE";
+                    if (!passesBufferMode(b, isVal)) {
                         return false;
                     }
                 }
@@ -1058,8 +1218,20 @@
             const matchVerdict = (verdict === "ALL") || Object.values(g.books).some(o => o.verdict === verdict);
             const matchOdds = Object.values(g.books).some(o => o.odds >= minOdds);
 
+            const gTeamKey = g.teamId || g.teamSide || '';
+            const matchTeam = (selectedTeam === "ALL") || (gTeamKey === selectedTeam);
+
+            if (!matchTeam) return false;
+
             if (onlyStartingXI && g.lineupStatus && g.lineupStatus !== "UNKNOWN") {
                 if (!g.isStartingXI) {
+                    return false;
+                }
+            }
+
+            if (bufferMode) {
+                const hasValueBook = Object.values(g.books).some(o => o.verdict === "VALUE");
+                if (!passesBufferMode(g, hasValueBook)) {
                     return false;
                 }
             }
@@ -1413,6 +1585,8 @@
                         matchesSample: g.matchesSample,
                         statsSource: g.statsSource,
                         teamSide: g.teamSide,
+                        teamId: g.teamId,
+                        teamName: g.teamName,
                         lineupStatus: g.lineupStatus,
                         isStartingXI: g.isStartingXI,
                         sampleValues: g.sampleValues,
@@ -1430,19 +1604,36 @@
         });
     }
 
+    async function persistMyBets() {
+        if (window.go?.main?.App?.SaveMyBets) {
+            try {
+                await window.go.main.App.SaveMyBets(myBets);
+            } catch (e) {
+                console.error("Błąd zapisu MyBets do bets_cache.json:", e);
+            }
+        }
+    }
+
     function addToMyBets(bet) {
         const id = `${bet.bookmaker}_${bet.playerName}_${bet.marketLabel}_${bet.line}_${bet.isUnder}`;
         if (myBets.some(b => b.id === id)) {
             removeMyBet(id);
             return;
         }
-        myBets.push({ id, ...bet });
+        myBets.push({
+            id,
+            ...bet,
+            teamId: bet.teamId || bet.teamSide || "TEAM_DEFAULT",
+            teamName: bet.teamName || (bet.teamSide === "HOME" ? "Gospodarze" : (bet.teamSide === "AWAY" ? "Goście" : "Drużyna"))
+        });
         renderMyBets();
+        persistMyBets();
     }
 
     function removeMyBet(id) {
         myBets = myBets.filter(b => b.id !== id);
         renderMyBets();
+        persistMyBets();
     }
 
     function renderMyBets() {
@@ -1514,6 +1705,7 @@
 
         if (legs.length === 0) {
             document.getElementById('optimizerCards').innerHTML = `<div style="grid-column:1/-1; padding:12px; background:var(--bg-input); border-radius:6px; color:var(--text-muted);">Brak typów z kursem w MyBets. Dodaj typy klikając na nie PPM w tabeli.</div>`;
+            document.getElementById('antiDominoCoupons').innerHTML = `<div style="grid-column:1/-1; padding:8px; color:var(--text-muted);">Brak typów z kursem.</div>`;
             document.getElementById('riskAko').innerHTML = '';
             document.getElementById('riskSolo').innerHTML = '';
             document.getElementById('riskLegs').innerHTML = '';
@@ -1522,6 +1714,95 @@
         }
 
         document.getElementById('riskSubtitle').textContent = `Wybrano ${legs.length} zdarzeń w MyBets · Budżet: ${bankroll.toFixed(0)} zł`;
+
+        const targetSize = parseInt(document.getElementById('antiDominoSize')?.value || "3", 10);
+
+        const playerBestBet = new Map();
+        legs.forEach(bet => {
+            const existing = playerBestBet.get(bet.playerName);
+            if (!existing || bet.hitRate > existing.hitRate) {
+                playerBestBet.set(bet.playerName, bet);
+            }
+        });
+        const distinctCandidates = Array.from(playerBestBet.values());
+
+        const teamOccurrences = {};
+        distinctCandidates.forEach(b => {
+            const team = b.teamId || b.teamName || b.teamSide || b.playerName;
+            teamOccurrences[team] = (teamOccurrences[team] || 0) + 1;
+        });
+
+        distinctCandidates.sort((a, b) => {
+            const tA = a.teamId || a.teamName || a.teamSide || a.playerName;
+            const tB = b.teamId || b.teamName || b.teamSide || b.playerName;
+            if (teamOccurrences[tB] !== teamOccurrences[tA]) {
+                return teamOccurrences[tB] - teamOccurrences[tA];
+            }
+            return b.hitRate - a.hitRate;
+        });
+
+        const partitionedCoupons = [];
+        distinctCandidates.forEach(bet => {
+            const betTeam = bet.teamId || bet.teamName || bet.teamSide || b.playerName;
+            let placed = false;
+
+            for (const c of partitionedCoupons) {
+                if (c.legs.length < targetSize && !c.teams.has(betTeam)) {
+                    c.legs.push(bet);
+                    c.teams.add(betTeam);
+                    placed = true;
+                    break;
+                }
+            }
+
+            if (!placed) {
+                partitionedCoupons.push({
+                    legs: [bet],
+                    teams: new Set([betTeam])
+                });
+            }
+        });
+
+        const validCoupons = partitionedCoupons.filter(c => c.legs.length >= 2);
+        const leftovers = partitionedCoupons.filter(c => c.legs.length === 1);
+        const couponsContainer = document.getElementById('antiDominoCoupons');
+
+        if (validCoupons.length === 0) {
+            couponsContainer.innerHTML = `<div style="grid-column:1/-1; font-size:12px; color:var(--text-muted); padding:10px;">
+                Zbyt mało selekcji z różnych drużyn, aby ułożyć pełny kupon ${targetSize}-zdarzeniowy bez powtarzania zespołów.
+            </div>`;
+        } else {
+            const stakePart = bankroll / validCoupons.length;
+            couponsContainer.innerHTML = validCoupons.map((c, idx) => {
+                const cOdds = c.legs.reduce((acc, l) => acc * l.bookmakerOdds, 1);
+                const cChance = c.legs.reduce((acc, l) => acc * (Math.min(95, Math.max(5, l.hitRate)) / 100), 1) * 100;
+                const cNetWin = (stakePart * cOdds * 0.88) - stakePart;
+
+                return `
+                    <div style="background:var(--bg-main); border:1px solid var(--border); border-left:3px solid var(--accent); border-radius:6px; padding:10px;">
+                        <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:700; color:var(--accent);">
+                            <span>KUPON #${idx + 1} (${c.legs.length} zdarzenia)</span>
+                            <span>@${cOdds.toFixed(2)}</span>
+                        </div>
+                        <div style="font-size:11px; color:var(--text-muted); margin:4px 0 6px 0;">
+                            Szansa: <b style="color:#fff;">${cChance.toFixed(1)}%</b> | Stawka: <b>${stakePart.toFixed(1)} zł</b> | Zysk: <b style="color:var(--success);">+${cNetWin.toFixed(2)} zł</b>
+                        </div>
+                        <div style="font-size:11px; border-top:1px solid #293548; padding-top:6px; line-height:1.4;">
+                            ${c.legs.map(l => `• <b>${l.playerName}</b> <span style="color:var(--text-muted);">(${l.teamName || l.teamSide})</span>: ${l.marketLabel} (${l.isUnder ? 'under' : 'over'} ${l.line}) @${l.bookmakerOdds.toFixed(2)}`).join('<br>')}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            if (leftovers.length > 0) {
+                couponsContainer.innerHTML += `
+                    <div style="grid-column:1/-1; font-size:11px; color:var(--text-muted); margin-top:4px;">
+                        ⚠️ Pojedyncze selekcje pominięte w kuponach (brak pary lub konflikt klubowy):
+                        ${leftovers.map(s => `<b>${s.legs[0].playerName}</b>`).join(', ')}.
+                    </div>
+                `;
+            }
+        }
 
         const dupes = {};
         legs.forEach(l => dupes[l.playerName] = (dupes[l.playerName] || 0) + 1);

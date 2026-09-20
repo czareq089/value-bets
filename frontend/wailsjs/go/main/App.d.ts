@@ -18,6 +18,12 @@ export function HarvestFootyMetrics(arg1:string,arg2:string,arg3:string):Promise
 
 export function LoadMatchHistory():Promise<Array<main.MatchHistoryEntry>>;
 
+export function LoadMyBets():Promise<Array<main.MyBetItem>>;
+
 export function ResolveFootyMetricsForMatch(arg1:string,arg2:string):Promise<main.FMTeamIDs>;
 
 export function SaveMatchHistory(arg1:main.MatchHistoryEntry):Promise<Array<main.MatchHistoryEntry>>;
+
+export function SaveMyBets(arg1:Array<main.MyBetItem>):Promise<boolean>;
+
+export function SaveTeamStatsHubID(arg1:string,arg2:string):Promise<boolean>;

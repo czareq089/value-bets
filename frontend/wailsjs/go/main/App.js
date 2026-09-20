@@ -34,10 +34,22 @@ export function LoadMatchHistory() {
   return window['go']['main']['App']['LoadMatchHistory']();
 }
 
+export function LoadMyBets() {
+  return window['go']['main']['App']['LoadMyBets']();
+}
+
 export function ResolveFootyMetricsForMatch(arg1, arg2) {
   return window['go']['main']['App']['ResolveFootyMetricsForMatch'](arg1, arg2);
 }
 
 export function SaveMatchHistory(arg1) {
   return window['go']['main']['App']['SaveMatchHistory'](arg1);
+}
+
+export function SaveMyBets(arg1) {
+  return window['go']['main']['App']['SaveMyBets'](arg1);
+}
+
+export function SaveTeamStatsHubID(arg1, arg2) {
+  return window['go']['main']['App']['SaveTeamStatsHubID'](arg1, arg2);
 }
