@@ -38,15 +38,33 @@
     "statshub": "2885",
     "footymetrics": "2975"
   },
+  "albania": {
+    "footymetrics": "321801"
+  },
   "anderlecht": {
     "statshub": "2900",
     "footymetrics": "2555"
+  },
+  "andora": {
+    "statshub": "4818",
+    "footymetrics": "321806"
+  },
+  "andorra": {
+    "statshub": "4818",
+    "footymetrics": "321806"
   },
   "angers": {
     "statshub": "1684",
     "footymetrics": "776"
   },
+  "anglia": {
+    "footymetrics": "321753"
+  },
   "antalyaspor": "3056",
+  "armenia": {
+    "statshub": "4740",
+    "footymetrics": "321790"
+  },
   "arouca": {
     "statshub": "25777",
     "footymetrics": "4092"
@@ -85,6 +103,10 @@
     "footymetrics": "7980"
   },
   "atletico-mineiro": "1977",
+  "austria": {
+    "statshub": "4718",
+    "footymetrics": "321742"
+  },
   "auxerre": {
     "statshub": "1646",
     "footymetrics": "3682"
@@ -92,6 +114,12 @@
   "avellino": "2730",
   "avs-futebol-sad": "483088",
   "az-alkmaar": "2950",
+  "azerbaijan": {
+    "footymetrics": "321795"
+  },
+  "azerbejdzan": {
+    "footymetrics": "321795"
+  },
   "bahia": "1955",
   "barcelona": {
     "statshub": "2817",
@@ -101,6 +129,15 @@
   "basaksehir-fk": "3086",
   "basel": "2501",
   "bayer-04-leverkusen": "2681",
+  "belarus": {
+    "footymetrics": "321800"
+  },
+  "belgia": {
+    "footymetrics": "321746"
+  },
+  "belgium": {
+    "footymetrics": "321746"
+  },
   "benfica": {
     "statshub": "3006",
     "footymetrics": "605"
@@ -113,6 +150,9 @@
   "betis": {
     "statshub": "2816",
     "footymetrics": "485"
+  },
+  "bialorus": {
+    "footymetrics": "321800"
   },
   "birmingham-city": {
     "statshub": "9",
@@ -133,6 +173,12 @@
     "statshub": "2527",
     "footymetrics": "683"
   },
+  "bosnia-and-herzegovina": {
+    "footymetrics": "321810"
+  },
+  "bosnia-i-hercegowina": {
+    "footymetrics": "321810"
+  },
   "botafogo": "1958",
   "bournemouth": {
     "statshub": "60",
@@ -149,6 +195,9 @@
   },
   "bristol-city": "58",
   "bruk-bet-termalica-nieciecza": "36851",
+  "bulgaria": {
+    "footymetrics": "321787"
+  },
   "burnley": "6",
   "cagliari": {
     "statshub": "2719",
@@ -179,6 +228,9 @@
     "statshub": "38",
     "footymetrics": "18"
   },
+  "chorwacja": {
+    "footymetrics": "321763"
+  },
   "club-brugge-kv": {
     "statshub": "2888",
     "footymetrics": "340"
@@ -202,14 +254,40 @@
     "footymetrics": "1069"
   },
   "cremonese": "2761",
+  "croatia": {
+    "footymetrics": "321763"
+  },
   "cruzeiro": "1954",
   "crystal-palace": {
     "statshub": "7",
     "footymetrics": "51"
   },
   "cs-universitatea-craiova": "116223",
+  "cypr": {
+    "footymetrics": "321756"
+  },
+  "cyprus": {
+    "footymetrics": "321756"
+  },
+  "czarnogora": {
+    "footymetrics": "321805"
+  },
+  "czech-republic": {
+    "footymetrics": "321791"
+  },
+  "czechy": {
+    "footymetrics": "321791"
+  },
   "damac-fc": "204126",
+  "dania": {
+    "statshub": "4476",
+    "footymetrics": "321748"
+  },
   "degerfors-if": "1807",
+  "denmark": {
+    "statshub": "4476",
+    "footymetrics": "321748"
+  },
   "derby-county": "27",
   "djurgardens-if": "1759",
   "dynamo-kyiv": "3305",
@@ -222,9 +300,15 @@
     "footymetrics": "1099"
   },
   "empoli": "2705",
+  "england": {
+    "footymetrics": "321753"
+  },
   "espanyol": {
     "statshub": "2814",
     "footymetrics": "528"
+  },
+  "estonia": {
+    "footymetrics": "321728"
   },
   "estoril-praia": {
     "statshub": "4500",
@@ -239,6 +323,9 @@
   "famalicao": {
     "statshub": "49531",
     "footymetrics": "3161"
+  },
+  "faroe-islands": {
+    "footymetrics": "321750"
   },
   "fatih-karagumruk": "4954",
   "fc-alverca": {
@@ -278,6 +365,12 @@
     "statshub": "2959",
     "footymetrics": "73"
   },
+  "finland": {
+    "footymetrics": "321796"
+  },
+  "finlandia": {
+    "footymetrics": "321796"
+  },
   "fiorentina": {
     "statshub": "2693",
     "footymetrics": "109"
@@ -286,6 +379,12 @@
   "flamengo": "5981",
   "fluminense": "1961",
   "fortuna-sittard": "2957",
+  "france": {
+    "footymetrics": "321749"
+  },
+  "francja": {
+    "footymetrics": "321749"
+  },
   "fredrikstad-fk": "687",
   "frosinone": {
     "statshub": "2801",
@@ -306,9 +405,19 @@
     "statshub": "2713",
     "footymetrics": "102"
   },
+  "georgia": {
+    "footymetrics": "321807"
+  },
+  "germany": {
+    "statshub": "4711",
+    "footymetrics": "321755"
+  },
   "getafe": {
     "statshub": "2859",
     "footymetrics": "106"
+  },
+  "gibraltar": {
+    "footymetrics": "321794"
   },
   "gil-vicente": {
     "statshub": "3010",
@@ -329,7 +438,18 @@
     "footymetrics": "3781"
   },
   "goztepe": "3054",
+  "grecja": {
+    "statshub": "4710",
+    "footymetrics": "321856"
+  },
+  "greece": {
+    "statshub": "4710",
+    "footymetrics": "321856"
+  },
   "gremio": "5926",
+  "gruzja": {
+    "footymetrics": "321807"
+  },
   "halmstads-bk": "1767",
   "hamburger-sv": {
     "statshub": "2676",
@@ -346,15 +466,28 @@
     "footymetrics": "1123"
   },
   "heracles-almelo": "2977",
+  "hiszpania": {
+    "footymetrics": "321789"
+  },
   "hnk-rijeka": "2039",
   "hoffenheim": {
     "statshub": "2569",
     "footymetrics": "2726"
   },
+  "holandia": {
+    "statshub": "4705",
+    "footymetrics": "321733"
+  },
   "hsk-zrinjski-mostar": "5178",
   "hull-city": {
     "statshub": "96",
     "footymetrics": "22"
+  },
+  "hungary": {
+    "footymetrics": "321816"
+  },
+  "iceland": {
+    "footymetrics": "321729"
   },
   "if-brommapojkarna": "1787",
   "if-elfsborg": "1762",
@@ -370,6 +503,28 @@
     "statshub": "32",
     "footymetrics": "116"
   },
+  "ireland": "4693",
+  "irlandia": {
+    "statshub": "4693",
+    "footymetrics": "321741"
+  },
+  "irlandia-polnocna": {
+    "footymetrics": "321736"
+  },
+  "islandia": {
+    "footymetrics": "321729"
+  },
+  "israel": {
+    "statshub": "4480",
+    "footymetrics": "321825"
+  },
+  "italy": {
+    "footymetrics": "321813"
+  },
+  "izrael": {
+    "statshub": "4480",
+    "footymetrics": "321825"
+  },
   "jagiellonia-bialystok": {
     "statshub": "7691",
     "footymetrics": "890"
@@ -384,6 +539,12 @@
   "kalmar-ff": "1891",
   "kasimpasa": "6063",
   "kayserispor": "3072",
+  "kazachstan": {
+    "footymetrics": "321809"
+  },
+  "kazakhstan": {
+    "footymetrics": "321809"
+  },
   "kf-shkendija": "5413",
   "kfum-oslo": "786",
   "kocaelispor": "3065",
@@ -392,11 +553,23 @@
     "statshub": "5065",
     "footymetrics": "3260"
   },
+  "kosovo": {
+    "statshub": "154426",
+    "footymetrics": "321814"
+  },
+  "kosowo": {
+    "statshub": "154426",
+    "footymetrics": "321814"
+  },
   "krc-genk": "2890",
   "kristiansund-bk": "957",
   "kups": "2244",
   "kv-mechelen": "5044",
   "kvc-westerlo": "2893",
+  "latvia": {
+    "statshub": "4706",
+    "footymetrics": "321759"
+  },
   "lazio": {
     "statshub": "2699",
     "footymetrics": "43"
@@ -438,12 +611,24 @@
     "statshub": "2849",
     "footymetrics": "3457"
   },
+  "liechtenstein": {
+    "statshub": "4830",
+    "footymetrics": "321788"
+  },
   "lille": {
     "statshub": "1643",
     "footymetrics": "690"
   },
   "lillestrom-sk": "664",
   "lincoln-red-imps": "126304",
+  "lithuania": {
+    "statshub": "4776",
+    "footymetrics": "325740"
+  },
+  "litwa": {
+    "statshub": "4776",
+    "footymetrics": "325740"
+  },
   "liverpool": {
     "statshub": "44",
     "footymetrics": "8"
@@ -452,12 +637,26 @@
     "statshub": "1656",
     "footymetrics": "9257"
   },
+  "lotwa": {
+    "statshub": "4706",
+    "footymetrics": "321759"
+  },
   "ludogorets": "43840",
+  "luksemburg": {
+    "footymetrics": "321802"
+  },
+  "luxembourg": {
+    "footymetrics": "321802"
+  },
   "lyon": {
     "statshub": "1649",
     "footymetrics": "79"
   },
   "maccabi-tel-aviv": "5198",
+  "macedonia-polnocna": {
+    "statshub": "4777",
+    "footymetrics": "321760"
+  },
   "mainz": {
     "statshub": "2556",
     "footymetrics": "794"
@@ -467,6 +666,10 @@
     "footymetrics": "645"
   },
   "malmo-ff": "1892",
+  "malta": {
+    "statshub": "4483",
+    "footymetrics": "321798"
+  },
   "manchester-city": "17",
   "manchester-united": "35",
   "mantova": {
@@ -489,10 +692,19 @@
   "mirassol": "21982",
   "mjallby-aif": "1783",
   "modena": "2706",
+  "moldawia": {
+    "footymetrics": "321822"
+  },
   "molde-fk": "661",
+  "moldova": {
+    "footymetrics": "321822"
+  },
   "monaco": {
     "statshub": "1653",
     "footymetrics": "6789"
+  },
+  "montenegro": {
+    "footymetrics": "321805"
   },
   "monza": {
     "statshub": "2729",
@@ -518,6 +730,10 @@
   },
   "nec-nijmegen": "2962",
   "neom-sc": "530631",
+  "netherlands": {
+    "statshub": "4705",
+    "footymetrics": "321733"
+  },
   "newcastle": {
     "statshub": "39",
     "footymetrics": "20"
@@ -526,7 +742,26 @@
     "statshub": "1661",
     "footymetrics": "450"
   },
+  "niemcy": {
+    "statshub": "4711",
+    "footymetrics": "321755"
+  },
   "nk-celje": "2413",
+  "north-macedonia": {
+    "statshub": "4777",
+    "footymetrics": "321760"
+  },
+  "northern-ireland": {
+    "footymetrics": "321736"
+  },
+  "norway": {
+    "statshub": "4475",
+    "footymetrics": "321792"
+  },
+  "norwegia": {
+    "statshub": "4475",
+    "footymetrics": "321792"
+  },
   "norwich-city": "263",
   "nottingham-forest": {
     "statshub": "14",
@@ -579,7 +814,21 @@
     "statshub": "3117",
     "footymetrics": "808"
   },
+  "poland": {
+    "footymetrics": "321850"
+  },
+  "polska": {
+    "footymetrics": "321850"
+  },
   "portsmouth": "2",
+  "portugal": {
+    "statshub": "4704",
+    "footymetrics": "321745"
+  },
+  "portugalia": {
+    "statshub": "4704",
+    "footymetrics": "321745"
+  },
   "preston-north-end": {
     "statshub": "21",
     "footymetrics": "99"
@@ -643,6 +892,9 @@
     "statshub": "1658",
     "footymetrics": "598"
   },
+  "republic-of-ireland": {
+    "footymetrics": "321741"
+  },
   "rio-ave": {
     "statshub": "3036",
     "footymetrics": "6377"
@@ -651,10 +903,19 @@
     "statshub": "2702",
     "footymetrics": "37"
   },
+  "romania": {
+    "footymetrics": "321740"
+  },
   "rosenborg-bk": "1161",
   "royal-antwerp-fc": "2889",
   "royale-union-saint-gilloise": "4860",
+  "rumunia": {
+    "footymetrics": "321740"
+  },
   "sampdoria": "2711",
+  "san-marino": {
+    "footymetrics": "321762"
+  },
   "sandefjord-fotball": "676",
   "santa-clara": {
     "statshub": "3011",
@@ -673,6 +934,13 @@
   },
   "sc-heerenveen": "2964",
   "sc-telstar": "2972",
+  "scotland": {
+    "footymetrics": "321744"
+  },
+  "serbia": {
+    "statshub": "6355",
+    "footymetrics": "321737"
+  },
   "sevilla": {
     "statshub": "2833",
     "footymetrics": "676"
@@ -696,7 +964,24 @@
     "statshub": "2216",
     "footymetrics": "216"
   },
+  "slovakia": {
+    "footymetrics": "321739"
+  },
+  "slovenia": {
+    "statshub": "4484",
+    "footymetrics": "321738"
+  },
+  "slowacja": {
+    "footymetrics": "321739"
+  },
+  "slowenia": {
+    "statshub": "4484",
+    "footymetrics": "321738"
+  },
   "southampton": "45",
+  "spain": {
+    "footymetrics": "321789"
+  },
   "sparta-praha": "2218",
   "sparta-rotterdam": "2960",
   "spezia": "2735",
@@ -734,6 +1019,21 @@
   },
   "sv-zulte-waregem": "2933",
   "swansea-city": "74",
+  "sweden": {
+    "footymetrics": "321732"
+  },
+  "switzerland": {
+    "footymetrics": "321752"
+  },
+  "szkocja": {
+    "footymetrics": "321744"
+  },
+  "szwajcaria": {
+    "footymetrics": "321752"
+  },
+  "szwecja": {
+    "footymetrics": "321732"
+  },
   "tondela": "38396",
   "torino": {
     "statshub": "2696",
@@ -761,9 +1061,21 @@
     "footymetrics": "7074"
   },
   "tsg-hoffenheim": "2569",
+  "turcja": {
+    "footymetrics": "321815"
+  },
+  "turkiye": {
+    "footymetrics": "321815"
+  },
   "udinese": {
     "statshub": "2695",
     "footymetrics": "346"
+  },
+  "ukraina": {
+    "footymetrics": "321843"
+  },
+  "ukraine": {
+    "footymetrics": "321843"
   },
   "valencia": {
     "statshub": "2828",
@@ -796,7 +1108,18 @@
   "virtus-entella": "43680",
   "vitoria": "1962",
   "vitoria-sc": "3009",
+  "wales": {
+    "statshub": "4702",
+    "footymetrics": "321826"
+  },
+  "walia": {
+    "statshub": "4702",
+    "footymetrics": "321826"
+  },
   "watford": "24",
+  "wegry": {
+    "footymetrics": "321816"
+  },
   "west-bromwich-albion": "8",
   "west-ham-united": {
     "statshub": "37",
@@ -818,8 +1141,14 @@
     "statshub": "3122",
     "footymetrics": "2778"
   },
+  "wlochy": {
+    "footymetrics": "321813"
+  },
   "wolverhampton": "3",
   "wrexham": "64",
+  "wyspy-owcze": {
+    "footymetrics": "321750"
+  },
   "yilport-samsunspor": "3053",
   "young-boys": "2445",
   "zaglebie-lubin": {
