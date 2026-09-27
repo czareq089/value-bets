@@ -16,6 +16,8 @@
             --sb-color: #f59e0b;
             --sts-color: #3b82f6;
             --betclic-color: #ef4444;
+            --pitch-color: #1a4d2e;
+            --pitch-line: rgba(255, 255, 255, 0.4);
         }
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
         body { background: var(--bg-main); color: #f1f5f9; display: flex; height: 100vh; overflow: hidden; }
@@ -35,20 +37,11 @@
             border-right: none;
             border-left: 1px solid var(--border);
         }
-        .dock.collapsed {
-            width: 36px;
-            min-width: 36px;
-        }
-        .dock.collapsed .dock-content, .dock.collapsed .dock-title {
-            display: none;
-        }
+        .dock.collapsed { width: 36px; min-width: 36px; }
+        .dock.collapsed .dock-content, .dock.collapsed .dock-title { display: none; }
         .dock-header {
-            padding: 10px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 1px solid var(--border);
-            background: #111a2e;
+            padding: 10px; display: flex; justify-content: space-between; align-items: center;
+            border-bottom: 1px solid var(--border); background: #111a2e;
         }
         .dock-title { font-size: 13px; font-weight: 700; color: var(--accent); }
         .dock-toggle {
@@ -56,42 +49,19 @@
             border-radius: 4px; cursor: pointer; width: 22px; height: 22px; line-height: 18px; text-align: center;
         }
         .dock-toggle:hover { color: #fff; border-color: var(--accent); }
-        .dock-content {
-            padding: 10px;
-            overflow-y: auto;
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
+        .dock-content { padding: 10px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 8px; }
 
         .item-card {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            padding: 8px;
-            font-size: 12px;
-            cursor: pointer;
-            position: relative;
+            background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 8px;
+            font-size: 12px; cursor: pointer; position: relative;
         }
         .item-card:hover { border-color: var(--accent); background: #1a253c; }
         .item-card .card-date { font-size: 10px; color: var(--text-muted); margin-bottom: 3px; }
         .item-card .card-title { font-weight: 700; color: #fff; margin-bottom: 4px; }
         .item-card .card-sub { font-size: 11px; color: var(--text-muted); }
-        .card-del {
-            position: absolute; right: 6px; top: 6px; color: var(--danger);
-            border: none; background: transparent; cursor: pointer; font-weight: bold;
-        }
+        .card-del { position: absolute; right: 6px; top: 6px; color: var(--danger); border: none; background: transparent; cursor: pointer; font-weight: bold; }
 
-        .main-container {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            padding: 14px 18px;
-            overflow-y: auto;
-            min-width: 800px;
-        }
-
+        .main-container { flex: 1; display: flex; flex-direction: column; padding: 14px 18px; overflow-y: auto; min-width: 800px; }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
         .title-box h1 { font-size: 20px; font-weight: 800; color: var(--accent); }
         .panel { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
@@ -115,190 +85,48 @@
         .filter-select, .search-box { background: var(--bg-card); border: 1px solid var(--border); color: #fff; padding: 6px 8px; border-radius: 6px; font-size: 12px; height: 32px; outline: none; }
         .search-box { flex: 1; }
 
-        /* MULTI-SELECT DROPDOWNS */
-        .dropdown-check-list {
-            position: relative;
-            display: inline-block;
-        }
+        .dropdown-check-list { position: relative; display: inline-block; }
         .dropdown-check-btn {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            color: #fff;
-            padding: 6px 12px;
-            border-radius: 6px;
-            font-size: 12px;
-            height: 32px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            user-select: none;
+            background: var(--bg-card); border: 1px solid var(--border); color: #fff; padding: 6px 12px;
+            border-radius: 6px; font-size: 12px; height: 32px; cursor: pointer; display: flex; align-items: center; gap: 6px; user-select: none;
         }
-        .dropdown-check-btn:hover {
-            border-color: var(--accent);
-        }
+        .dropdown-check-btn:hover { border-color: var(--accent); }
         .dropdown-check-items {
-            display: none;
-            position: absolute;
-            top: 36px;
-            left: 0;
-            background: #111a2e;
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            padding: 8px;
-            z-index: 50;
-            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.7);
-            max-height: 280px;
-            overflow-y: auto;
-            min-width: 220px;
+            display: none; position: absolute; top: 36px; left: 0; background: #111a2e; border: 1px solid var(--border);
+            border-radius: 6px; padding: 8px; z-index: 50; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.7);
+            max-height: 280px; overflow-y: auto; min-width: 260px;
         }
-        .dropdown-check-list.is-open .dropdown-check-items {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
-        .dropdown-check-items label {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 12px;
-            color: #f1f5f9;
-            cursor: pointer;
-            padding: 3px 4px;
-            border-radius: 4px;
-        }
-        .dropdown-check-items label:hover {
-            background: #1e293b;
-        }
-        .dropdown-check-items input[type=checkbox] {
-            accent-color: var(--accent);
-            cursor: pointer;
-        }
-        .dropdown-actions {
-            display: flex;
-            justify-content: space-between;
-            padding-bottom: 6px;
-            margin-bottom: 6px;
-            border-bottom: 1px solid var(--border);
-        }
-        .dropdown-action-btn {
-            background: transparent;
-            border: none;
-            color: var(--accent);
-            font-size: 11px;
-            font-weight: 700;
-            cursor: pointer;
-        }
-        .dropdown-action-btn:hover {
-            text-decoration: underline;
-        }
+        .dropdown-check-list.is-open .dropdown-check-items { display: flex; flex-direction: column; gap: 6px; }
+        .dropdown-check-items label { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #f1f5f9; cursor: pointer; padding: 3px 4px; border-radius: 4px; }
+        .dropdown-check-items label:hover { background: #1e293b; }
+        .dropdown-check-items input[type=checkbox] { accent-color: var(--accent); cursor: pointer; }
+        .dropdown-actions { display: flex; justify-content: space-between; padding-bottom: 6px; margin-bottom: 6px; border-bottom: 1px solid var(--border); }
+        .dropdown-action-btn { background: transparent; border: none; color: var(--accent); font-size: 11px; font-weight: 700; cursor: pointer; }
 
         .fullwidth-slider-bar {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            padding: 6px 12px;
-            margin-bottom: 12px;
-            width: 100%;
+            display: flex; align-items: center; gap: 12px; background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: 6px; padding: 6px 12px; margin-bottom: 12px; width: 100%;
         }
-        .fullwidth-slider-bar label {
-            font-size: 11px;
-            color: var(--text-muted);
-            font-weight: 700;
-            white-space: nowrap;
-        }
-        .fullwidth-slider-bar input[type=range] {
-            flex: 1;
-            accent-color: var(--accent);
-            cursor: pointer;
-            height: 6px;
-        }
-        .fullwidth-slider-bar .slider-val {
-            font-size: 13px;
-            font-weight: 800;
-            color: var(--accent);
-            min-width: 50px;
-            text-align: right;
-            font-variant-numeric: tabular-nums;
-        }
+        .fullwidth-slider-bar label { font-size: 11px; color: var(--text-muted); font-weight: 700; white-space: nowrap; }
+        .fullwidth-slider-bar input[type=range] { flex: 1; accent-color: var(--accent); cursor: pointer; height: 6px; }
+        .fullwidth-slider-bar .slider-val { font-size: 13px; font-weight: 800; color: var(--accent); min-width: 50px; text-align: right; font-variant-numeric: tabular-nums; }
 
-        /* DUAL RANGE FILTERS */
-        .range-filters {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 20px;
-            align-items: center;
-        }
-        .range-filter-block {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .range-filter-block label {
-            white-space: nowrap;
-            font-size: 12px;
-            font-weight: 700;
-        }
-        .dual-range {
-            position: relative;
-            width: 160px;
-            height: 20px;
-        }
-        .dual-range-track {
-            position: absolute;
-            top: 9px;
-            left: 0;
-            right: 0;
-            height: 3px;
-            background: var(--border);
-            border-radius: 2px;
-        }
-        .dual-range-fill {
-            position: absolute;
-            height: 3px;
-            background: var(--accent);
-            border-radius: 2px;
-        }
+        .range-filters { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; }
+        .range-filter-block { display: flex; align-items: center; gap: 10px; }
+        .range-filter-block label { white-space: nowrap; font-size: 12px; font-weight: 700; }
+        .dual-range { position: relative; width: 160px; height: 20px; }
+        .dual-range-track { position: absolute; top: 9px; left: 0; right: 0; height: 3px; background: var(--border); border-radius: 2px; }
+        .dual-range-fill { position: absolute; height: 3px; background: var(--accent); border-radius: 2px; }
         .dual-range input[type="range"] {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 20px;
-            margin: 0;
-            background: none;
-            pointer-events: none;
-            -webkit-appearance: none;
-            appearance: none;
+            position: absolute; top: 0; left: 0; width: 100%; height: 20px; margin: 0; background: none;
+            pointer-events: none; -webkit-appearance: none; appearance: none;
         }
         .dual-range input[type="range"]::-webkit-slider-thumb {
-            pointer-events: auto;
-            -webkit-appearance: none;
-            appearance: none;
-            width: 14px;
-            height: 14px;
-            border-radius: 50%;
-            background: var(--accent);
-            cursor: pointer;
-            border: 2px solid #fff;
+            pointer-events: auto; -webkit-appearance: none; appearance: none; width: 14px; height: 14px;
+            border-radius: 50%; background: var(--accent); cursor: pointer; border: 2px solid #fff;
         }
         .dual-range input[type="range"]::-moz-range-thumb {
-            pointer-events: auto;
-            width: 14px;
-            height: 14px;
-            border-radius: 50%;
-            background: var(--accent);
-            cursor: pointer;
-            border: 2px solid #fff;
-        }
-        .dual-range input[type="range"]::-webkit-slider-runnable-track {
-            background: transparent;
-        }
-        .dual-range input[type="range"]::-moz-range-track {
-            background: transparent;
+            pointer-events: auto; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); cursor: pointer; border: 2px solid #fff;
         }
 
         .table-wrap { flex: 1; overflow-x: auto; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; }
@@ -334,11 +162,11 @@
         .chart-modal {
             display: none; position: fixed; inset: 0; z-index: 1000;
             align-items: center; justify-content: center; padding: 24px;
-            background: rgba(2, 6, 23, 0.82);
+            background: rgba(2, 6, 23, 0.85);
         }
         .chart-modal.is-open { display: flex; }
         .chart-dialog {
-            width: min(900px, 100%); max-height: calc(100vh - 48px); overflow-y: auto;
+            width: min(1100px, 98%); max-height: calc(100vh - 48px); overflow-y: auto;
             background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 16px;
         }
         .chart-header { display: flex; gap: 12px; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
@@ -346,9 +174,39 @@
         .chart-header p { margin: 4px 0 0; color: var(--text-muted); font-size: 12px; }
         .chart-close { background: transparent; border: 1px solid var(--border); color: var(--text-muted); border-radius: 5px; cursor: pointer; font-size: 18px; line-height: 24px; width: 28px; height: 28px; }
         .chart-close:hover { color: #fff; border-color: var(--accent); }
-        .chart-summary { display: flex; flex-wrap: wrap; gap: 14px; color: var(--text-muted); font-size: 12px; margin-bottom: 8px; }
-        .chart-summary b { color: #fff; }
+
+        .chart-content-grid {
+            display: grid;
+            grid-template-columns: 1fr 280px;
+            gap: 16px;
+            align-items: start;
+        }
         .sample-chart { display: block; width: 100%; min-height: 330px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 7px; }
+
+        .shotmap-panel {
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 7px;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .shotmap-panel-title {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--accent);
+            display: flex;
+            justify-content: space-between;
+        }
+        .shotmap-svg {
+            width: 100%;
+            height: auto;
+            border-radius: 4px;
+            background: var(--pitch-color);
+            display: block;
+        }
+
         .chart-legend { display: flex; flex-wrap: wrap; gap: 14px; color: var(--text-muted); font-size: 11px; margin-top: 10px; }
         .legend-item { display: flex; align-items: center; gap: 5px; }
         .legend-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
@@ -393,8 +251,8 @@
 <div class="main-container">
     <div class="header">
         <div class="title-box">
-            <h1>ValueBets 3.0 <span style="font-size:13px; color:var(--accent); font-weight:600;">(Auto-SofaScore)</span></h1>
-            <p style="color: var(--text-muted); font-size: 12px;">Wklej link do meczu — ID drużyn z SofaScore pobiorą się automatycznie! LPM = wykres, PPM = MyBets.</p>
+            <h1>ValueBets 3.0 <span style="font-size:13px; color:var(--accent); font-weight:600;">(Auto-SofaScore + Shotmap)</span></h1>
+            <p style="color: var(--text-muted); font-size: 12px;">Wklej link do meczu — ID drużyn z SofaScore pobiorą się automatycznie! LPM = wykres i mini-mapa, PPM = MyBets.</p>
         </div>
     </div>
 
@@ -475,7 +333,7 @@
 
     <!-- PASKI FILTROWANIA -->
     <div class="toolbar">
-        <input type="text" id="searchBox" class="search-box" placeholder="Szukaj zawodnika, np. szymanski..." onkeyup="renderFiltered()">
+        <input type="text" id="searchBox" class="search-box" placeholder="Szukaj zawodnika, np. haaland..." onkeyup="renderFiltered()">
         <button id="compareToggle" class="filter-select" style="cursor:pointer; font-weight:700;" onclick="toggleCompareMode()">🔀 Widok: Lista</button>
 
         <select id="teamFilter" class="filter-select" onchange="renderFiltered()">
@@ -510,6 +368,10 @@
                 <label><input type="checkbox" class="market-cb" value="SHOTS_ON_TARGET" checked onchange="handleFilterChange()"> Strzały celne</label>
                 <label><input type="checkbox" class="market-cb" value="SHOTS_BLOCKED" checked onchange="handleFilterChange()"> Strzały zablokowane</label>
                 <label><input type="checkbox" class="market-cb" value="SHOTS_OFF_TARGET" checked onchange="handleFilterChange()"> Strzały niecelne</label>
+                <label><input type="checkbox" class="market-cb" value="SHOTS_OUTSIDE_BOX" checked onchange="handleFilterChange()"> Strzały spoza pola karnego</label>
+                <label><input type="checkbox" class="market-cb" value="SHOTS_INSIDE_BOX" checked onchange="handleFilterChange()"> Strzały z pola karnego</label>
+                <label><input type="checkbox" class="market-cb" value="SHOTS_ON_TARGET_OUTSIDE_BOX" checked onchange="handleFilterChange()"> Celne strzały spoza pola karnego</label>
+                <label><input type="checkbox" class="market-cb" value="SHOTS_ON_TARGET_INSIDE_BOX" checked onchange="handleFilterChange()"> Celne strzały z pola karnego</label>
                 <label><input type="checkbox" class="market-cb" value="TACKLES" checked onchange="handleFilterChange()"> Odbiory</label>
                 <label><input type="checkbox" class="market-cb" value="FOULS_COMMITTED" checked onchange="handleFilterChange()"> Faule popełnione</label>
                 <label><input type="checkbox" class="market-cb" value="FOULS_DRAWN" checked onchange="handleFilterChange()"> Faule wywalczone</label>
@@ -574,11 +436,43 @@
             </div>
         </div>
         <div class="chart-summary" id="chartSummary"></div>
-        <svg id="sampleChart" class="sample-chart" role="img" aria-labelledby="chartTitle chartSubtitle"></svg>
-        <div class="chart-legend">
-            <span class="legend-item"><span class="legend-swatch" style="background:var(--success)"></span>trafiona próba</span>
-            <span class="legend-item"><span class="legend-swatch" style="background:var(--danger)"></span>nietrafiona próba</span>
-            <span class="legend-item"><span class="legend-swatch" style="background:var(--accent)"></span>linia zakładu</span>
+
+        <div class="chart-content-grid">
+            <div>
+                <svg id="sampleChart" class="sample-chart" role="img" aria-labelledby="chartTitle chartSubtitle"></svg>
+                <div class="chart-legend">
+                    <span class="legend-item"><span class="legend-swatch" style="background:var(--success)"></span>trafiona próba</span>
+                    <span class="legend-item"><span class="legend-swatch" style="background:var(--danger)"></span>nietrafiona próba</span>
+                    <span class="legend-item"><span class="legend-swatch" style="background:var(--accent)"></span>linia zakładu</span>
+                    <span class="legend-item"><span style="width:14px; height:2px; background:#10b981; display:inline-block;"></span>rozegrane minuty (oś prawa)</span>
+                </div>
+            </div>
+
+            <!-- MINI MAPA STRZAŁÓW SOFASCORE -->
+            <div class="shotmap-panel">
+                <div class="shotmap-panel-title">
+                    <span>⚽ SOFASCORE SHOTMAP</span>
+                    <span id="shotmapFilterTitle" style="color:#fff; cursor:pointer;" onclick="resetShotmapMatchSelection()">Pokaż wszystkie</span>
+                </div>
+                <svg class="shotmap-svg" viewBox="0 0 280 210" id="pitchSvg">
+                    <rect x="0" y="0" width="280" height="210" fill="var(--pitch-color)"></rect>
+                    <path d="M 58 0 L 58 68 L 222 68 L 222 0" fill="none" stroke="var(--pitch-line)" stroke-width="1.5"></path>
+                    <path d="M 103 0 L 103 24 L 177 24 L 177 0" fill="none" stroke="var(--pitch-line)" stroke-width="1.5"></path>
+                    <circle cx="140" cy="44" r="2" fill="var(--pitch-line)"></circle>
+                    <path d="M 111 68 A 40 40 0 0 0 169 68" fill="none" stroke="var(--pitch-line)" stroke-width="1.5"></path>
+                    <rect x="122" y="0" width="36" height="3" fill="#ffffff"></rect>
+                    <g id="shotmapPointsGroup"></g>
+                </svg>
+                <div style="font-size:10px; color:var(--text-muted); display:flex; justify-content:space-between; margin-top:2px;">
+                    <span>🟢 Celny</span>
+                    <span>⚪ Niecelny</span>
+                    <span>🟡 Zablokowany</span>
+                    <span>⭐ Gol</span>
+                </div>
+                <div id="shotmapMatchDetails" style="font-size:11px; color:#fff; border-top:1px solid var(--border); padding-top:6px; margin-top:4px;">
+                    Kliknij słupek na wykresie, aby wyizolować strzały z danego meczu.
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -653,12 +547,23 @@
 
     let currentChartBet = null;
     let useSuperSub = true;
+    let selectedMatchIndexForShotmap = null;
 
     const MARKET_LABELS = {
-        SHOTS_TOTAL: "Strzały", SHOTS_ON_TARGET: "Strzały celne",
-        SHOTS_BLOCKED: "Strzały zablokowane", SHOTS_OFF_TARGET: "Strzały niecelne",
-        TACKLES: "Odbiory", DISPOSSESSED: "Straty piłki", FOULS_COMMITTED: "Faule popełnione",
-        FOULS_DRAWN: "Faule wywalczone", INTERCEPTIONS: "Przechwyty", OFFSIDES: "Spalone"
+        SHOTS_TOTAL: "Strzały",
+        SHOTS_ON_TARGET: "Strzały celne",
+        SHOTS_BLOCKED: "Strzały zablokowane",
+        SHOTS_OFF_TARGET: "Strzały niecelne",
+        SHOTS_OUTSIDE_BOX: "Strzały spoza pola karnego",
+        SHOTS_INSIDE_BOX: "Strzały z pola karnego",
+        SHOTS_ON_TARGET_OUTSIDE_BOX: "Celne strzały spoza pola karnego",
+        SHOTS_ON_TARGET_INSIDE_BOX: "Celne strzały z pola karnego",
+        TACKLES: "Odbiory",
+        DISPOSSESSED: "Straty piłki",
+        FOULS_COMMITTED: "Faule popełnione",
+        FOULS_DRAWN: "Faule wywalczone",
+        INTERCEPTIONS: "Przechwyty",
+        OFFSIDES: "Spalone"
     };
 
     const BOOKMAKERS = ["SUPERBET", "BETCLIC", "STS"];
@@ -786,13 +691,11 @@
             const maxAllowed = Math.floor(item.line);
             const worstMatch = Math.max(...vals);
             const allHit = vals.every(v => v <= maxAllowed);
-
             return allHit && (worstMatch < maxAllowed);
         } else {
             const minRequired = Math.floor(item.line) + 1;
             const worstMatch = Math.min(...vals);
             const allHit = vals.every(v => v >= minRequired);
-
             return allHit && (worstMatch > minRequired);
         }
     }
@@ -1046,13 +949,12 @@
         btn.innerHTML = `⏳ Analizowanie...`;
         tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 40px; color: var(--accent);">
             <div style="font-size:16px; font-weight:700; margin-bottom:8px;">Pobieranie kursów bukmacherskich, składów i statystyk...</div>
-            <div style="font-size:12px; color:var(--text-muted);">Auto-detekcja ID w SofaScore, pobieranie strumieni Betclic gRPC, STS WebSocket oraz SofaScore API...</div>
+            <div style="font-size:12px; color:var(--text-muted);">Auto-detekcja ID w SofaScore, pobieranie strumieni Betclic gRPC, STS WebSocket oraz SofaScore Shotmap & Incidents...</div>
         </td></tr>`;
 
         try {
             rawBets = await window.go.main.App.AnalyzeThreeBookmakers(sb, betclic, sts, home, away, limit, selectedTournaments);
 
-            // Aktualizacja pól, jeśli zostały automatycznie uzupełnione w backendzie
             if (!home && rawBets.length > 0) {
                 home = rawBets.find(b => b.teamSide === 'HOME')?.teamId || '';
                 document.getElementById('homeIdInput').value = home;
@@ -1188,6 +1090,7 @@
                     samplePositions: b.samplePositions || [],
                     sampleOpponents: b.sampleOpponents || [],
                     sampleDates: b.sampleDates || [],
+                    sampleShots: b.sampleShots || [],
                     statsSource: b.statsSource || '',
                     teamSide: b.teamSide || '',
                     teamId: b.teamId || '',
@@ -1249,16 +1152,12 @@
                 if (!matchTeam) return false;
 
                 if (onlyStartingXI && b.lineupStatus && b.lineupStatus !== "UNKNOWN") {
-                    if (!b.isStartingXI) {
-                        return false;
-                    }
+                    if (!b.isStartingXI) return false;
                 }
 
                 if (bufferMode) {
                     const isVal = b.verdict === "VALUE";
-                    if (!passesBufferMode(b, isVal)) {
-                        return false;
-                    }
+                    if (!passesBufferMode(b, isVal)) return false;
                 }
 
                 return matchQuery && matchBm && matchMarket && matchVerdict && matchOdds && matchHr && matchSample;
@@ -1284,16 +1183,12 @@
             if (!matchTeam) return false;
 
             if (onlyStartingXI && g.lineupStatus && g.lineupStatus !== "UNKNOWN") {
-                if (!g.isStartingXI) {
-                    return false;
-                }
+                if (!g.isStartingXI) return false;
             }
 
             if (bufferMode) {
                 const hasValueBook = Object.values(g.books).some(o => o.verdict === "VALUE");
-                if (!passesBufferMode(g, hasValueBook)) {
-                    return false;
-                }
+                if (!passesBufferMode(g, hasValueBook)) return false;
             }
 
             return matchQuery && matchMarket && matchBm && matchVerdict && matchOdds && matchHr && matchSample;
@@ -1339,6 +1234,8 @@
 
         currentChartBet = bet;
         useSuperSub = true;
+        selectedMatchIndexForShotmap = null;
+
         const btn = document.getElementById('superSubToggle');
         if (btn) {
             btn.style.display = '';
@@ -1378,9 +1275,9 @@
             : null;
 
         document.getElementById('chartTitle').textContent = `${bet.playerName} — ${marketLabel}`;
-        document.getElementById('chartSubtitle').textContent = `Ostatnie ${values.length} meczów z aktualnej próbki; mecz 1 jest najnowszy.` +
+        document.getElementById('chartSubtitle').textContent = `Ostatnie ${values.length} meczów z aktualnej próbki; mecz 1 (od lewej) jest najnowszy.` +
             (useSuperSub
-                ? ' SuperSub jest wliczony do słupków, średniej i hit rate; plakietka "+N" pokazuje wkład zmiennika.'
+                ? ' SuperSub jest wliczony do słupków; plakietka "+N" pokazuje wkład zmiennika.'
                 : '');
         document.getElementById('chartSummary').innerHTML = `
             <span>Linia: <b>${bet.isUnder ? 'under' : 'over'} ${bet.line}</b></span>
@@ -1390,23 +1287,39 @@
         `;
 
         renderSampleChart(values, minutes, positions, opponents, dates, bet.line, bet.isUnder, marketLabel, superSubDeltas);
+        renderShotmap(bet, selectedMatchIndexForShotmap);
+    }
+
+    function selectMatchForShotmap(index) {
+        selectedMatchIndexForShotmap = index;
+        drawCurrentBetChart();
+    }
+
+    function resetShotmapMatchSelection() {
+        selectedMatchIndexForShotmap = null;
+        drawCurrentBetChart();
     }
 
     function renderSampleChart(values, minutes, positions, opponents, dates, line, isUnder, marketLabel, superSubDeltas) {
         superSubDeltas = superSubDeltas || [];
+        minutes = minutes || [];
         const svg = document.getElementById('sampleChart');
         const width = 820;
         const height = 340;
-        const margin = { top: 32, right: 32, bottom: 62, left: 52 };
+        const margin = { top: 32, right: 48, bottom: 62, left: 48 };
         const plotWidth = width - margin.left - margin.right;
         const plotHeight = height - margin.top - margin.bottom;
 
         const rawMax = Math.max(1, line, ...values);
         const domainMax = Math.max(3, Math.ceil(rawMax + 0.8));
-
         const yFor = value => margin.top + plotHeight - (value / domainMax) * plotHeight;
+
+        const rawMaxMin = Math.max(90, ...minutes);
+        const domainMaxMin = Math.ceil(rawMaxMin / 10) * 10;
+        const yForMin = m => margin.top + plotHeight - (m / domainMaxMin) * plotHeight;
+
         const barSlot = plotWidth / values.length;
-        const barWidth = Math.min(48, Math.max(6, barSlot * 0.65));
+        const barWidth = Math.min(44, Math.max(6, barSlot * 0.55));
 
         svg.replaceChildren();
         svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
@@ -1430,13 +1343,22 @@
             svg.appendChild(label);
         }
 
+        for (let mVal = 0; mVal <= domainMaxMin; mVal += 30) {
+            const yM = yForMin(mVal);
+            const mLabel = createSvgElement('text', {
+                x: width - margin.right + 8, y: yM + 4, 'text-anchor': 'start', fill: '#10b981', 'font-size': 10, 'font-weight': '600'
+            });
+            mLabel.textContent = `${mVal}'`;
+            svg.appendChild(mLabel);
+        }
+
         const referenceY = yFor(line);
         svg.appendChild(createSvgElement('line', {
             x1: margin.left, y1: referenceY, x2: width - margin.right, y2: referenceY,
             stroke: 'var(--accent)', 'stroke-width': 2, 'stroke-dasharray': '6 4'
         }));
         const lineLabel = createSvgElement('text', {
-            x: width - margin.right, y: Math.max(margin.top + 12, referenceY - 6),
+            x: width - margin.right - 8, y: Math.max(margin.top + 12, referenceY - 6),
             'text-anchor': 'end', fill: 'var(--accent)', 'font-size': 11, 'font-weight': 'bold'
         });
         lineLabel.textContent = `linia ${line}`;
@@ -1447,12 +1369,21 @@
             const x = margin.left + index * barSlot + (barSlot - barWidth) / 2;
             const y = yFor(value);
             const barH = Math.max(3, margin.top + plotHeight - y);
+            const isSelected = selectedMatchIndexForShotmap === index;
 
             const bar = createSvgElement('rect', {
                 x, y, width: barWidth, height: barH,
                 fill: hit ? 'var(--success)' : 'var(--danger)',
-                rx: 3
+                stroke: isSelected ? 'var(--accent)' : 'none',
+                'stroke-width': isSelected ? 3 : 0,
+                rx: 3,
+                cursor: 'pointer'
             });
+
+            bar.onclick = (e) => {
+                e.stopPropagation();
+                selectMatchForShotmap(index);
+            };
 
             const opp = opponents[index] || 'Mecz ' + (index + 1);
             const d = dates[index] ? ` (${dates[index]})` : '';
@@ -1461,7 +1392,7 @@
 
             const delta = superSubDeltas[index] || 0;
             const tooltip = createSvgElement('title');
-            tooltip.textContent = `vs ${opp}${d}: wynik ${value}${delta > 0 ? ` (w tym +${delta} zmiennika)` : ''}${posText}${minText} · ${hit ? 'Trafiony' : 'Nietrafiony'}`;
+            tooltip.textContent = `[Kliknij, by zobaczyć strzały na mapie] vs ${opp}${d}: wynik ${value}${delta > 0 ? ` (+${delta} SuperSub)` : ''}${posText}${minText} · ${hit ? 'Trafiony' : 'Nietrafiony'}`;
             bar.appendChild(tooltip);
             svg.appendChild(bar);
 
@@ -1471,7 +1402,8 @@
                 'text-anchor': 'middle',
                 fill: '#ffffff',
                 'font-size': 11,
-                'font-weight': '700'
+                'font-weight': '700',
+                'pointer-events': 'none'
             });
             valLabel.textContent = value;
             svg.appendChild(valLabel);
@@ -1485,17 +1417,13 @@
                     width: badgeW, height: badgeH, rx: 4,
                     fill: '#2dd4bf'
                 });
-                const badgeTitle = createSvgElement('title');
-                badgeTitle.textContent = `+${delta} od zmiennika w tym samym meczu (SuperSub)`;
-                badge.appendChild(badgeTitle);
-                svg.appendChild(badge);
-
                 const badgeLabel = createSvgElement('text', {
                     x: x + barWidth / 2, y: badgeY + badgeH / 2 + 4,
                     'text-anchor': 'middle', fill: '#022c22',
                     'font-size': 10, 'font-weight': '800'
                 });
                 badgeLabel.textContent = `+${delta}`;
+                svg.appendChild(badge);
                 svg.appendChild(badgeLabel);
             }
 
@@ -1503,11 +1431,13 @@
                 x: x + barWidth / 2,
                 y: height - margin.bottom + 16,
                 'text-anchor': 'middle',
-                fill: '#ffffff',
+                fill: isSelected ? 'var(--accent)' : '#ffffff',
                 'font-size': 10,
-                'font-weight': '600'
+                'font-weight': isSelected ? '800' : '600',
+                cursor: 'pointer'
             });
             oppLabel.textContent = opp;
+            oppLabel.onclick = () => selectMatchForShotmap(index);
             svg.appendChild(oppLabel);
 
             if (dates[index]) {
@@ -1521,6 +1451,128 @@
                 dateLabel.textContent = dates[index];
                 svg.appendChild(dateLabel);
             }
+        });
+
+        if (minutes.length === values.length) {
+            const points = minutes.map((m, index) => {
+                const x = margin.left + index * barSlot + barSlot / 2;
+                const y = yForMin(m);
+                return `${x},${y}`;
+            }).join(' ');
+
+            svg.appendChild(createSvgElement('polyline', {
+                points: points,
+                fill: 'none',
+                stroke: '#10b981',
+                'stroke-width': 2,
+                'stroke-linecap': 'round',
+                'stroke-linejoin': 'round',
+                opacity: 0.95
+            }));
+
+            minutes.forEach((m, index) => {
+                const cx = margin.left + index * barSlot + barSlot / 2;
+                const cy = yForMin(m);
+
+                const circle = createSvgElement('circle', {
+                    cx, cy, r: 3.5,
+                    fill: '#10b981',
+                    stroke: '#0f172a',
+                    'stroke-width': 1.5,
+                    cursor: 'pointer'
+                });
+
+                const dotTitle = createSvgElement('title');
+                dotTitle.textContent = `${m} minut rozegranych`;
+                circle.appendChild(dotTitle);
+                svg.appendChild(circle);
+            });
+        }
+    }
+
+    function renderShotmap(bet, matchIndex) {
+        const group = document.getElementById('shotmapPointsGroup');
+        const filterTitle = document.getElementById('shotmapFilterTitle');
+        const details = document.getElementById('shotmapMatchDetails');
+        if (!group) return;
+
+        group.replaceChildren();
+
+        const matchShotsList = bet.sampleShots || [];
+        let shotsToRender = [];
+
+        if (matchIndex !== null && matchShotsList[matchIndex]) {
+            shotsToRender = matchShotsList[matchIndex];
+            const opp = (bet.sampleOpponents || [])[matchIndex] || `Mecz ${matchIndex + 1}`;
+            const dt = (bet.sampleDates || [])[matchIndex] || '';
+            filterTitle.textContent = "Wróć do całości";
+            filterTitle.style.textDecoration = "underline";
+            details.innerHTML = `Strzały w meczu vs <b>${opp}</b> (${dt}): <b>${shotsToRender.length}</b>`;
+        } else {
+            matchShotsList.forEach(mShots => {
+                if (Array.isArray(mShots)) {
+                    shotsToRender.push(...mShots);
+                }
+            });
+            filterTitle.textContent = "Wszystkie mecze";
+            filterTitle.style.textDecoration = "none";
+            details.innerHTML = `Łącznie strzałów w całej próbce (${bet.matchesSample} spotkań): <b>${shotsToRender.length}</b>`;
+        }
+
+        if (shotsToRender.length === 0) {
+            details.innerHTML += `<div style="color:var(--text-muted); font-size:10px; margin-top:2px;">(Brak strzałów w wybranym zakresie)</div>`;
+            return;
+        }
+
+        shotsToRender.forEach(shot => {
+            if (!useSuperSub && shot.isSub) return;
+
+            let pitchY = (shot.x <= 50 ? shot.x : (100 - shot.x)) * 3.8 + 10;
+            let pitchX = shot.y * 2.8;
+
+            let fillColor = "#ffffff";
+            let strokeColor = "rgba(0, 0, 0, 0.4)";
+            let r = 5.5;
+
+            switch (shot.shotType) {
+                case "goal":
+                    fillColor = "#38bdf8";
+                    strokeColor = "#ffffff";
+                    r = 7;
+                    break;
+                case "save":
+                    fillColor = "#10b981";
+                    strokeColor = "#022c22";
+                    break;
+                case "blocked":
+                    fillColor = "#f59e0b";
+                    strokeColor = "#78350f";
+                    break;
+                case "miss":
+                case "post":
+                default:
+                    fillColor = "#ef4444";
+                    strokeColor = "#450a0a";
+                    break;
+            }
+
+            const circle = createSvgElement('circle', {
+                cx: pitchX,
+                cy: pitchY,
+                r: r,
+                fill: fillColor,
+                stroke: strokeColor,
+                'stroke-width': 1.5,
+                opacity: 0.92,
+                cursor: 'pointer'
+            });
+
+            const tip = createSvgElement('title');
+            const subTag = shot.isSub ? " [SuperSub]" : "";
+            const locTag = shot.inBox ? "w polu karnym" : "z dystansu";
+            tip.textContent = `Strzał: ${shot.shotType.toUpperCase()}${subTag} (${locTag})`;
+            circle.appendChild(tip);
+            group.appendChild(circle);
         });
     }
 
@@ -1651,7 +1703,8 @@
                         sampleMinutes: g.sampleMinutes,
                         samplePositions: g.samplePositions,
                         sampleOpponents: g.sampleOpponents,
-                        sampleDates: g.sampleDates
+                        sampleDates: g.sampleDates,
+                        sampleShots: g.sampleShots
                     });
                 };
             });
@@ -1952,7 +2005,7 @@
                 </tr></thead>
                 <tbody>
                     ${legs.map(l => `<tr>
-                        <td><b>${l.playerName}</b></td>
+                        <t d><b>${l.playerName}</b></td>
                         <td>${l.marketLabel} (${l.isUnder ? 'under' : 'over'} ${l.line})</td>
                         <td>${l.bookmaker}</td>
                         <td><b>${l.bookmakerOdds.toFixed(2)}</b></td>

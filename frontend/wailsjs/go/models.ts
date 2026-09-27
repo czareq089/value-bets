@@ -1,5 +1,27 @@
 export namespace main {
 	
+	export class ShotCoordinate {
+	    x: number;
+	    y: number;
+	    shotType: string;
+	    inBox: boolean;
+	    onTarget: boolean;
+	    isSub: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ShotCoordinate(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.x = source["x"];
+	        this.y = source["y"];
+	        this.shotType = source["shotType"];
+	        this.inBox = source["inBox"];
+	        this.onTarget = source["onTarget"];
+	        this.isSub = source["isSub"];
+	    }
+	}
 	export class AnalyzedBet {
 	    bookmaker: string;
 	    playerName: string;
@@ -19,6 +41,7 @@ export namespace main {
 	    samplePositions: string[];
 	    sampleOpponents: string[];
 	    sampleDates: string[];
+	    sampleShots: ShotCoordinate[][];
 	    statsSource: string;
 	    teamSide: string;
 	    teamId: string;
@@ -51,6 +74,7 @@ export namespace main {
 	        this.samplePositions = source["samplePositions"];
 	        this.sampleOpponents = source["sampleOpponents"];
 	        this.sampleDates = source["sampleDates"];
+	        this.sampleShots = this.convertValues(source["sampleShots"], ShotCoordinate);
 	        this.statsSource = source["statsSource"];
 	        this.teamSide = source["teamSide"];
 	        this.teamId = source["teamId"];
@@ -59,6 +83,24 @@ export namespace main {
 	        this.lineupStatus = source["lineupStatus"];
 	        this.isStartingXI = source["isStartingXI"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class LeagueOption {
 	    id: number;
@@ -120,6 +162,7 @@ export namespace main {
 	    samplePositions: string[];
 	    sampleOpponents: string[];
 	    sampleDates: string[];
+	    sampleShots: ShotCoordinate[][];
 	    statsSource: string;
 	    teamSide: string;
 	    teamId: string;
@@ -153,6 +196,7 @@ export namespace main {
 	        this.samplePositions = source["samplePositions"];
 	        this.sampleOpponents = source["sampleOpponents"];
 	        this.sampleDates = source["sampleDates"];
+	        this.sampleShots = this.convertValues(source["sampleShots"], ShotCoordinate);
 	        this.statsSource = source["statsSource"];
 	        this.teamSide = source["teamSide"];
 	        this.teamId = source["teamId"];
@@ -161,7 +205,26 @@ export namespace main {
 	        this.lineupStatus = source["lineupStatus"];
 	        this.isStartingXI = source["isStartingXI"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
+	
 	export class TeamDetectionResult {
 	    homeSlug: string;
 	    awaySlug: string;

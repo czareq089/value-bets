@@ -47,17 +47,30 @@ const (
 type CanonicalMarket string
 
 const (
-	MarketShotsTotal     CanonicalMarket = "SHOTS_TOTAL"
-	MarketShotsOnTarget  CanonicalMarket = "SHOTS_ON_TARGET"
-	MarketShotsBlocked   CanonicalMarket = "SHOTS_BLOCKED"
-	MarketShotsOffTarget CanonicalMarket = "SHOTS_OFF_TARGET"
-	MarketTackles        CanonicalMarket = "TACKLES"
-	MarketDispossessed   CanonicalMarket = "DISPOSSESSED"
-	MarketFoulsCommitted CanonicalMarket = "FOULS_COMMITTED"
-	MarketFoulsDrawn     CanonicalMarket = "FOULS_DRAWN"
-	MarketInterceptions  CanonicalMarket = "INTERCEPTIONS"
-	MarketOffsides       CanonicalMarket = "OFFSIDES"
+	MarketShotsTotal              CanonicalMarket = "SHOTS_TOTAL"
+	MarketShotsOnTarget           CanonicalMarket = "SHOTS_ON_TARGET"
+	MarketShotsBlocked            CanonicalMarket = "SHOTS_BLOCKED"
+	MarketShotsOffTarget          CanonicalMarket = "SHOTS_OFF_TARGET"
+	MarketShotsOutsideBox         CanonicalMarket = "SHOTS_OUTSIDE_BOX"
+	MarketShotsInsideBox          CanonicalMarket = "SHOTS_INSIDE_BOX"
+	MarketShotsOnTargetOutsideBox CanonicalMarket = "SHOTS_ON_TARGET_OUTSIDE_BOX"
+	MarketShotsOnTargetInsideBox  CanonicalMarket = "SHOTS_ON_TARGET_INSIDE_BOX"
+	MarketTackles                 CanonicalMarket = "TACKLES"
+	MarketDispossessed            CanonicalMarket = "DISPOSSESSED"
+	MarketFoulsCommitted          CanonicalMarket = "FOULS_COMMITTED"
+	MarketFoulsDrawn              CanonicalMarket = "FOULS_DRAWN"
+	MarketInterceptions           CanonicalMarket = "INTERCEPTIONS"
+	MarketOffsides                CanonicalMarket = "OFFSIDES"
 )
+
+type ShotCoordinate struct {
+	X        float64 `json:"x"`
+	Y        float64 `json:"y"`
+	ShotType string  `json:"shotType"` // "goal", "save", "miss", "post", "blocked"
+	InBox    bool    `json:"inBox"`
+	OnTarget bool    `json:"onTarget"`
+	IsSub    bool    `json:"isSub"`
+}
 
 type NormalizedProp struct {
 	Bookmaker   Bookmaker       `json:"bookmaker"`
@@ -84,34 +97,36 @@ type PlayerStatHistory struct {
 	Positions                []string
 	Opponents                []string
 	Dates                    []string
+	MatchShots               [][]ShotCoordinate
 }
 
 type AnalyzedBet struct {
-	Bookmaker            Bookmaker       `json:"bookmaker"`
-	PlayerName           string          `json:"playerName"`
-	MarketType           CanonicalMarket `json:"marketType"`
-	MarketLabel          string          `json:"marketLabel"`
-	Line                 float64         `json:"line"`
-	IsUnder              bool            `json:"isUnder"`
-	BookmakerOdds        float64         `json:"bookmakerOdds"`
-	FairOdds             float64         `json:"fairOdds"`
-	HitRate              float64         `json:"hitRate"`
-	EdgePercent          float64         `json:"edgePercent"`
-	EVWithTax            float64         `json:"evWithTax"`
-	MatchesSample        int             `json:"matchesSample"`
-	SampleValues         []int           `json:"sampleValues"`
-	SampleValuesSuperSub []int           `json:"sampleValuesSuperSub"`
-	SampleMinutes        []int           `json:"sampleMinutes"`
-	SamplePositions      []string        `json:"samplePositions"`
-	SampleOpponents      []string        `json:"sampleOpponents"`
-	SampleDates          []string        `json:"sampleDates"`
-	StatsSource          string          `json:"statsSource"`
-	TeamSide             string          `json:"teamSide"`
-	TeamID               string          `json:"teamId"`
-	TeamName             string          `json:"teamName"`
-	Verdict              string          `json:"verdict"`
-	LineupStatus         string          `json:"lineupStatus"`
-	IsStartingXI         bool            `json:"isStartingXI"`
+	Bookmaker            Bookmaker          `json:"bookmaker"`
+	PlayerName           string             `json:"playerName"`
+	MarketType           CanonicalMarket    `json:"marketType"`
+	MarketLabel          string             `json:"marketLabel"`
+	Line                 float64            `json:"line"`
+	IsUnder              bool               `json:"isUnder"`
+	BookmakerOdds        float64            `json:"bookmakerOdds"`
+	FairOdds             float64            `json:"fairOdds"`
+	HitRate              float64            `json:"hitRate"`
+	EdgePercent          float64            `json:"edgePercent"`
+	EVWithTax            float64            `json:"evWithTax"`
+	MatchesSample        int                `json:"matchesSample"`
+	SampleValues         []int              `json:"sampleValues"`
+	SampleValuesSuperSub []int              `json:"sampleValuesSuperSub"`
+	SampleMinutes        []int              `json:"sampleMinutes"`
+	SamplePositions      []string           `json:"samplePositions"`
+	SampleOpponents      []string           `json:"sampleOpponents"`
+	SampleDates          []string           `json:"sampleDates"`
+	SampleShots          [][]ShotCoordinate `json:"sampleShots"`
+	StatsSource          string             `json:"statsSource"`
+	TeamSide             string             `json:"teamSide"`
+	TeamID               string             `json:"teamId"`
+	TeamName             string             `json:"teamName"`
+	Verdict              string             `json:"verdict"`
+	LineupStatus         string             `json:"lineupStatus"`
+	IsStartingXI         bool               `json:"isStartingXI"`
 }
 
 type TeamDetectionResult struct {
@@ -138,37 +153,34 @@ type MatchHistoryEntry struct {
 }
 
 type MyBetItem struct {
-	ID                   string          `json:"id"`
-	Bookmaker            Bookmaker       `json:"bookmaker"`
-	PlayerName           string          `json:"playerName"`
-	MarketType           CanonicalMarket `json:"marketType"`
-	MarketLabel          string          `json:"marketLabel"`
-	Line                 float64         `json:"line"`
-	IsUnder              bool            `json:"isUnder"`
-	BookmakerOdds        float64         `json:"bookmakerOdds"`
-	FairOdds             float64         `json:"fairOdds"`
-	HitRate              float64         `json:"hitRate"`
-	EdgePercent          float64         `json:"edgePercent"`
-	EVWithTax            float64         `json:"evWithTax"`
-	MatchesSample        int             `json:"matchesSample"`
-	SampleValues         []int           `json:"sampleValues"`
-	SampleValuesSuperSub []int           `json:"sampleValuesSuperSub"`
-	SampleMinutes        []int           `json:"sampleMinutes"`
-	SamplePositions      []string        `json:"samplePositions"`
-	SampleOpponents      []string        `json:"sampleOpponents"`
-	SampleDates          []string        `json:"sampleDates"`
-	StatsSource          string          `json:"statsSource"`
-	TeamSide             string          `json:"teamSide"`
-	TeamID               string          `json:"teamId"`
-	TeamName             string          `json:"teamName"`
-	Verdict              string          `json:"verdict"`
-	LineupStatus         string          `json:"lineupStatus"`
-	IsStartingXI         bool            `json:"isStartingXI"`
+	ID                   string             `json:"id"`
+	Bookmaker            Bookmaker          `json:"bookmaker"`
+	PlayerName           string             `json:"playerName"`
+	MarketType           CanonicalMarket    `json:"marketType"`
+	MarketLabel          string             `json:"marketLabel"`
+	Line                 float64            `json:"line"`
+	IsUnder              bool               `json:"isUnder"`
+	BookmakerOdds        float64            `json:"bookmakerOdds"`
+	FairOdds             float64            `json:"fairOdds"`
+	HitRate              float64            `json:"hitRate"`
+	EdgePercent          float64            `json:"edgePercent"`
+	EVWithTax            float64            `json:"evWithTax"`
+	MatchesSample        int                `json:"matchesSample"`
+	SampleValues         []int              `json:"sampleValues"`
+	SampleValuesSuperSub []int              `json:"sampleValuesSuperSub"`
+	SampleMinutes        []int              `json:"sampleMinutes"`
+	SamplePositions      []string           `json:"samplePositions"`
+	SampleOpponents      []string           `json:"sampleOpponents"`
+	SampleDates          []string           `json:"sampleDates"`
+	SampleShots          [][]ShotCoordinate `json:"sampleShots"`
+	StatsSource          string             `json:"statsSource"`
+	TeamSide             string             `json:"teamSide"`
+	TeamID               string             `json:"teamId"`
+	TeamName             string             `json:"teamName"`
+	Verdict              string             `json:"verdict"`
+	LineupStatus         string             `json:"lineupStatus"`
+	IsStartingXI         bool               `json:"isStartingXI"`
 }
-
-// ==========================================
-// SOFASCORE SCHEMAS
-// ==========================================
 
 const sofaBase = "https://www.sofascore.com/api/v1"
 
@@ -192,7 +204,6 @@ type SofaSearchResponse struct {
 func (s *SofaSearchResponse) ExtractTeams() []SofaTeamItem {
 	var list []SofaTeamItem
 	seen := make(map[int]bool)
-
 	for _, t := range s.Teams {
 		if t.ID > 0 && !seen[t.ID] {
 			seen[t.ID] = true
@@ -252,6 +263,32 @@ type SofaLineupResponse struct {
 	Away struct {
 		Players []SofaLineupPlayer `json:"players"`
 	} `json:"away"`
+}
+
+type SofaIncidentResponse struct {
+	Incidents []struct {
+		IncidentType string `json:"incidentType"`
+		PlayerIn     struct {
+			ID int `json:"id"`
+		} `json:"playerIn"`
+		PlayerOut struct {
+			ID int `json:"id"`
+		} `json:"playerOut"`
+	} `json:"incidents"`
+}
+
+type SofaShotmapResponse struct {
+	Shotmap []struct {
+		Player struct {
+			ID int `json:"id"`
+		} `json:"player"`
+		IsHome            bool   `json:"isHome"`
+		ShotType          string `json:"shotType"`
+		PlayerCoordinates struct {
+			X float64 `json:"x"`
+			Y float64 `json:"y"`
+		} `json:"playerCoordinates"`
+	} `json:"shotmap"`
 }
 
 type SofaPlayerEventsResponse struct {
@@ -327,7 +364,7 @@ type SofaSeasonsResponse struct {
 }
 
 // ==========================================
-// 2. CACHE I PRECYZYJNA DETEKCJA SLUGÓW
+// 2. CACHE I DETEKCJA SLUGÓW
 // ==========================================
 
 var cacheMutex sync.Mutex
@@ -853,10 +890,7 @@ func FetchSofaTeamSquad(teamID string) ([]SofaPlayerDetails, string, error) {
 					playerMap[p.Player.ID] = p.Player
 				}
 			}
-			fmt.Printf("[DEBUG][SOFASCORE] /team/%s/players zwróciło %d zawodników kadry podstawowej.\n", teamID, len(sqRes.Players))
 		}
-	} else {
-		fmt.Printf("[DEBUG][SOFASCORE] /team/%s/players zwróciło błąd: %v. Próba uzupełnienia z meczów.\n", teamID, err)
 	}
 
 	evBody, err := client.GetSofa(fmt.Sprintf("/team/%s/events/last/0", teamID))
@@ -915,20 +949,16 @@ func FetchSofaTeamSquad(teamID string) ([]SofaPlayerDetails, string, error) {
 		return nil, teamDisplayName, fmt.Errorf("nie udało się pobrać kadry dla drużyny %s", teamID)
 	}
 
-	fmt.Printf("[DEBUG][SOFASCORE] Łącznie zaindeksowano %d unikalnych graczy w kadrze %s (ID: %s).\n", len(squad), teamDisplayName, teamID)
 	return squad, teamDisplayName, nil
 }
 
-type SofaIncidentResponse struct {
-	Incidents []struct {
-		IncidentType string `json:"incidentType"`
-		PlayerIn     struct {
-			ID int `json:"id"`
-		} `json:"playerIn"`
-		PlayerOut struct {
-			ID int `json:"id"`
-		} `json:"playerOut"`
-	} `json:"incidents"`
+func isShotInsideBox(x, y float64) bool {
+	if x <= 16.5 || x >= 83.5 {
+		if y >= 21.0 && y <= 79.0 {
+			return true
+		}
+	}
+	return false
 }
 
 func FetchSofaPlayerCompleteHistory(playerID int, matchLimit int, allowedTournamentIDs string) (*PlayerStatHistory, error) {
@@ -1036,7 +1066,6 @@ func FetchSofaPlayerCompleteHistory(playerID int, matchLimit int, allowedTournam
 		})
 	}
 
-	// Ściśle od najnowszego do najstarszego
 	sort.Slice(allPlayedMatches, func(i, j int) bool {
 		return allPlayedMatches[i].StartTS > allPlayedMatches[j].StartTS
 	})
@@ -1051,12 +1080,22 @@ func FetchSofaPlayerCompleteHistory(playerID int, matchLimit int, allowedTournam
 		MetricValuesWithSuperSub: make(map[CanonicalMarket][]int),
 	}
 
+	type zoneShots struct {
+		inside        int
+		outside       int
+		insideTarget  int
+		outsideTarget int
+	}
+
 	type matchStatResult struct {
 		order    int
 		opp      string
 		date     string
 		stats    SofaPlayerStats
 		subStats SofaPlayerStats
+		zone     zoneShots
+		subZone  zoneShots
+		shots    []ShotCoordinate
 		pos      string
 	}
 
@@ -1079,21 +1118,19 @@ func FetchSofaPlayerCompleteHistory(playerID int, matchLimit int, allowedTournam
 				return
 			}
 
-			// 2. Wyszukiwanie zmiennika (SuperSub) przez incydenty meczowe
+			// 2. Wyszukiwanie zmiennika (SuperSub)
 			var subStats SofaPlayerStats
+			subPlayerID := 0
 			incURL := fmt.Sprintf("/event/%d/incidents", match.EventID)
 			if incBody, err := client.GetSofa(incURL); err == nil {
 				var incRes SofaIncidentResponse
 				if json.Unmarshal(incBody, &incRes) == nil {
-					subPlayerID := 0
 					for _, inc := range incRes.Incidents {
 						if inc.IncidentType == "substitution" && inc.PlayerOut.ID == playerID {
 							subPlayerID = inc.PlayerIn.ID
 							break
 						}
 					}
-
-					// Jeśli nastąpiła zmiana – pobierz statystyki zmiennika
 					if subPlayerID > 0 {
 						subURL := fmt.Sprintf("/event/%d/player/%d/statistics", match.EventID, subPlayerID)
 						if subBody, err := client.GetSofa(subURL); err == nil {
@@ -1106,12 +1143,74 @@ func FetchSofaPlayerCompleteHistory(playerID int, matchLimit int, allowedTournam
 				}
 			}
 
+			// 3. Pobieranie mapy strzałów (Shotmap) dla stref i celności
+			var playerZone, subZone zoneShots
+			var matchShots []ShotCoordinate
+
+			smURL := fmt.Sprintf("/event/%d/shotmap", match.EventID)
+			if smBody, err := client.GetSofa(smURL); err == nil {
+				var smRes SofaShotmapResponse
+				if json.Unmarshal(smBody, &smRes) == nil {
+					for _, shot := range smRes.Shotmap {
+						inBox := isShotInsideBox(shot.PlayerCoordinates.X, shot.PlayerCoordinates.Y)
+						isOnTarget := shot.ShotType == "save" || shot.ShotType == "goal"
+
+						if shot.Player.ID == playerID {
+							if inBox {
+								playerZone.inside++
+								if isOnTarget {
+									playerZone.insideTarget++
+								}
+							} else {
+								playerZone.outside++
+								if isOnTarget {
+									playerZone.outsideTarget++
+								}
+							}
+
+							matchShots = append(matchShots, ShotCoordinate{
+								X:        shot.PlayerCoordinates.X,
+								Y:        shot.PlayerCoordinates.Y,
+								ShotType: shot.ShotType,
+								InBox:    inBox,
+								OnTarget: isOnTarget,
+								IsSub:    false,
+							})
+						} else if subPlayerID > 0 && shot.Player.ID == subPlayerID {
+							if inBox {
+								subZone.inside++
+								if isOnTarget {
+									subZone.insideTarget++
+								}
+							} else {
+								subZone.outside++
+								if isOnTarget {
+									subZone.outsideTarget++
+								}
+							}
+
+							matchShots = append(matchShots, ShotCoordinate{
+								X:        shot.PlayerCoordinates.X,
+								Y:        shot.PlayerCoordinates.Y,
+								ShotType: shot.ShotType,
+								InBox:    inBox,
+								OnTarget: isOnTarget,
+								IsSub:    true,
+							})
+						}
+					}
+				}
+			}
+
 			resultsChan <- matchStatResult{
 				order:    idx,
 				opp:      match.Opponent,
 				date:     match.Date,
 				stats:    pStat.Statistics,
 				subStats: subStats,
+				zone:     playerZone,
+				subZone:  subZone,
+				shots:    matchShots,
 				pos:      pStat.Position,
 			}
 		}(i, m)
@@ -1135,6 +1234,7 @@ func FetchSofaPlayerCompleteHistory(playerID int, matchLimit int, allowedTournam
 		hist.Positions = append(hist.Positions, c.pos)
 		hist.Opponents = append(hist.Opponents, c.opp)
 		hist.Dates = append(hist.Dates, c.date)
+		hist.MatchShots = append(hist.MatchShots, c.shots)
 
 		tackles := c.stats.WonTackle
 		if tackles == 0 {
@@ -1145,7 +1245,6 @@ func FetchSofaPlayerCompleteHistory(playerID int, matchLimit int, allowedTournam
 			subTackles = c.subStats.TotalTackle
 		}
 
-		// Dane bazowe (bez SuperSub)
 		hist.MetricValues[MarketShotsTotal] = append(hist.MetricValues[MarketShotsTotal], c.stats.TotalShots)
 		hist.MetricValues[MarketShotsOnTarget] = append(hist.MetricValues[MarketShotsOnTarget], c.stats.OnTargetScoringAttempt)
 		hist.MetricValues[MarketShotsBlocked] = append(hist.MetricValues[MarketShotsBlocked], c.stats.BlockedScoringAttempt)
@@ -1157,7 +1256,11 @@ func FetchSofaPlayerCompleteHistory(playerID int, matchLimit int, allowedTournam
 		hist.MetricValues[MarketOffsides] = append(hist.MetricValues[MarketOffsides], c.stats.TotalOffside)
 		hist.MetricValues[MarketDispossessed] = append(hist.MetricValues[MarketDispossessed], c.stats.Dispossessed)
 
-		// Dane z SuperSub (starter + zmiennik)
+		hist.MetricValues[MarketShotsOutsideBox] = append(hist.MetricValues[MarketShotsOutsideBox], c.zone.outside)
+		hist.MetricValues[MarketShotsInsideBox] = append(hist.MetricValues[MarketShotsInsideBox], c.zone.inside)
+		hist.MetricValues[MarketShotsOnTargetOutsideBox] = append(hist.MetricValues[MarketShotsOnTargetOutsideBox], c.zone.outsideTarget)
+		hist.MetricValues[MarketShotsOnTargetInsideBox] = append(hist.MetricValues[MarketShotsOnTargetInsideBox], c.zone.insideTarget)
+
 		hist.MetricValuesWithSuperSub[MarketShotsTotal] = append(hist.MetricValuesWithSuperSub[MarketShotsTotal], c.stats.TotalShots+c.subStats.TotalShots)
 		hist.MetricValuesWithSuperSub[MarketShotsOnTarget] = append(hist.MetricValuesWithSuperSub[MarketShotsOnTarget], c.stats.OnTargetScoringAttempt+c.subStats.OnTargetScoringAttempt)
 		hist.MetricValuesWithSuperSub[MarketShotsBlocked] = append(hist.MetricValuesWithSuperSub[MarketShotsBlocked], c.stats.BlockedScoringAttempt+c.subStats.BlockedScoringAttempt)
@@ -1168,6 +1271,11 @@ func FetchSofaPlayerCompleteHistory(playerID int, matchLimit int, allowedTournam
 		hist.MetricValuesWithSuperSub[MarketFoulsDrawn] = append(hist.MetricValuesWithSuperSub[MarketFoulsDrawn], c.stats.WasFouled+c.subStats.WasFouled)
 		hist.MetricValuesWithSuperSub[MarketOffsides] = append(hist.MetricValuesWithSuperSub[MarketOffsides], c.stats.TotalOffside+c.subStats.TotalOffside)
 		hist.MetricValuesWithSuperSub[MarketDispossessed] = append(hist.MetricValuesWithSuperSub[MarketDispossessed], c.stats.Dispossessed+c.subStats.Dispossessed)
+
+		hist.MetricValuesWithSuperSub[MarketShotsOutsideBox] = append(hist.MetricValuesWithSuperSub[MarketShotsOutsideBox], c.zone.outside+c.subZone.outside)
+		hist.MetricValuesWithSuperSub[MarketShotsInsideBox] = append(hist.MetricValuesWithSuperSub[MarketShotsInsideBox], c.zone.inside+c.subZone.inside)
+		hist.MetricValuesWithSuperSub[MarketShotsOnTargetOutsideBox] = append(hist.MetricValuesWithSuperSub[MarketShotsOnTargetOutsideBox], c.zone.outsideTarget+c.subZone.outsideTarget)
+		hist.MetricValuesWithSuperSub[MarketShotsOnTargetInsideBox] = append(hist.MetricValuesWithSuperSub[MarketShotsOnTargetInsideBox], c.zone.insideTarget+c.subZone.insideTarget)
 	}
 
 	return hist, nil
@@ -1185,8 +1293,6 @@ func FetchSofaTeamDataComprehensive(teamID string, matchLimit int, tournamentIDs
 	}
 
 	matchedPlayerIDs := make(map[int]SofaPlayerDetails)
-	unmatchedBookmakerNames := make(map[string]bool)
-
 	lookupStringMap := lookupMapInt(lookupMap)
 
 	for _, targetName := range targetPlayerNames {
@@ -1202,7 +1308,6 @@ func FetchSofaTeamDataComprehensive(teamID string, matchLimit int, tournamentIDs
 		} else {
 			targetNorm := NormalizePlayerName(targetName)
 			parts := strings.Fields(targetNorm)
-			foundBySurname := false
 			if len(parts) > 0 {
 				last := parts[len(parts)-1]
 				for _, p := range squad {
@@ -1210,29 +1315,11 @@ func FetchSofaTeamDataComprehensive(teamID string, matchLimit int, tournamentIDs
 					pParts := strings.Fields(pNorm)
 					if len(pParts) > 0 && pParts[len(pParts)-1] == last {
 						matchedPlayerIDs[p.ID] = p
-						foundBySurname = true
 						break
 					}
 				}
 			}
-			if !foundBySurname {
-				unmatchedBookmakerNames[targetName] = true
-			}
 		}
-	}
-
-	fmt.Printf("[DEBUG][MATCHER] Zespół %s (ID: %s): dopasowano %d graczy z ofert bukmacherów.\n", teamDisplayName, teamID, len(matchedPlayerIDs))
-	if len(unmatchedBookmakerNames) > 0 {
-		var listUnmatched []string
-		for n := range unmatchedBookmakerNames {
-			listUnmatched = append(listUnmatched, n)
-		}
-		sort.Strings(listUnmatched)
-		limitShow := 10
-		if len(listUnmatched) < limitShow {
-			limitShow = len(listUnmatched)
-		}
-		fmt.Printf("[DEBUG][MATCHER] Niedopasowane nazwiska z bukmacherów dla %s (%d): %v...\n", teamDisplayName, len(listUnmatched), listUnmatched[:limitShow])
 	}
 
 	var playersToFetch []SofaPlayerDetails
@@ -1243,8 +1330,6 @@ func FetchSofaTeamDataComprehensive(teamID string, matchLimit int, tournamentIDs
 	} else {
 		playersToFetch = squad
 	}
-
-	fmt.Printf("[DEBUG][SOFASCORE] Rozpoczynanie pobierania historii meczów dla %d zawodników drużyny %s...\n", len(playersToFetch), teamDisplayName)
 
 	var finalHistories []*PlayerStatHistory
 	var mu sync.Mutex
@@ -1259,12 +1344,7 @@ func FetchSofaTeamDataComprehensive(teamID string, matchLimit int, tournamentIDs
 			defer func() { <-sem }()
 
 			h, err := FetchSofaPlayerCompleteHistory(player.ID, matchLimit, tournamentIDs)
-			if err != nil {
-				fmt.Printf("[DEBUG][SOFASCORE] Błąd historii dla %s (ID: %d): %v\n", player.Name, player.ID, err)
-				return
-			}
-			if h == nil || h.Matches == 0 {
-				fmt.Printf("[DEBUG][SOFASCORE] Gracz %s (ID: %d) ma 0 rozegranych meczów w wybranym filtrze.\n", player.Name, player.ID)
+			if err != nil || h == nil || h.Matches == 0 {
 				return
 			}
 			h.FullName = player.Name
@@ -1274,12 +1354,10 @@ func FetchSofaTeamDataComprehensive(teamID string, matchLimit int, tournamentIDs
 			mu.Lock()
 			finalHistories = append(finalHistories, h)
 			mu.Unlock()
-			fmt.Printf("[DEBUG][SOFASCORE] Pomyślnie pobrano: %-22s (ID: %-8d) -> %2d meczów w próbce.\n", player.Name, player.ID, h.Matches)
 		}(p)
 	}
 
 	wg.Wait()
-	fmt.Printf("[DEBUG][SOFASCORE] Zakończono pobieranie: %s ma %d zawodników z historią statystyk.\n", teamDisplayName, len(finalHistories))
 	return finalHistories, teamDisplayName, nil
 }
 
@@ -1375,7 +1453,6 @@ func FetchSofaConfirmedLineups(eventID string) (map[string]bool, map[string]bool
 		regLineup(awayMap, p)
 	}
 
-	fmt.Printf("[DEBUG][LINEUP] Pobrano składy meczu %s: Gospodarze=%d, Goście=%d (potwierdzone: %v)\n", eventID, len(homeMap), len(awayMap), res.Confirmed)
 	return homeMap, awayMap, true
 }
 
@@ -1408,8 +1485,6 @@ func isUnsupportedMethodOrZone(s string) bool {
 		"podania", "podan", "pass",
 		"kartki", "kartek", "card",
 		"asyst",
-		"spoza pola", "spoza szesnast", "spoza", "z dystansu", "outside the box", "outside box",
-		"z pola karnego", "w polu karnym", "w szesnastce", "z szesnastki", "inside the box", "inside box",
 	}
 	for _, m := range markers {
 		if strings.Contains(low, m) {
@@ -1417,6 +1492,40 @@ func isUnsupportedMethodOrZone(s string) bool {
 		}
 	}
 	return false
+}
+
+func mapZoneShotMarket(raw string) (CanonicalMarket, bool) {
+	s := strings.ToLower(raw)
+	sd := removeDiacritics(s)
+
+	if !strings.Contains(s, "strzał") && !strings.Contains(sd, "strzal") && !strings.Contains(s, "shot") {
+		return "", false
+	}
+	if strings.Contains(s, "zablokowan") || strings.Contains(s, "nieceln") || strings.Contains(s, "off target") || strings.Contains(s, "blocked") {
+		return "", false
+	}
+
+	isOutside := strings.Contains(sd, "spoza") || strings.Contains(sd, "z dystansu") ||
+		strings.Contains(s, "outside the box") || strings.Contains(s, "outside box")
+	isInside := strings.Contains(sd, "z pola karnego") || strings.Contains(sd, "w polu karnym") ||
+		strings.Contains(sd, "w szesnastce") || strings.Contains(sd, "z szesnastki") ||
+		strings.Contains(s, "inside the box") || strings.Contains(s, "inside box")
+
+	isOnTarget := strings.Contains(s, "celn") || strings.Contains(s, "on target")
+
+	if isOutside {
+		if isOnTarget {
+			return MarketShotsOnTargetOutsideBox, true
+		}
+		return MarketShotsOutsideBox, true
+	}
+	if isInside {
+		if isOnTarget {
+			return MarketShotsOnTargetInsideBox, true
+		}
+		return MarketShotsInsideBox, true
+	}
+	return "", false
 }
 
 func mapMarketCanonical(raw string) (CanonicalMarket, bool) {
@@ -1431,6 +1540,11 @@ func mapMarketCanonical(raw string) (CanonicalMarket, bool) {
 	if isHalfOrPeriodMarket(raw) {
 		return "", false
 	}
+
+	if zone, ok := mapZoneShotMarket(raw); ok {
+		return zone, true
+	}
+
 	if isUnsupportedMethodOrZone(raw) {
 		return "", false
 	}
@@ -1472,7 +1586,6 @@ func mapMarketCanonical(raw string) (CanonicalMarket, bool) {
 	return "", false
 }
 
-// --- SUPERBET ---
 func ParseSuperbetProps(rawJSON string) ([]NormalizedProp, error) {
 	var resp struct {
 		Markets []struct {
@@ -1551,7 +1664,6 @@ func ParseSuperbetProps(rawJSON string) ([]NormalizedProp, error) {
 	return props, nil
 }
 
-// --- STS ---
 func ParseSTSProps(rawJSON string) ([]NormalizedProp, error) {
 	var root map[string]any
 	if err := json.Unmarshal([]byte(rawJSON), &root); err != nil {
@@ -1601,7 +1713,7 @@ func ParseSTSProps(rawJSON string) ([]NormalizedProp, error) {
 				cleanName = strings.ReplaceAll(cleanName, "(z dogrywka)", "")
 				cleanName = strings.TrimSpace(cleanName)
 
-				if isHalfOrPeriodMarket(cleanName) || isUnsupportedMethodOrZone(cleanName) {
+				if isHalfOrPeriodMarket(cleanName) {
 					continue
 				}
 
@@ -1687,7 +1799,6 @@ func ParseSTSProps(rawJSON string) ([]NormalizedProp, error) {
 	return props, nil
 }
 
-// --- BETCLIC PROTOBUF ---
 type protoNode struct {
 	fieldNo  int
 	wireType int
@@ -2107,9 +2218,6 @@ func CalculateValueBets(
 	registerPlayers(homePlayers, "HOME")
 	registerPlayers(awayPlayers, "AWAY")
 
-	fmt.Printf("[DEBUG][ANALYSIS] CalculateValueBets: Zarejestrowano %d graczy do strictMap (Gospodarze: %d, Goście: %d). Liczba propsów do analizy: %d.\n",
-		len(strictMap), len(homePlayers), len(awayPlayers), len(props))
-
 	getLineupStatus := func(pName, side string) (string, bool) {
 		norm := NormalizePlayerName(pName)
 		var lineupMap map[string]bool
@@ -2146,13 +2254,10 @@ func CalculateValueBets(
 	}
 
 	results := make([]AnalyzedBet, 0)
-	matchedCount := 0
-	unmatchedPlayerProps := make(map[string]int)
 
 	for _, prop := range props {
 		matchedID := matchPlayerStrict(prop.PlayerName, strictMap)
 		if matchedID == "" {
-			unmatchedPlayerProps[prop.PlayerName]++
 			continue
 		}
 
@@ -2167,7 +2272,6 @@ func CalculateValueBets(
 		}
 		valuesSuperSub := hist.MetricValuesWithSuperSub[prop.MarketType]
 
-		matchedCount++
 		sample := len(values)
 		hitsOver, hitsUnder, total := 0, 0, 0
 		for _, v := range values {
@@ -2235,6 +2339,7 @@ func CalculateValueBets(
 			SamplePositions:      append([]string(nil), hist.Positions...),
 			SampleOpponents:      append([]string(nil), hist.Opponents...),
 			SampleDates:          append([]string(nil), hist.Dates...),
+			SampleShots:          hist.MatchShots,
 			StatsSource:          "SOFASCORE",
 			TeamSide:             hist.TeamSide,
 			TeamID:               hist.TeamID,
@@ -2243,22 +2348,6 @@ func CalculateValueBets(
 			LineupStatus:         status,
 			IsStartingXI:         isStarting,
 		})
-	}
-
-	fmt.Printf("[DEBUG][ANALYSIS] Pomyślnie dopasowano i przeliczono %d rynków. Pominięto %d niedopasowanych rynków (łącznie %d graczy bez dopasowania).\n",
-		matchedCount, len(props)-matchedCount, len(unmatchedPlayerProps))
-
-	if len(unmatchedPlayerProps) > 0 {
-		var topUnmatched []string
-		for name, count := range unmatchedPlayerProps {
-			topUnmatched = append(topUnmatched, fmt.Sprintf("%s (%d rynków)", name, count))
-		}
-		sort.Strings(topUnmatched)
-		limitShow := 15
-		if len(topUnmatched) < limitShow {
-			limitShow = len(topUnmatched)
-		}
-		fmt.Printf("[DEBUG][ANALYSIS] Przykładowi niedopasowani gracze: %v\n", topUnmatched[:limitShow])
 	}
 
 	return results
@@ -2537,8 +2626,6 @@ func (a *App) AnalyzeThreeBookmakers(sbInput, betclicInput, stsInput, homeInput,
 	if len(allProps) == 0 {
 		return nil, fmt.Errorf("brak pobranych rynków od bukmacherów (sprawdź wprowadzone linki)")
 	}
-
-	fmt.Printf("[DEBUG][ANALYSIS] Pobrano łącznie %d rynków od bukmacherów.\n", len(allProps))
 
 	var targetPlayerNames []string
 	for _, p := range allProps {
