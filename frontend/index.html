@@ -465,9 +465,9 @@
                 </svg>
                 <div style="font-size:10px; color:var(--text-muted); display:flex; justify-content:space-between; margin-top:2px;">
                     <span>🟢 Celny</span>
-                    <span>⚪ Niecelny</span>
-                    <span>🟡 Zablokowany</span>
-                    <span>⭐ Gol</span>
+                    <span>🔴 Niecelny / Słupek</span>
+                    <span style="color:#c084fc;">🟣 Zablokowany</span>
+                    <span>⭐ Gol (Celny + Gwiazdka)</span>
                 </div>
                 <div id="shotmapMatchDetails" style="font-size:11px; color:#fff; border-top:1px solid var(--border); padding-top:6px; margin-top:4px;">
                     Kliknij słupek na wykresie, aby wyizolować strzały z danego meczu.
@@ -1530,31 +1530,42 @@
             let pitchY = (shot.x <= 50 ? shot.x : (100 - shot.x)) * 3.8 + 10;
             let pitchX = shot.y * 2.8;
 
-            let fillColor = "#ffffff";
+            let fillColor = "#ef4444";
             let strokeColor = "rgba(0, 0, 0, 0.4)";
             let r = 5.5;
+            let isGoal = false;
 
-            switch (shot.shotType) {
+            const st = (shot.shotType || "").toLowerCase();
+
+            switch (st) {
                 case "goal":
-                    fillColor = "#38bdf8";
-                    strokeColor = "#ffffff";
-                    r = 7;
+                    fillColor = "#10b981"; // Gol = zielony z gwiazdką
+                    strokeColor = "#022c22";
+                    r = 6.5;
+                    isGoal = true;
                     break;
                 case "save":
-                    fillColor = "#10b981";
+                    fillColor = "#10b981"; // Celny = zielony
                     strokeColor = "#022c22";
+                    r = 5.5;
                     break;
                 case "blocked":
-                    fillColor = "#f59e0b";
-                    strokeColor = "#78350f";
+                    fillColor = "#a855f7"; // Zablokowany = fioletowy
+                    strokeColor = "#581c87";
+                    r = 5.5;
                     break;
                 case "miss":
                 case "post":
                 default:
-                    fillColor = "#ef4444";
+                    fillColor = "#ef4444"; // Niecelny, poprzeczka, słupek = czerwony
                     strokeColor = "#450a0a";
+                    r = 5.5;
                     break;
             }
+
+            const shotGroup = createSvgElement('g', {
+                cursor: 'pointer'
+            });
 
             const circle = createSvgElement('circle', {
                 cx: pitchX,
@@ -1563,16 +1574,40 @@
                 fill: fillColor,
                 stroke: strokeColor,
                 'stroke-width': 1.5,
-                opacity: 0.92,
-                cursor: 'pointer'
+                opacity: 0.95
             });
+            shotGroup.appendChild(circle);
+
+            // Dodaj białą gwiazdkę w środku, jeśli to gol
+            if (isGoal) {
+                const starPoints = [];
+                const spikes = 5;
+                const outerRadius = 3.5;
+                const innerRadius = 1.6;
+
+                for (let i = 0; i < spikes * 2; i++) {
+                    const radius = i % 2 === 0 ? outerRadius : innerRadius;
+                    const angle = (i * Math.PI) / spikes - Math.PI / 2;
+                    const sx = pitchX + Math.cos(angle) * radius;
+                    const sy = pitchY + Math.sin(angle) * radius;
+                    starPoints.push(`${sx.toFixed(2)},${sy.toFixed(2)}`);
+                }
+
+                const star = createSvgElement('polygon', {
+                    points: starPoints.join(' '),
+                    fill: '#ffffff',
+                    'pointer-events': 'none'
+                });
+                shotGroup.appendChild(star);
+            }
 
             const tip = createSvgElement('title');
             const subTag = shot.isSub ? " [SuperSub]" : "";
             const locTag = shot.inBox ? "w polu karnym" : "z dystansu";
             tip.textContent = `Strzał: ${shot.shotType.toUpperCase()}${subTag} (${locTag})`;
-            circle.appendChild(tip);
-            group.appendChild(circle);
+            shotGroup.appendChild(tip);
+
+            group.appendChild(shotGroup);
         });
     }
 
@@ -1601,7 +1636,7 @@
             tr.innerHTML = `
                 <td><span class="badge-bm bm-${b.bookmaker}">${b.bookmaker}</span></td>
                 <td><b>${b.playerName}</b>${lineupBadge}</td>
-                <td>${b.marketLabel}<span class="tag-src" title="Próbka z SofaScore">SOFA</span></td>
+                <td>${b.marketLabel}<span class="tag-src" title="Próbka z SofaScore">SOFASCORE</span></td>
                 <td>${b.isUnder ? 'under' : 'over'} ${b.line}</td>
                 <td><b>${b.bookmakerOdds.toFixed(2)}</b></td>
                 <td>${b.fairOdds.toFixed(2)}</td>
@@ -2005,7 +2040,7 @@
                 </tr></thead>
                 <tbody>
                     ${legs.map(l => `<tr>
-                        <t d><b>${l.playerName}</b></td>
+                        <td><b>${l.playerName}</b></td>
                         <td>${l.marketLabel} (${l.isUnder ? 'under' : 'over'} ${l.line})</td>
                         <td>${l.bookmaker}</td>
                         <td><b>${l.bookmakerOdds.toFixed(2)}</b></td>

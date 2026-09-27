@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"math/rand"
 	"net/http"
@@ -66,7 +67,7 @@ const (
 type ShotCoordinate struct {
 	X        float64 `json:"x"`
 	Y        float64 `json:"y"`
-	ShotType string  `json:"shotType"` // "goal", "save", "miss", "post", "blocked"
+	ShotType string  `json:"shotType"`
 	InBox    bool    `json:"inBox"`
 	OnTarget bool    `json:"onTarget"`
 	IsSub    bool    `json:"isSub"`
@@ -85,19 +86,24 @@ type NormalizedProp struct {
 }
 
 type PlayerStatHistory struct {
-	ID                       int
-	FullName                 string
-	TeamSide                 string
-	TeamID                   string
-	TeamName                 string
-	Matches                  int
-	MetricValues             map[CanonicalMarket][]int
-	MetricValuesWithSuperSub map[CanonicalMarket][]int
-	Minutes                  []int
-	Positions                []string
-	Opponents                []string
-	Dates                    []string
-	MatchShots               [][]ShotCoordinate
+	ID                       int                       `json:"id"`
+	FullName                 string                    `json:"fullName"`
+	TeamSide                 string                    `json:"teamSide"`
+	TeamID                   string                    `json:"teamId"`
+	TeamName                 string                    `json:"teamName"`
+	Matches                  int                       `json:"matches"`
+	MetricValues             map[CanonicalMarket][]int `json:"metricValues"`
+	MetricValuesWithSuperSub map[CanonicalMarket][]int `json:"metricValuesWithSuperSub"`
+	Minutes                  []int                     `json:"minutes"`
+	Positions                []string                  `json:"positions"`
+	Opponents                []string                  `json:"opponents"`
+	Dates                    []string                  `json:"dates"`
+	MatchShots               [][]ShotCoordinate        `json:"matchShots"`
+}
+
+type CachedPlayerHistory struct {
+	History   PlayerStatHistory `json:"history"`
+	CreatedAt time.Time         `json:"createdAt"`
 }
 
 type AnalyzedBet struct {
@@ -367,7 +373,66 @@ type SofaSeasonsResponse struct {
 // 2. CACHE I DETEKCJA SLUGÓW
 // ==========================================
 
-var cacheMutex sync.Mutex
+var (
+	cacheMutex         sync.Mutex
+	playerStatsCacheMu sync.Mutex
+	playerStatsCache   map[string]CachedPlayerHistory
+	cacheLoadedOnce    sync.Once
+)
+
+const playerCacheTTL = 6 * time.Hour
+
+func initPlayerCache() {
+	playerStatsCacheMu.Lock()
+	defer playerStatsCacheMu.Unlock()
+
+	playerStatsCache = make(map[string]CachedPlayerHistory)
+	path := getCacheFilePath("sofa_player_stats_cache.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	_ = json.Unmarshal(data, &playerStatsCache)
+	log.Printf("[STATS-CACHE] Załadowano z dysku %d wpisów historii graczy", len(playerStatsCache))
+}
+
+func getPlayerCache(key string) (*PlayerStatHistory, bool) {
+	cacheLoadedOnce.Do(initPlayerCache)
+
+	playerStatsCacheMu.Lock()
+	defer playerStatsCacheMu.Unlock()
+
+	item, exists := playerStatsCache[key]
+	if !exists {
+		return nil, false
+	}
+
+	if time.Since(item.CreatedAt) > playerCacheTTL {
+		delete(playerStatsCache, key)
+		return nil, false
+	}
+
+	cp := item.History
+	return &cp, true
+}
+
+func savePlayerCache(key string, hist *PlayerStatHistory) {
+	cacheLoadedOnce.Do(initPlayerCache)
+
+	playerStatsCacheMu.Lock()
+	defer playerStatsCacheMu.Unlock()
+
+	playerStatsCache[key] = CachedPlayerHistory{
+		History:   *hist,
+		CreatedAt: time.Now(),
+	}
+
+	path := getCacheFilePath("sofa_player_stats_cache.json")
+	b, err := json.Marshal(playerStatsCache)
+	if err == nil {
+		_ = os.WriteFile(path, b, 0644)
+	}
+}
 
 func getCacheFilePath(filename string) string {
 	if exePath, err := os.Executable(); err == nil {
@@ -387,11 +452,16 @@ func loadTeamCache() map[string]string {
 	path := getCacheFilePath("sofa_team_cache.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
+		log.Printf("[CACHE] Brak pliku cache drużyn (%s) lub błąd odczytu: %v", path, err)
 		return make(map[string]string)
 	}
 
 	var m map[string]string
-	_ = json.Unmarshal(data, &m)
+	if err := json.Unmarshal(data, &m); err != nil {
+		log.Printf("[CACHE] Błąd deserializacji cache: %v", err)
+		return make(map[string]string)
+	}
+	log.Printf("[CACHE] Załadowano %d drużyn z pamięci podręcznej (%s)", len(m), path)
 	return m
 }
 
@@ -411,11 +481,20 @@ func saveTeamCache(slug, id string) {
 		_ = json.Unmarshal(data, &m)
 	}
 	m[slug] = id
-	b, _ := json.MarshalIndent(m, "", "  ")
-	_ = os.WriteFile(path, b, 0644)
+	b, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		log.Printf("[CACHE] Błąd serializacji zapisu cache: %v", err)
+		return
+	}
+	if err := os.WriteFile(path, b, 0644); err != nil {
+		log.Printf("[CACHE] Błąd zapisu pliku %s: %v", path, err)
+	} else {
+		log.Printf("[CACHE] Zapisano do cache: %s -> ID %s", slug, id)
+	}
 }
 
 func extractIDAndSlug(rawURL string) (string, string, string) {
+	log.Printf("[EXTRACT] Rozpoczynam ekstrakcję URL: %s", rawURL)
 	clean := strings.TrimSpace(rawURL)
 	if decoded, err := url.PathUnescape(clean); err == nil {
 		clean = decoded
@@ -433,6 +512,7 @@ func extractIDAndSlug(rawURL string) (string, string, string) {
 
 	reBetclic := regexp.MustCompile(`^(.*)-m(\d+)$`)
 	if m := reBetclic.FindStringSubmatch(lastSegment); len(m) == 3 {
+		log.Printf("[EXTRACT] Wykryto BETCLIC: ID=%s, Slug=%s", m[2], m[1])
 		return m[2], m[1], "BETCLIC"
 	}
 
@@ -444,44 +524,55 @@ func extractIDAndSlug(rawURL string) (string, string, string) {
 		if len(parts) >= 2 {
 			slug = parts[len(parts)-2]
 		}
+		log.Printf("[EXTRACT] Wykryto STS: ID=%s, Slug=%s", id, slug)
 		return id, slug, "STS"
 	}
 
 	reSb := regexp.MustCompile(`^(.*?)-(\d+)$`)
 	if m := reSb.FindStringSubmatch(lastSegment); len(m) == 3 {
+		log.Printf("[EXTRACT] Wykryto SUPERBET: ID=%s, Slug=%s", m[2], m[1])
 		return m[2], m[1], "SUPERBET"
 	}
 
 	numRe := regexp.MustCompile(`\d+`)
 	id := numRe.FindString(lastSegment)
+	log.Printf("[EXTRACT] Nieznany bukmacher (UNKNOWN): ID=%s, Segment=%s", id, lastSegment)
 	return id, lastSegment, "UNKNOWN"
 }
 
 func parseTeamsFromSlug(slug, _ string) (string, string) {
+	log.Printf("[PARSER] Parsowanie slug drużyn: %s", slug)
 	slug = strings.ToLower(slug)
 	slug = strings.ReplaceAll(slug, "–", "-")
 
 	if strings.Contains(slug, "-vs-") {
 		pts := strings.Split(slug, "-vs-")
-		return strings.TrimSpace(pts[0]), strings.TrimSpace(pts[1])
+		h, a := strings.TrimSpace(pts[0]), strings.TrimSpace(pts[1])
+		log.Printf("[PARSER] Rozpoznano wg '-vs-': %s vs %s", h, a)
+		return h, a
 	}
 	if strings.Contains(slug, "-v-") {
 		pts := strings.Split(slug, "-v-")
-		return strings.TrimSpace(pts[0]), strings.TrimSpace(pts[1])
+		h, a := strings.TrimSpace(pts[0]), strings.TrimSpace(pts[1])
+		log.Printf("[PARSER] Rozpoznano wg '-v-': %s vs %s", h, a)
+		return h, a
 	}
 
 	pts := strings.Split(slug, "-")
 	if len(pts) == 2 {
+		log.Printf("[PARSER] Rozpoznano wg 2 tokenów: %s vs %s", pts[0], pts[1])
 		return pts[0], pts[1]
 	}
 
 	if len(pts) == 3 {
 		p0 := pts[0]
 		if p0 == "fc" || p0 == "sc" || p0 == "sv" || p0 == "vfb" || p0 == "vfl" || p0 == "tsg" || p0 == "rb" || p0 == "real" {
+			log.Printf("[PARSER] Rozpoznano prefiks w 3 tokenach: %s-%s vs %s", pts[0], pts[1], pts[2])
 			return pts[0] + "-" + pts[1], pts[2]
 		}
 		p1 := pts[1]
 		if p1 == "fc" || p1 == "sc" || p1 == "sv" || p1 == "vfb" || p1 == "vfl" || p1 == "tsg" || p1 == "rb" || p1 == "real" {
+			log.Printf("[PARSER] Rozpoznano prefiks gości w 3 tokenach: %s vs %s-%s", pts[0], pts[1], pts[2])
 			return pts[0], pts[1] + "-" + pts[2]
 		}
 	}
@@ -492,12 +583,17 @@ func parseTeamsFromSlug(slug, _ string) (string, string) {
 			if pts[0] == "1" && pts[1] == "fc" {
 				splitIdx = 3
 			}
-			return strings.Join(pts[:splitIdx], "-"), strings.Join(pts[splitIdx:], "-")
+			h, a := strings.Join(pts[:splitIdx], "-"), strings.Join(pts[splitIdx:], "-")
+			log.Printf("[PARSER] Rozpoznano złożony klub na początku: %s vs %s", h, a)
+			return h, a
 		}
 		mid := len(pts) / 2
-		return strings.Join(pts[:mid], "-"), strings.Join(pts[mid:], "-")
+		h, a := strings.Join(pts[:mid], "-"), strings.Join(pts[mid:], "-")
+		log.Printf("[PARSER] Podział przez środek (długość %d): %s vs %s", len(pts), h, a)
+		return h, a
 	}
 
+	log.Printf("[PARSER] Nie udało się jednoznacznie podzielić sluga: %s", slug)
 	return slug, ""
 }
 
@@ -540,15 +636,18 @@ func findTeamIDInCache(teamSlug string, cache map[string]string) string {
 	cleanCore := canonicalTeamCore(clean)
 
 	if id, ok := cache[clean]; ok {
+		log.Printf("[CACHE] Trafienie dokładne w cache dla: %s -> %s", clean, id)
 		return id
 	}
 
 	for cacheSlug, id := range cache {
 		if canonicalTeamCore(cacheSlug) == cleanCore {
+			log.Printf("[CACHE] Trafienie kanoniczne w cache dla: %s (rdzeń: %s) -> %s (ID: %s)", teamSlug, cleanCore, cacheSlug, id)
 			return id
 		}
 	}
 
+	log.Printf("[CACHE] Brak drużyny w cache dla sluga: %s (rdzeń: %s)", teamSlug, cleanCore)
 	return ""
 }
 
@@ -571,8 +670,21 @@ func displayOpponentName(name string) string {
 }
 
 // ==========================================
-// 3. POBIERANIE SIECIOWE (TLS BROWSER IMPERSONATION)
+// 3. POBIERANIE SIECIOWE (TLS BROWSER IMPERSONATION + REUSE)
 // ==========================================
+
+var (
+	sharedSofaClient   *ResilientClient
+	sharedSofaOnce     sync.Once
+	globalSofaThrottle = make(chan struct{}, 6)
+)
+
+func GetSharedSofaClient() *ResilientClient {
+	sharedSofaOnce.Do(func() {
+		sharedSofaClient = NewResilientClient()
+	})
+	return sharedSofaClient
+}
 
 type ResilientClient struct {
 	httpClient *http.Client
@@ -584,7 +696,7 @@ func NewResilientClient() *ResilientClient {
 	tlsJar := tls_client.NewCookieJar()
 
 	options := []tls_client.HttpClientOption{
-		tls_client.WithTimeoutSeconds(20),
+		tls_client.WithTimeoutSeconds(8),
 		tls_client.WithClientProfile(profiles.Firefox_120),
 		tls_client.WithCookieJar(tlsJar),
 		tls_client.WithRandomTLSExtensionOrder(),
@@ -592,12 +704,12 @@ func NewResilientClient() *ResilientClient {
 
 	tlsCli, err := tls_client.NewHttpClient(tls_client.NewNoopLogger(), options...)
 	if err != nil {
-		panic(fmt.Sprintf("Inicjalizacja TLS klienta nie powiodła się: %v", err))
+		log.Fatalf("[TLS] KRYTYCZNY BŁĄD: Inicjalizacja TLS klienta nie powiodła się: %v", err)
 	}
 
 	return &ResilientClient{
 		httpClient: &http.Client{
-			Timeout: 20 * time.Second,
+			Timeout: 8 * time.Second,
 			Jar:     jar,
 		},
 		tlsClient: tlsCli,
@@ -605,15 +717,21 @@ func NewResilientClient() *ResilientClient {
 }
 
 func (c *ResilientClient) GetSofa(endpoint string) ([]byte, error) {
-	time.Sleep(time.Duration(90+rand.Intn(90)) * time.Millisecond)
+	globalSofaThrottle <- struct{}{}
+	defer func() { <-globalSofaThrottle }()
+
+	sleepMs := 40 + rand.Intn(30)
+	time.Sleep(time.Duration(sleepMs) * time.Millisecond)
 
 	reqURL := endpoint
 	if !strings.HasPrefix(reqURL, "http") {
 		reqURL = sofaBase + endpoint
 	}
 
+	start := time.Now()
 	req, err := fhttp.NewRequest(fhttp.MethodGet, reqURL, nil)
 	if err != nil {
+		log.Printf("[SOFA] Błąd tworzenia requesta do %s: %v", reqURL, err)
 		return nil, err
 	}
 
@@ -641,17 +759,21 @@ func (c *ResilientClient) GetSofa(endpoint string) ([]byte, error) {
 	}
 
 	resp, err := c.tlsClient.Do(req)
+	duration := time.Since(start)
 	if err != nil {
+		log.Printf("[SOFA] HTTP Error dla %s po %v: %v", reqURL, duration, err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		log.Printf("[SOFA] Błąd odczytu body z %s: %v", reqURL, err)
 		return nil, err
 	}
 
 	if resp.StatusCode != fhttp.StatusOK {
+		log.Printf("[SOFA] Niepoprawny status %d z %s (body len: %d)", resp.StatusCode, reqURL, len(body))
 		return nil, fmt.Errorf("SofaScore HTTP %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -659,26 +781,30 @@ func (c *ResilientClient) GetSofa(endpoint string) ([]byte, error) {
 }
 
 func SearchSofaTeamID(teamSlug string) (string, error) {
+	log.Printf("[SOFA-SEARCH] Rozpoczynam wyszukiwanie ID drużyny dla sluga: %s", teamSlug)
 	if strings.TrimSpace(teamSlug) == "" {
 		return "", fmt.Errorf("pusty slug")
 	}
 
-	client := NewResilientClient()
+	client := GetSharedSofaClient()
 	queryName := strings.ReplaceAll(canonicalTeamCore(teamSlug), "-", " ")
 	q := url.QueryEscape(queryName)
 
 	body, err := client.GetSofa(fmt.Sprintf("/search/all?q=%s&page=0", q))
 	if err != nil {
+		log.Printf("[SOFA-SEARCH] Błąd zapytania wyszukiwania dla %s: %v", queryName, err)
 		return "", err
 	}
 
 	var res SofaSearchResponse
 	if err := json.Unmarshal(body, &res); err != nil {
+		log.Printf("[SOFA-SEARCH] Błąd parsowania JSON dla %s: %v", queryName, err)
 		return "", err
 	}
 
 	teams := res.ExtractTeams()
 	if len(teams) == 0 {
+		log.Printf("[SOFA-SEARCH] Brak wyników dla pełnej nazwy '%s'. Próba wyszukania po pierwszym tokenie...", queryName)
 		parts := strings.Fields(queryName)
 		if len(parts) > 1 {
 			qShort := url.QueryEscape(parts[0])
@@ -686,11 +812,13 @@ func SearchSofaTeamID(teamSlug string) (string, error) {
 				var resShort SofaSearchResponse
 				_ = json.Unmarshal(bodyShort, &resShort)
 				teams = resShort.ExtractTeams()
+				log.Printf("[SOFA-SEARCH] Wyniki po pierwszym słowie '%s': znaleziono %d drużyn", parts[0], len(teams))
 			}
 		}
 	}
 
 	if len(teams) == 0 {
+		log.Printf("[SOFA-SEARCH] Nie odnaleziono żadnej drużyny dla: %s", teamSlug)
 		return "", fmt.Errorf("nie znaleziono drużyny dla: %s", teamSlug)
 	}
 
@@ -698,22 +826,27 @@ func SearchSofaTeamID(teamSlug string) (string, error) {
 	for _, t := range teams {
 		if canonicalTeamCore(t.Slug) == cleanTarget || canonicalTeamCore(t.Name) == cleanTarget {
 			idStr := strconv.Itoa(t.ID)
+			log.Printf("[SOFA-SEARCH] Sukces! Dopasowano kanonicznie: %s -> ID %s (nazwa: %s)", teamSlug, idStr, t.Name)
 			saveTeamCache(teamSlug, idStr)
 			return idStr, nil
 		}
 	}
 
 	firstID := strconv.Itoa(teams[0].ID)
+	log.Printf("[SOFA-SEARCH] Brak dokładnego dopasowania kanonicznego. Wybór pierwszego wyniku: %s -> ID %s (nazwa: %s)", teamSlug, firstID, teams[0].Name)
 	saveTeamCache(teamSlug, firstID)
 	return firstID, nil
 }
 
 func FetchSuperbetMatchData(matchID string) (string, error) {
-	client := NewResilientClient()
+	log.Printf("[SUPERBET] Pobieranie oferty dla meczu match_id=%s", matchID)
+	start := time.Now()
+	client := GetSharedSofaClient()
 	urlStr := fmt.Sprintf("https://production-superbet-bmb.freetls.fastly.net/betbuilder/v2/getBetbuilderMarketsForMatch?match_id=%s&lang=pl-PL&target=SB_PL", matchID)
 
 	req, err := http.NewRequest("GET", urlStr, nil)
 	if err != nil {
+		log.Printf("[SUPERBET] Błąd tworzenia requesta: %v", err)
 		return "", err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0")
@@ -721,27 +854,37 @@ func FetchSuperbetMatchData(matchID string) (string, error) {
 
 	resp, err := client.httpClient.Do(req)
 	if err != nil {
+		log.Printf("[SUPERBET] Błąd połączenia po %v: %v", time.Since(start), err)
 		return "", err
 	}
 	defer resp.Body.Close()
 
 	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("[SUPERBET] Błąd odczytu odpowiedzi: %v", err)
+		return "", err
+	}
+	log.Printf("[SUPERBET] Pobrano pomyślnie w %v | kod: %d | bajtów: %d", time.Since(start), resp.StatusCode, len(b))
 	return string(b), err
 }
 
 func FetchSTSSnapshotData(fixtureID string) (string, error) {
+	log.Printf("[STS] Inicjalizacja połączenia WebSocket dla fixtureID=%s", fixtureID)
 	channel := fmt.Sprintf("f_f%s_pl", fixtureID)
 	wsURL := "wss://www.sts.pl/sbk/api/sbk"
 	header := http.Header{}
 	header.Set("Origin", "https://www.sts.pl")
 	header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
 
-	dialer := websocket.Dialer{HandshakeTimeout: 10 * time.Second}
+	dialer := websocket.Dialer{HandshakeTimeout: 7 * time.Second}
+	start := time.Now()
 	conn, _, err := dialer.Dial(wsURL, header)
 	if err != nil {
+		log.Printf("[STS] Błąd handshake WebSocket: %v", err)
 		return "", fmt.Errorf("błąd połączenia z WS STS: %w", err)
 	}
 	defer conn.Close()
+	log.Printf("[STS] Połączono z WS STS w %v, subskrypcja kanału: %s", time.Since(start), channel)
 
 	sub := map[string]any{
 		"t": 1,
@@ -751,22 +894,27 @@ func FetchSTSSnapshotData(fixtureID string) (string, error) {
 		},
 	}
 	if err := conn.WriteJSON(sub); err != nil {
+		log.Printf("[STS] Błąd wysyłania ramki subskrypcji: %v", err)
 		return "", err
 	}
 
-	deadline := time.Now().Add(12 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
+	msgCounter := 0
 	for time.Now().Before(deadline) {
-		_ = conn.SetReadDeadline(time.Now().Add(4 * time.Second))
+		_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
 			_ = conn.WriteJSON(map[string]any{"t": 0})
 			continue
 		}
+		msgCounter++
 		raw := string(msg)
 		if strings.Contains(raw, `"P":`) || strings.Contains(raw, fmt.Sprintf("f%s", fixtureID)) {
+			log.Printf("[STS] Odebrano właściwy snapshot po %d wiadomościach w %v", msgCounter, time.Since(start))
 			return raw, nil
 		}
 	}
+	log.Printf("[STS] Przekroczono limit czasu oczekiwania na dane dla fixtureID=%s", fixtureID)
 	return "", fmt.Errorf("timeout oczekiwania na ofertę STS")
 }
 
@@ -781,8 +929,10 @@ func encodeVarint(val uint64) []byte {
 }
 
 func FetchBetclicStreamData(matchIDStr string) ([]byte, error) {
+	log.Printf("[BETCLIC] Pobieranie gRPC Web strumienia dla meczu ID: %s", matchIDStr)
 	matchID, err := strconv.ParseUint(matchIDStr, 10, 64)
 	if err != nil {
+		log.Printf("[BETCLIC] Niepoprawne ID numeryczne: %s - %v", matchIDStr, err)
 		return nil, fmt.Errorf("niepoprawne numeryczne ID Betclic: %w", err)
 	}
 
@@ -802,8 +952,10 @@ func FetchBetclicStreamData(matchIDStr string) ([]byte, error) {
 	binary.BigEndian.PutUint32(hdr[1:], uint32(len(body)))
 	payload := append(hdr, body...)
 
+	start := time.Now()
 	req, err := http.NewRequest("POST", "https://offering.begmedia.com/web/offering.access.api/offering.access.api.MatchService/GetMatchWithNotification", bytes.NewReader(payload))
 	if err != nil {
+		log.Printf("[BETCLIC] Błąd tworzenia żądania POST: %v", err)
 		return nil, err
 	}
 
@@ -826,11 +978,13 @@ func FetchBetclicStreamData(matchIDStr string) ([]byte, error) {
 	client := &http.Client{Timeout: 0}
 	resp, err := client.Do(req)
 	if err != nil {
+		log.Printf("[BETCLIC] Błąd połączenia sieciowego: %v", err)
 		return nil, fmt.Errorf("Betclic sieć błąd: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		log.Printf("[BETCLIC] Zły status HTTP: %d", resp.StatusCode)
 		return nil, fmt.Errorf("Betclic HTTP status: %d (%s)", resp.StatusCode, resp.Status)
 	}
 
@@ -865,9 +1019,11 @@ func FetchBetclicStreamData(matchIDStr string) ([]byte, error) {
 
 FinishStream:
 	if fullBuffer.Len() == 0 {
+		log.Printf("[BETCLIC] Pusty bufor odpowiedzi!")
 		return nil, fmt.Errorf("nie odebrano żadnych danych ze strumienia Betclic")
 	}
 
+	log.Printf("[BETCLIC] Pomyślnie odebrano strumień: %d bajtów w czasie %v", fullBuffer.Len(), time.Since(start))
 	return fullBuffer.Bytes(), nil
 }
 
@@ -876,7 +1032,8 @@ FinishStream:
 // ==========================================
 
 func FetchSofaTeamSquad(teamID string) ([]SofaPlayerDetails, string, error) {
-	client := NewResilientClient()
+	log.Printf("[SOFA-SQUAD] Pobieranie kadry dla drużyny ID: %s", teamID)
+	client := GetSharedSofaClient()
 
 	playerMap := make(map[int]SofaPlayerDetails)
 	teamDisplayName := teamID
@@ -890,7 +1047,10 @@ func FetchSofaTeamSquad(teamID string) ([]SofaPlayerDetails, string, error) {
 					playerMap[p.Player.ID] = p.Player
 				}
 			}
+			log.Printf("[SOFA-SQUAD] Załadowano %d zawodników z endpointu /team/%s/players", len(playerMap), teamID)
 		}
+	} else {
+		log.Printf("[SOFA-SQUAD] Ostrzeżenie: nie udało się pobrać /team/%s/players: %v", teamID, err)
 	}
 
 	evBody, err := client.GetSofa(fmt.Sprintf("/team/%s/events/last/0", teamID))
@@ -908,6 +1068,7 @@ func FetchSofaTeamSquad(teamID string) ([]SofaPlayerDetails, string, error) {
 					break
 				}
 			}
+			log.Printf("[SOFA-SQUAD] Wykryta nazwa drużyny dla ID %s: '%s'", teamID, teamDisplayName)
 
 			limit := 3
 			if len(evRes.Events) < limit {
@@ -946,9 +1107,11 @@ func FetchSofaTeamSquad(teamID string) ([]SofaPlayerDetails, string, error) {
 	}
 
 	if len(squad) == 0 {
+		log.Printf("[SOFA-SQUAD] BŁĄD: Pusta kadra dla drużyny ID: %s", teamID)
 		return nil, teamDisplayName, fmt.Errorf("nie udało się pobrać kadry dla drużyny %s", teamID)
 	}
 
+	log.Printf("[SOFA-SQUAD] Łącznie unikalnych zawodników w kadrze (%s): %d", teamDisplayName, len(squad))
 	return squad, teamDisplayName, nil
 }
 
@@ -962,11 +1125,20 @@ func isShotInsideBox(x, y float64) bool {
 }
 
 func FetchSofaPlayerCompleteHistory(playerID int, matchLimit int, allowedTournamentIDs string) (*PlayerStatHistory, error) {
-	client := NewResilientClient()
+	// Sprawdzenie pamięci podręcznej (Cache 6h)
+	cacheKey := fmt.Sprintf("%d_%d_%s", playerID, matchLimit, allowedTournamentIDs)
+	if cached, ok := getPlayerCache(cacheKey); ok {
+		log.Printf("[SOFA-PLAYER-CACHE] Trafienie w cache dla gracza %d (limit: %d, turnieje: %s)", playerID, matchLimit, allowedTournamentIDs)
+		return cached, nil
+	}
+
+	log.Printf("[SOFA-PLAYER] Brak w cache. Pobieranie historii z sieci dla playerID=%d (limit: %d)", playerID, matchLimit)
+	client := GetSharedSofaClient()
 
 	endpoint := fmt.Sprintf("/player/%d/events/last/0", playerID)
 	body, err := client.GetSofa(endpoint)
 	if err != nil {
+		log.Printf("[SOFA-PLAYER] Błąd pobierania zdarzeń dla gracza %d: %v", playerID, err)
 		return nil, err
 	}
 
@@ -1002,6 +1174,7 @@ func FetchSofaPlayerCompleteHistory(playerID int, matchLimit int, allowedTournam
 	}
 
 	if err := json.Unmarshal(body, &pEvents); err != nil {
+		log.Printf("[SOFA-PLAYER] Błąd unmarshalu zdarzeń dla gracza %d: %v", playerID, err)
 		return nil, err
 	}
 
@@ -1074,6 +1247,8 @@ func FetchSofaPlayerCompleteHistory(playerID int, matchLimit int, allowedTournam
 		allPlayedMatches = allPlayedMatches[:matchLimit]
 	}
 
+	log.Printf("[SOFA-PLAYER] Gracz %d: zakwalifikowano %d meczów do pobrania szczegółów", playerID, len(allPlayedMatches))
+
 	hist := &PlayerStatHistory{
 		ID:                       playerID,
 		MetricValues:             make(map[CanonicalMarket][]int),
@@ -1102,10 +1277,14 @@ func FetchSofaPlayerCompleteHistory(playerID int, matchLimit int, allowedTournam
 	resultsChan := make(chan matchStatResult, len(allPlayedMatches))
 	var wg sync.WaitGroup
 
+	matchSem := make(chan struct{}, 2)
+
 	for i, m := range allPlayedMatches {
 		wg.Add(1)
 		go func(idx int, match matchCandidate) {
 			defer wg.Done()
+			matchSem <- struct{}{}
+			defer func() { <-matchSem }()
 
 			// 1. Statystyki bazowe zawodnika
 			statURL := fmt.Sprintf("/event/%d/player/%d/statistics", match.EventID, playerID)
@@ -1118,85 +1297,89 @@ func FetchSofaPlayerCompleteHistory(playerID int, matchLimit int, allowedTournam
 				return
 			}
 
-			// 2. Wyszukiwanie zmiennika (SuperSub)
+			// 2. Wyszukiwanie zmiennika (SuperSub) tylko gdy zagrał poniżej pełnych 90 minut
 			var subStats SofaPlayerStats
 			subPlayerID := 0
-			incURL := fmt.Sprintf("/event/%d/incidents", match.EventID)
-			if incBody, err := client.GetSofa(incURL); err == nil {
-				var incRes SofaIncidentResponse
-				if json.Unmarshal(incBody, &incRes) == nil {
-					for _, inc := range incRes.Incidents {
-						if inc.IncidentType == "substitution" && inc.PlayerOut.ID == playerID {
-							subPlayerID = inc.PlayerIn.ID
-							break
+			if pStat.Statistics.MinutesPlayed < 85 {
+				incURL := fmt.Sprintf("/event/%d/incidents", match.EventID)
+				if incBody, err := client.GetSofa(incURL); err == nil {
+					var incRes SofaIncidentResponse
+					if json.Unmarshal(incBody, &incRes) == nil {
+						for _, inc := range incRes.Incidents {
+							if inc.IncidentType == "substitution" && inc.PlayerOut.ID == playerID {
+								subPlayerID = inc.PlayerIn.ID
+								break
+							}
 						}
-					}
-					if subPlayerID > 0 {
-						subURL := fmt.Sprintf("/event/%d/player/%d/statistics", match.EventID, subPlayerID)
-						if subBody, err := client.GetSofa(subURL); err == nil {
-							var subStatRes SofaPlayerMatchStatResponse
-							if json.Unmarshal(subBody, &subStatRes) == nil {
-								subStats = subStatRes.Statistics
+						if subPlayerID > 0 {
+							subURL := fmt.Sprintf("/event/%d/player/%d/statistics", match.EventID, subPlayerID)
+							if subBody, err := client.GetSofa(subURL); err == nil {
+								var subStatRes SofaPlayerMatchStatResponse
+								if json.Unmarshal(subBody, &subStatRes) == nil {
+									subStats = subStatRes.Statistics
+								}
 							}
 						}
 					}
 				}
 			}
 
-			// 3. Pobieranie mapy strzałów (Shotmap) dla stref i celności
+			// 3. Pobieranie mapy strzałów (Shotmap) TYLKO gdy gracz lub zmiennik oddali strzał
 			var playerZone, subZone zoneShots
 			var matchShots []ShotCoordinate
 
-			smURL := fmt.Sprintf("/event/%d/shotmap", match.EventID)
-			if smBody, err := client.GetSofa(smURL); err == nil {
-				var smRes SofaShotmapResponse
-				if json.Unmarshal(smBody, &smRes) == nil {
-					for _, shot := range smRes.Shotmap {
-						inBox := isShotInsideBox(shot.PlayerCoordinates.X, shot.PlayerCoordinates.Y)
-						isOnTarget := shot.ShotType == "save" || shot.ShotType == "goal"
+			if pStat.Statistics.TotalShots > 0 || subStats.TotalShots > 0 {
+				smURL := fmt.Sprintf("/event/%d/shotmap", match.EventID)
+				if smBody, err := client.GetSofa(smURL); err == nil {
+					var smRes SofaShotmapResponse
+					if json.Unmarshal(smBody, &smRes) == nil {
+						for _, shot := range smRes.Shotmap {
+							inBox := isShotInsideBox(shot.PlayerCoordinates.X, shot.PlayerCoordinates.Y)
+							isOnTarget := shot.ShotType == "save" || shot.ShotType == "goal"
 
-						if shot.Player.ID == playerID {
-							if inBox {
-								playerZone.inside++
-								if isOnTarget {
-									playerZone.insideTarget++
+							if shot.Player.ID == playerID {
+								if inBox {
+									playerZone.inside++
+									if isOnTarget {
+										playerZone.insideTarget++
+									}
+								} else {
+									playerZone.outside++
+									if isOnTarget {
+										playerZone.outsideTarget++
+									}
 								}
-							} else {
-								playerZone.outside++
-								if isOnTarget {
-									playerZone.outsideTarget++
+
+								matchShots = append(matchShots, ShotCoordinate{
+									X:        shot.PlayerCoordinates.X,
+									Y:        shot.PlayerCoordinates.Y,
+									ShotType: shot.ShotType,
+									InBox:    inBox,
+									OnTarget: isOnTarget,
+									IsSub:    false,
+								})
+							} else if subPlayerID > 0 && shot.Player.ID == subPlayerID {
+								if inBox {
+									subZone.inside++
+									if isOnTarget {
+										subZone.insideTarget++
+									}
+								} else {
+									subZone.outside++
+									if isOnTarget {
+										subZone.outsideTarget++
+									}
 								}
+
+								matchShots = append(matchShots, ShotCoordinate{
+									X:        shot.PlayerCoordinates.X,
+									Y:        shot.PlayerCoordinates.Y,
+									ShotType: shot.ShotType,
+									InBox:    inBox,
+									OnTarget: isOnTarget,
+									IsSub:    true,
+								})
 							}
-
-							matchShots = append(matchShots, ShotCoordinate{
-								X:        shot.PlayerCoordinates.X,
-								Y:        shot.PlayerCoordinates.Y,
-								ShotType: shot.ShotType,
-								InBox:    inBox,
-								OnTarget: isOnTarget,
-								IsSub:    false,
-							})
-						} else if subPlayerID > 0 && shot.Player.ID == subPlayerID {
-							if inBox {
-								subZone.inside++
-								if isOnTarget {
-									subZone.insideTarget++
-								}
-							} else {
-								subZone.outside++
-								if isOnTarget {
-									subZone.outsideTarget++
-								}
-							}
-
-							matchShots = append(matchShots, ShotCoordinate{
-								X:        shot.PlayerCoordinates.X,
-								Y:        shot.PlayerCoordinates.Y,
-								ShotType: shot.ShotType,
-								InBox:    inBox,
-								OnTarget: isOnTarget,
-								IsSub:    true,
-							})
 						}
 					}
 				}
@@ -1278,12 +1461,16 @@ func FetchSofaPlayerCompleteHistory(playerID int, matchLimit int, allowedTournam
 		hist.MetricValuesWithSuperSub[MarketShotsOnTargetInsideBox] = append(hist.MetricValuesWithSuperSub[MarketShotsOnTargetInsideBox], c.zone.insideTarget+c.subZone.insideTarget)
 	}
 
+	log.Printf("[SOFA-PLAYER] Zakończono zbieranie statystyk gracza %d. Zebrano mecze: %d. Zapisuję do cache (TTL: 6h)...", playerID, hist.Matches)
+	savePlayerCache(cacheKey, hist)
 	return hist, nil
 }
 
 func FetchSofaTeamDataComprehensive(teamID string, matchLimit int, tournamentIDs string, targetPlayerNames []string) ([]*PlayerStatHistory, string, error) {
+	log.Printf("[COMPREHENSIVE] Analiza kompleksowa drużyny %s (wymagani gracze: %d)", teamID, len(targetPlayerNames))
 	squad, teamDisplayName, err := FetchSofaTeamSquad(teamID)
 	if err != nil {
+		log.Printf("[COMPREHENSIVE] Błąd pobierania składu %s: %v", teamID, err)
 		return nil, "", err
 	}
 
@@ -1327,14 +1514,16 @@ func FetchSofaTeamDataComprehensive(teamID string, matchLimit int, tournamentIDs
 		for _, p := range matchedPlayerIDs {
 			playersToFetch = append(playersToFetch, p)
 		}
+		log.Printf("[COMPREHENSIVE] Dopasowano %d graczy do pobrania historii z oferty bukmacherskiej dla %s", len(playersToFetch), teamDisplayName)
 	} else {
 		playersToFetch = squad
+		log.Printf("[COMPREHENSIVE] Brak pasujących filtrów graczy. Pobieranie historii dla CAŁEJ kadry (%d) dla %s", len(playersToFetch), teamDisplayName)
 	}
 
 	var finalHistories []*PlayerStatHistory
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, 6)
+	sem := make(chan struct{}, 2)
 
 	for _, p := range playersToFetch {
 		wg.Add(1)
@@ -1358,6 +1547,7 @@ func FetchSofaTeamDataComprehensive(teamID string, matchLimit int, tournamentIDs
 	}
 
 	wg.Wait()
+	log.Printf("[COMPREHENSIVE] Zakończono analizę zespołu %s. Zwrócono %d profili statystycznych", teamDisplayName, len(finalHistories))
 	return finalHistories, teamDisplayName, nil
 }
 
@@ -1391,14 +1581,17 @@ func lookupMapInt(src map[string]int) map[string]string {
 }
 
 func FindSofaUpcomingEventID(homeID, awayID string) string {
-	client := NewResilientClient()
+	log.Printf("[SOFA-EVENT] Szukanie nadchodzącego meczu bezpośredniego pomiędzy %s a %s", homeID, awayID)
+	client := GetSharedSofaClient()
 	body, err := client.GetSofa(fmt.Sprintf("/team/%s/events/next/0", homeID))
 	if err != nil {
+		log.Printf("[SOFA-EVENT] Błąd pobierania nadchodzących meczów: %v", err)
 		return ""
 	}
 
 	var evRes SofaTeamEventsResponse
 	if err := json.Unmarshal(body, &evRes); err != nil {
+		log.Printf("[SOFA-EVENT] Błąd parsowania odpowiedzi zdarzeń: %v", err)
 		return ""
 	}
 
@@ -1408,9 +1601,12 @@ func FindSofaUpcomingEventID(homeID, awayID string) string {
 	for _, e := range evRes.Events {
 		if (e.HomeTeam.ID == hID && e.AwayTeam.ID == aID) ||
 			(e.HomeTeam.ID == aID && e.AwayTeam.ID == hID) {
-			return strconv.Itoa(e.ID)
+			evIDStr := strconv.Itoa(e.ID)
+			log.Printf("[SOFA-EVENT] Znaleziono nadchodzący mecz: EventID=%s (%s vs %s)", evIDStr, e.HomeTeam.Name, e.AwayTeam.Name)
+			return evIDStr
 		}
 	}
+	log.Printf("[SOFA-EVENT] Nie znaleziono nadchodzącego bezpośredniego meczu dla %s i %s", homeID, awayID)
 	return ""
 }
 
@@ -1418,14 +1614,17 @@ func FetchSofaConfirmedLineups(eventID string) (map[string]bool, map[string]bool
 	if eventID == "" {
 		return nil, nil, false
 	}
-	client := NewResilientClient()
+	log.Printf("[SOFA-LINEUP] Pobieranie składów dla meczu eventID=%s", eventID)
+	client := GetSharedSofaClient()
 	body, err := client.GetSofa(fmt.Sprintf("/event/%s/lineups", eventID))
 	if err != nil {
+		log.Printf("[SOFA-LINEUP] Błąd pobierania składów: %v", err)
 		return nil, nil, false
 	}
 
 	var res SofaLineupResponse
 	if err := json.Unmarshal(body, &res); err != nil || (!res.Confirmed && len(res.Home.Players) == 0) {
+		log.Printf("[SOFA-LINEUP] Składy niepotwierdzone lub brak danych w odpowiedzi")
 		return nil, nil, false
 	}
 
@@ -1453,6 +1652,7 @@ func FetchSofaConfirmedLineups(eventID string) (map[string]bool, map[string]bool
 		regLineup(awayMap, p)
 	}
 
+	log.Printf("[SOFA-LINEUP] Składy załadowane (potwierdzone: %v) - Gospodarze: %d graczy, Goście: %d graczy", res.Confirmed, len(res.Home.Players), len(res.Away.Players))
 	return homeMap, awayMap, true
 }
 
@@ -1587,6 +1787,7 @@ func mapMarketCanonical(raw string) (CanonicalMarket, bool) {
 }
 
 func ParseSuperbetProps(rawJSON string) ([]NormalizedProp, error) {
+	log.Printf("[PARSER-SB] Rozpoczynam parsowanie oferty Superbet...")
 	var resp struct {
 		Markets []struct {
 			Name string `json:"name"`
@@ -1599,6 +1800,7 @@ func ParseSuperbetProps(rawJSON string) ([]NormalizedProp, error) {
 		} `json:"markets"`
 	}
 	if err := json.Unmarshal([]byte(rawJSON), &resp); err != nil {
+		log.Printf("[PARSER-SB] Błąd unmarshalu JSON: %v", err)
 		return nil, err
 	}
 
@@ -1661,10 +1863,12 @@ func ParseSuperbetProps(rawJSON string) ([]NormalizedProp, error) {
 			})
 		}
 	}
+	log.Printf("[PARSER-SB] Sukces: sparsowano %d propozycji zakładów z Superbet", len(props))
 	return props, nil
 }
 
 func ParseSTSProps(rawJSON string) ([]NormalizedProp, error) {
+	log.Printf("[PARSER-STS] Rozpoczynam parsowanie oferty STS...")
 	var root map[string]any
 	if err := json.Unmarshal([]byte(rawJSON), &root); err != nil {
 		lines := strings.Split(rawJSON, "\n")
@@ -1678,6 +1882,7 @@ func ParseSTSProps(rawJSON string) ([]NormalizedProp, error) {
 
 	pData, _ := root["P"].(map[string]any)
 	if pData == nil {
+		log.Printf("[PARSER-STS] Błąd: Brak obiektu P w odpowiedzi STS")
 		return nil, fmt.Errorf("brak obiektu P w odpowiedzi STS")
 	}
 
@@ -1796,6 +2001,7 @@ func ParseSTSProps(rawJSON string) ([]NormalizedProp, error) {
 		}
 	}
 
+	log.Printf("[PARSER-STS] Sukces: sparsowano %d propozycji zakładów z STS", len(props))
 	return props, nil
 }
 
@@ -1884,6 +2090,7 @@ func parseProtoNodes(buf []byte) []protoNode {
 var betclicLinePattern = regexp.MustCompile(`(?i)(.+?)\s+(Powyżej|Poniżej)\s+([\d,.]+)`)
 
 func ParseBetclicProps(rawBuf []byte) []NormalizedProp {
+	log.Printf("[PARSER-BETCLIC] Rozpoczynam dekodowanie Protobuf Betclic (rozmiar: %d bajtów)...", len(rawBuf))
 	var frames [][]byte
 	offset := 0
 	for offset+5 <= len(rawBuf) {
@@ -1986,6 +2193,7 @@ func ParseBetclicProps(rawBuf []byte) []NormalizedProp {
 		}
 	}
 
+	log.Printf("[PARSER-BETCLIC] Sukces: wyodrębniono %d unikalnych kursów z Betclic", len(unique))
 	return unique
 }
 
@@ -2189,6 +2397,7 @@ func CalculateValueBets(
 	homePlayers, awayPlayers []*PlayerStatHistory,
 	homeLineup, awayLineup map[string]bool,
 ) []AnalyzedBet {
+	log.Printf("[CALCULATE] Rozpoczynam ewaluację Value Betów dla %d zakładów bukmacherskich...", len(props))
 	playerHistory := make(map[string]*PlayerStatHistory)
 	strictMap := make(map[string]string)
 
@@ -2217,6 +2426,7 @@ func CalculateValueBets(
 
 	registerPlayers(homePlayers, "HOME")
 	registerPlayers(awayPlayers, "AWAY")
+	log.Printf("[CALCULATE] Zarejestrowano w mapie dopasowań %d zawodników (Gospodarze: %d, Goście: %d)", len(playerHistory), len(homePlayers), len(awayPlayers))
 
 	getLineupStatus := func(pName, side string) (string, bool) {
 		norm := NormalizePlayerName(pName)
@@ -2254,6 +2464,7 @@ func CalculateValueBets(
 	}
 
 	results := make([]AnalyzedBet, 0)
+	matchedPropsCount := 0
 
 	for _, prop := range props {
 		matchedID := matchPlayerStrict(prop.PlayerName, strictMap)
@@ -2272,6 +2483,7 @@ func CalculateValueBets(
 		}
 		valuesSuperSub := hist.MetricValuesWithSuperSub[prop.MarketType]
 
+		matchedPropsCount++
 		sample := len(values)
 		hitsOver, hitsUnder, total := 0, 0, 0
 		for _, v := range values {
@@ -2350,6 +2562,7 @@ func CalculateValueBets(
 		})
 	}
 
+	log.Printf("[CALCULATE] Zakończono analizę. Dopasowano %d zakładów, utworzono %d przeanalizowanych rekordów", matchedPropsCount, len(results))
 	return results
 }
 
@@ -2367,18 +2580,22 @@ func NewApp() *App {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	log.Printf("[APP] Wails App pomyślnie wystartował")
 }
 
 func (a *App) LoadMatchHistory() []MatchHistoryEntry {
 	cacheMutex.Lock()
 	defer cacheMutex.Unlock()
 
-	data, err := os.ReadFile(getCacheFilePath("match_history.json"))
+	path := getCacheFilePath("match_history.json")
+	data, err := os.ReadFile(path)
 	if err != nil {
+		log.Printf("[HISTORY] Brak pliku historii (%s)", path)
 		return []MatchHistoryEntry{}
 	}
 	var list []MatchHistoryEntry
 	_ = json.Unmarshal(data, &list)
+	log.Printf("[HISTORY] Załadowano %d wpisów historii z pliku %s", len(list), path)
 	return list
 }
 
@@ -2408,6 +2625,7 @@ func (a *App) SaveMatchHistory(entry MatchHistoryEntry) []MatchHistoryEntry {
 
 	out, _ := json.MarshalIndent(updated, "", "  ")
 	_ = os.WriteFile(path, out, 0644)
+	log.Printf("[HISTORY] Zapisano historię dla: '%s' (łączna ilość wpisów: %d)", entry.Title, len(updated))
 	return updated
 }
 
@@ -2422,9 +2640,11 @@ func (a *App) DeleteMatchHistory(index int) []MatchHistoryEntry {
 	}
 
 	if index < 0 || index >= len(list) {
+		log.Printf("[HISTORY] Nieprawidłowy indeks do usunięcia: %d", index)
 		return list
 	}
 
+	log.Printf("[HISTORY] Usuwanie z historii wpisu #%d: '%s'", index, list[index].Title)
 	updated := append(list[:index], list[index+1:]...)
 
 	out, _ := json.MarshalIndent(updated, "", "  ")
@@ -2439,13 +2659,16 @@ func (a *App) LoadMyBets() []MyBetItem {
 	path := getCacheFilePath("bets_cache.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
+		log.Printf("[MYBETS] Brak pliku cache zakładów (%s)", path)
 		return []MyBetItem{}
 	}
 
 	var list []MyBetItem
 	if err := json.Unmarshal(data, &list); err != nil {
+		log.Printf("[MYBETS] Błąd unmarshalu %s: %v", path, err)
 		return []MyBetItem{}
 	}
+	log.Printf("[MYBETS] Załadowano %d zapisanych zakładów użytkownika", len(list))
 	return list
 }
 
@@ -2456,18 +2679,23 @@ func (a *App) SaveMyBets(bets []MyBetItem) bool {
 	path := getCacheFilePath("bets_cache.json")
 	data, err := json.MarshalIndent(bets, "", "  ")
 	if err != nil {
+		log.Printf("[MYBETS] Błąd serializacji zakładek: %v", err)
 		return false
 	}
 
-	return os.WriteFile(path, data, 0644) == nil
+	err = os.WriteFile(path, data, 0644)
+	log.Printf("[MYBETS] Zapisano %d zakładów do %s (sukces: %v)", len(bets), path, err == nil)
+	return err == nil
 }
 
 func (a *App) SaveTeamSofaID(slug, sofaID string) bool {
+	log.Printf("[BRIDGE] Ręczny zapis relacji: slug '%s' -> sofaID '%s'", slug, sofaID)
 	saveTeamCache(slug, sofaID)
 	return true
 }
 
 func (a *App) DetectTeamsFromURL(rawURL string) TeamDetectionResult {
+	log.Printf("[DETECT] Wykrywanie zespołów z adresu URL: %s", rawURL)
 	_, slug, provider := extractIDAndSlug(rawURL)
 	homeSlug, awaySlug := parseTeamsFromSlug(slug, provider)
 
@@ -2476,16 +2704,19 @@ func (a *App) DetectTeamsFromURL(rawURL string) TeamDetectionResult {
 	awayID := findTeamIDInCache(awaySlug, cache)
 
 	if homeID == "" && homeSlug != "" {
+		log.Printf("[DETECT] Brak ID gospodarzy (%s) w cache. Zapytanie do SofaScore API...", homeSlug)
 		if id, err := SearchSofaTeamID(homeSlug); err == nil && id != "" {
 			homeID = id
 		}
 	}
 	if awayID == "" && awaySlug != "" {
+		log.Printf("[DETECT] Brak ID gości (%s) w cache. Zapytanie do SofaScore API...", awaySlug)
 		if id, err := SearchSofaTeamID(awaySlug); err == nil && id != "" {
 			awayID = id
 		}
 	}
 
+	log.Printf("[DETECT] Wynik detekcji: Gospodarze[%s -> ID:%s], Goście[%s -> ID:%s]", homeSlug, homeID, awaySlug, awayID)
 	return TeamDetectionResult{
 		HomeSlug: homeSlug,
 		AwaySlug: awaySlug,
@@ -2495,14 +2726,17 @@ func (a *App) DetectTeamsFromURL(rawURL string) TeamDetectionResult {
 }
 
 func (a *App) GetAvailableTournaments(homeID, awayID string) ([]LeagueOption, error) {
-	client := NewResilientClient()
+	log.Printf("[TOURNAMENTS] Pobieranie lig dla homeID=%s", homeID)
+	client := GetSharedSofaClient()
 	body, err := client.GetSofa(fmt.Sprintf("/team/%s/standings/seasons", homeID))
 	if err != nil {
+		log.Printf("[TOURNAMENTS] Błąd pobierania sezonów: %v", err)
 		return nil, err
 	}
 
 	var res SofaSeasonsResponse
 	if err := json.Unmarshal(body, &res); err != nil {
+		log.Printf("[TOURNAMENTS] Błąd deserializacji sezonów: %v", err)
 		return nil, err
 	}
 
@@ -2518,10 +2752,18 @@ func (a *App) GetAvailableTournaments(homeID, awayID string) ([]LeagueOption, er
 		}
 	}
 
+	log.Printf("[TOURNAMENTS] Znaleziono %d dostępnych rozgrywek dla drużyny %s", len(list), homeID)
 	return list, nil
 }
 
 func (a *App) AnalyzeThreeBookmakers(sbInput, betclicInput, stsInput, homeInput, awayInput string, matchLimit int, tournamentIDs string) ([]AnalyzedBet, error) {
+	startGlobal := time.Now()
+	log.Printf("[ANALYZE-START] Rozpoczęcie kompleksowej analizy 3 bukmacherów:")
+	log.Printf("  • Superbet: '%s'", sbInput)
+	log.Printf("  • Betclic:  '%s'", betclicInput)
+	log.Printf("  • STS:      '%s'", stsInput)
+	log.Printf("  • Home/Away ID: '%s' / '%s' | Limit meczów: %d | Turnieje: %s", homeInput, awayInput, matchLimit, tournamentIDs)
+
 	if matchLimit <= 0 {
 		matchLimit = 10
 	}
@@ -2530,6 +2772,7 @@ func (a *App) AnalyzeThreeBookmakers(sbInput, betclicInput, stsInput, homeInput,
 	awayID := strings.TrimSpace(awayInput)
 
 	if homeID == "" || awayID == "" {
+		log.Printf("[ANALYZE] Brakuje ID drużyn w inputach. Próba automatycznej detekcji...")
 		sampleURL := sbInput
 		if sampleURL == "" {
 			sampleURL = betclicInput
@@ -2550,6 +2793,7 @@ func (a *App) AnalyzeThreeBookmakers(sbInput, betclicInput, stsInput, homeInput,
 
 	teamIDPattern := regexp.MustCompile(`^\d+$`)
 	if !teamIDPattern.MatchString(homeID) || !teamIDPattern.MatchString(awayID) {
+		log.Printf("[ANALYZE] BŁĄD WALIDACJI: Nie udało się ustalić ID zespołów (Home: '%s', Away: '%s')", homeID, awayID)
 		return nil, fmt.Errorf("nie udało się ustalić ID zespołów w SofaScore (Gospodarze: %s, Goście: %s)", homeID, awayID)
 	}
 
@@ -2564,10 +2808,12 @@ func (a *App) AnalyzeThreeBookmakers(sbInput, betclicInput, stsInput, homeInput,
 			defer fetchWg.Done()
 			id, _, _ := extractIDAndSlug(sbInput)
 			if id == "" {
+				log.Printf("[ANALYZE-SB] Brak ID meczu w linku: %s", sbInput)
 				return
 			}
 			raw, err := FetchSuperbetMatchData(id)
 			if err != nil {
+				log.Printf("[ANALYZE-SB] Błąd pobierania danych: %v", err)
 				return
 			}
 			props, err := ParseSuperbetProps(raw)
@@ -2586,10 +2832,12 @@ func (a *App) AnalyzeThreeBookmakers(sbInput, betclicInput, stsInput, homeInput,
 			defer fetchWg.Done()
 			id, _, _ := extractIDAndSlug(betclicInput)
 			if id == "" {
+				log.Printf("[ANALYZE-BETCLIC] Brak ID meczu w linku: %s", betclicInput)
 				return
 			}
 			rawBytes, err := FetchBetclicStreamData(id)
 			if err != nil {
+				log.Printf("[ANALYZE-BETCLIC] Błąd strumienia: %v", err)
 				return
 			}
 			props := ParseBetclicProps(rawBytes)
@@ -2606,10 +2854,12 @@ func (a *App) AnalyzeThreeBookmakers(sbInput, betclicInput, stsInput, homeInput,
 			defer fetchWg.Done()
 			id, _, _ := extractIDAndSlug(stsInput)
 			if id == "" {
+				log.Printf("[ANALYZE-STS] Brak ID meczu w linku: %s", stsInput)
 				return
 			}
 			raw, err := FetchSTSSnapshotData(id)
 			if err != nil {
+				log.Printf("[ANALYZE-STS] Błąd WebSocket: %v", err)
 				return
 			}
 			props, err := ParseSTSProps(raw)
@@ -2622,8 +2872,10 @@ func (a *App) AnalyzeThreeBookmakers(sbInput, betclicInput, stsInput, homeInput,
 	}
 
 	fetchWg.Wait()
+	log.Printf("[ANALYZE] Zakończono pobieranie z bukmacherów. Zebrano łącznie %d rynków", len(allProps))
 
 	if len(allProps) == 0 {
+		log.Printf("[ANALYZE] KRYTYCZNY BŁĄD: Brak pobranych rynków z podanych linków!")
 		return nil, fmt.Errorf("brak pobranych rynków od bukmacherów (sprawdź wprowadzone linki)")
 	}
 
@@ -2632,17 +2884,19 @@ func (a *App) AnalyzeThreeBookmakers(sbInput, betclicInput, stsInput, homeInput,
 		targetPlayerNames = append(targetPlayerNames, p.PlayerName)
 	}
 
-	// SOFASCORE PEŁNA HISTORIA ZAWODNIKÓW (WSZYSTKIE LIGI I ROZGRYWKI)
+	// SOFASCORE PEŁNA HISTORIA ZAWODNIKÓW
 	var homePlayers, awayPlayers []*PlayerStatHistory
 	var homeErr, awayErr error
 
 	fetchWg.Add(2)
 	go func() {
 		defer fetchWg.Done()
+		log.Printf("[ANALYZE] Uruchamianie pobierania historii graczy Gospodarzy (ID: %s)", homeID)
 		homePlayers, _, homeErr = FetchSofaTeamDataComprehensive(homeID, matchLimit, tournamentIDs, targetPlayerNames)
 	}()
 	go func() {
 		defer fetchWg.Done()
+		log.Printf("[ANALYZE] Uruchamianie pobierania historii graczy Gości (ID: %s)", awayID)
 		awayPlayers, _, awayErr = FetchSofaTeamDataComprehensive(awayID, matchLimit, tournamentIDs, targetPlayerNames)
 	}()
 
@@ -2664,12 +2918,15 @@ func (a *App) AnalyzeThreeBookmakers(sbInput, betclicInput, stsInput, homeInput,
 	fetchWg.Wait()
 
 	if homeErr != nil {
+		log.Printf("[ANALYZE] Błąd SofaScore dla gospodarzy: %v", homeErr)
 		return nil, fmt.Errorf("SofaScore błąd gospodarzy: %w", homeErr)
 	}
 	if awayErr != nil {
+		log.Printf("[ANALYZE] Błąd SofaScore dla gości: %v", awayErr)
 		return nil, fmt.Errorf("SofaScore błąd gości: %w", awayErr)
 	}
 
+	log.Printf("[ANALYZE] Dane zebrane. Rozpoczynanie obliczeń matematycznych EV...")
 	results := CalculateValueBets(allProps, homePlayers, awayPlayers, homeLineup, awayLineup)
 
 	sort.Slice(results, func(i, j int) bool {
@@ -2679,5 +2936,6 @@ func (a *App) AnalyzeThreeBookmakers(sbInput, betclicInput, stsInput, homeInput,
 		return results[i].HitRate > results[j].HitRate
 	})
 
+	log.Printf("[ANALYZE-COMPLETE] Analiza zakończona pomyślnie w %v. Zwrócono %d przetworzonych typów.", time.Since(startGlobal), len(results))
 	return results, nil
 }
