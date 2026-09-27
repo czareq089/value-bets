@@ -60,40 +60,6 @@ export namespace main {
 	        this.isStartingXI = source["isStartingXI"];
 	    }
 	}
-	export class FMHarvestResult {
-	    homeId: string;
-	    awayId: string;
-	    teamsAdded: number;
-	    teamsTotal: number;
-	    message: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new FMHarvestResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.homeId = source["homeId"];
-	        this.awayId = source["awayId"];
-	        this.teamsAdded = source["teamsAdded"];
-	        this.teamsTotal = source["teamsTotal"];
-	        this.message = source["message"];
-	    }
-	}
-	export class FMTeamIDs {
-	    homeId: string;
-	    awayId: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new FMTeamIDs(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.homeId = source["homeId"];
-	        this.awayId = source["awayId"];
-	    }
-	}
 	export class LeagueOption {
 	    id: number;
 	    name: string;
@@ -201,8 +167,6 @@ export namespace main {
 	    awaySlug: string;
 	    homeId: string;
 	    awayId: string;
-	    homeFmId: string;
-	    awayFmId: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new TeamDetectionResult(source);
@@ -214,8 +178,6 @@ export namespace main {
 	        this.awaySlug = source["awaySlug"];
 	        this.homeId = source["homeId"];
 	        this.awayId = source["awayId"];
-	        this.homeFmId = source["homeFmId"];
-	        this.awayFmId = source["awayFmId"];
 	    }
 	}
 

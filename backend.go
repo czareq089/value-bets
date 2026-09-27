@@ -23,6 +23,9 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	fhttp "github.com/bogdanfinn/fhttp"
+	tls_client "github.com/bogdanfinn/tls-client"
+	"github.com/bogdanfinn/tls-client/profiles"
 	"github.com/gorilla/websocket"
 	"golang.org/x/text/runes"
 	"golang.org/x/text/transform"
@@ -44,18 +47,16 @@ const (
 type CanonicalMarket string
 
 const (
-	MarketShotsTotal      CanonicalMarket = "SHOTS_TOTAL"
-	MarketShotsOnTarget   CanonicalMarket = "SHOTS_ON_TARGET"
-	MarketShotsBlocked    CanonicalMarket = "SHOTS_BLOCKED"
-	MarketShotsOffTarget  CanonicalMarket = "SHOTS_OFF_TARGET"
-	MarketTackles         CanonicalMarket = "TACKLES" // Liczone z FootyMetrics (tackles-won, defense)
-	MarketDispossessed    CanonicalMarket = "DISPOSSESSED"
-	MarketFoulsCommitted  CanonicalMarket = "FOULS_COMMITTED"
-	MarketFoulsDrawn      CanonicalMarket = "FOULS_DRAWN"
-	MarketInterceptions   CanonicalMarket = "INTERCEPTIONS"
-	MarketOffsides        CanonicalMarket = "OFFSIDES"
-	MarketShotsOutsideBox CanonicalMarket = "SHOTS_OUTSIDE_BOX"
-	MarketShotsInsideBox  CanonicalMarket = "SHOTS_INSIDE_BOX"
+	MarketShotsTotal     CanonicalMarket = "SHOTS_TOTAL"
+	MarketShotsOnTarget  CanonicalMarket = "SHOTS_ON_TARGET"
+	MarketShotsBlocked   CanonicalMarket = "SHOTS_BLOCKED"
+	MarketShotsOffTarget CanonicalMarket = "SHOTS_OFF_TARGET"
+	MarketTackles        CanonicalMarket = "TACKLES"
+	MarketDispossessed   CanonicalMarket = "DISPOSSESSED"
+	MarketFoulsCommitted CanonicalMarket = "FOULS_COMMITTED"
+	MarketFoulsDrawn     CanonicalMarket = "FOULS_DRAWN"
+	MarketInterceptions  CanonicalMarket = "INTERCEPTIONS"
+	MarketOffsides       CanonicalMarket = "OFFSIDES"
 )
 
 type NormalizedProp struct {
@@ -68,6 +69,21 @@ type NormalizedProp struct {
 	Odds        float64         `json:"odds"`
 	MarketID    string          `json:"marketId"`
 	SelectionID string          `json:"selectionId"`
+}
+
+type PlayerStatHistory struct {
+	ID                       int
+	FullName                 string
+	TeamSide                 string
+	TeamID                   string
+	TeamName                 string
+	Matches                  int
+	MetricValues             map[CanonicalMarket][]int
+	MetricValuesWithSuperSub map[CanonicalMarket][]int
+	Minutes                  []int
+	Positions                []string
+	Opponents                []string
+	Dates                    []string
 }
 
 type AnalyzedBet struct {
@@ -94,7 +110,7 @@ type AnalyzedBet struct {
 	TeamID               string          `json:"teamId"`
 	TeamName             string          `json:"teamName"`
 	Verdict              string          `json:"verdict"`
-	LineupStatus         string          `json:"lineupStatus"` // "STARTER", "BENCH", "UNKNOWN"
+	LineupStatus         string          `json:"lineupStatus"`
 	IsStartingXI         bool            `json:"isStartingXI"`
 }
 
@@ -103,42 +119,11 @@ type TeamDetectionResult struct {
 	AwaySlug string `json:"awaySlug"`
 	HomeID   string `json:"homeId"`
 	AwayID   string `json:"awayId"`
-	HomeFmID string `json:"homeFmId"`
-	AwayFmID string `json:"awayFmId"`
 }
 
 type LeagueOption struct {
 	ID   int    `json:"id"`
 	Name string `json:"name"`
-}
-
-type StatsHubResponse struct {
-	Data   []StatsHubPlayer `json:"data"`
-	Events []StatsHubEvent  `json:"events"`
-}
-
-type StatsHubPlayer struct {
-	ID    int                            `json:"id"`
-	Name  string                         `json:"name"`
-	Stats map[string]StatsHubMatchDetail `json:"stats"`
-}
-
-type StatsHubMatchDetail struct {
-	EventID                int    `json:"eventId"`
-	MinutesPlayed          int    `json:"minutesPlayed"`
-	Position               string `json:"position"`
-	SubstitutedOut         any    `json:"substitutedOut"`
-	SubstitutedIn          any    `json:"substitutedIn"`
-	Shots                  int    `json:"shots"`
-	OnTargetScoringAttempt int    `json:"onTargetScoringAttempt"`
-	ShotOffTarget          int    `json:"shotOffTarget"`
-	BlockedScoringAttempt  int    `json:"blockedScoringAttempt"`
-	Dispossessed           int    `json:"dispossessed"`
-	TotalTackle            int    `json:"totalTackle"`
-	InterceptionWon        int    `json:"interceptionWon"`
-	Fouls                  int    `json:"fouls"`
-	WasFouled              int    `json:"wasFouled"`
-	TotalOffside           int    `json:"totalOffside"`
 }
 
 type MatchHistoryEntry struct {
@@ -181,45 +166,164 @@ type MyBetItem struct {
 	IsStartingXI         bool            `json:"isStartingXI"`
 }
 
-type StatsHubEvent struct {
-	Events struct {
-		ID                 int    `json:"id"`
-		TournamentID       int    `json:"tournamentId"`
-		TournamentName     string `json:"tournamentName"`
-		TimeStartTimestamp int64  `json:"timeStartTimestamp"`
-	} `json:"events"`
-	Tournaments struct {
-		ID                 int    `json:"internalId"`
-		InternalID         int    `json:"internalId"`
-		UniqueTournamentID int    `json:"uniqueTournamentId"`
-		Name               string `json:"name"`
-	} `json:"tournaments"`
-	Tournament struct {
-		ID         int    `json:"id"`
-		InternalID int    `json:"internalId"`
-		Name       string `json:"name"`
-	} `json:"tournament"`
-	HomeTeam struct {
-		ID   int    `json:"id"`
+// ==========================================
+// SOFASCORE SCHEMAS
+// ==========================================
+
+const sofaBase = "https://www.sofascore.com/api/v1"
+
+type SofaTeamItem struct {
+	ID      int    `json:"id"`
+	Name    string `json:"name"`
+	Slug    string `json:"slug"`
+	Country struct {
 		Name string `json:"name"`
-	} `json:"homeTeam"`
-	AwayTeam struct {
-		ID   int    `json:"id"`
-		Name string `json:"name"`
-	} `json:"awayTeam"`
+	} `json:"country"`
 }
 
-type StatsHubLineupResponse struct {
+type SofaSearchResponse struct {
+	Teams   []SofaTeamItem `json:"teams"`
+	Results []struct {
+		Type   string       `json:"type"`
+		Entity SofaTeamItem `json:"entity"`
+	} `json:"results"`
+}
+
+func (s *SofaSearchResponse) ExtractTeams() []SofaTeamItem {
+	var list []SofaTeamItem
+	seen := make(map[int]bool)
+
+	for _, t := range s.Teams {
+		if t.ID > 0 && !seen[t.ID] {
+			seen[t.ID] = true
+			list = append(list, t)
+		}
+	}
+	for _, r := range s.Results {
+		if (r.Type == "team" || r.Type == "") && r.Entity.ID > 0 && !seen[r.Entity.ID] {
+			seen[r.Entity.ID] = true
+			list = append(list, r.Entity)
+		}
+	}
+	return list
+}
+
+type SofaPlayerStats struct {
+	MinutesPlayed          int `json:"minutesPlayed"`
+	TotalShots             int `json:"totalShots"`
+	OnTargetScoringAttempt int `json:"onTargetScoringAttempt"`
+	ShotOffTarget          int `json:"shotOffTarget"`
+	BlockedScoringAttempt  int `json:"blockedScoringAttempt"`
+	TotalTackle            int `json:"totalTackle"`
+	WonTackle              int `json:"wonTackle"`
+	InterceptionWon        int `json:"interceptionWon"`
+	Fouls                  int `json:"fouls"`
+	WasFouled              int `json:"wasFouled"`
+	TotalOffside           int `json:"totalOffside"`
+	Dispossessed           int `json:"dispossessed"`
+}
+
+type SofaPlayerDetails struct {
+	ID        int    `json:"id"`
+	Name      string `json:"name"`
+	Slug      string `json:"slug"`
+	ShortName string `json:"shortName"`
+	Position  string `json:"position"`
+}
+
+type SofaLineupPlayer struct {
+	Player     SofaPlayerDetails `json:"player"`
+	Substitute bool              `json:"substitute"`
+	Position   string            `json:"position"`
+	Statistics SofaPlayerStats   `json:"statistics"`
+}
+
+type SofaTeamPlayersResponse struct {
 	Players []struct {
-		Player struct {
+		Player SofaPlayerDetails `json:"player"`
+	} `json:"players"`
+}
+
+type SofaLineupResponse struct {
+	Confirmed bool `json:"confirmed"`
+	Home      struct {
+		Players []SofaLineupPlayer `json:"players"`
+	} `json:"home"`
+	Away struct {
+		Players []SofaLineupPlayer `json:"players"`
+	} `json:"away"`
+}
+
+type SofaPlayerEventsResponse struct {
+	Events []struct {
+		ID         int    `json:"id"`
+		Slug       string `json:"slug"`
+		StartTS    int64  `json:"startTimestamp"`
+		Tournament struct {
+			ID               int    `json:"id"`
+			Name             string `json:"name"`
+			UniqueTournament struct {
+				ID   int    `json:"id"`
+				Name string `json:"name"`
+			} `json:"uniqueTournament"`
+		} `json:"tournament"`
+		HomeTeam struct {
 			ID   int    `json:"id"`
 			Name string `json:"name"`
-			Slug string `json:"slug"`
-		} `json:"player"`
-		Substitute bool   `json:"substitute"`
-		Position   string `json:"position"`
-	} `json:"players"`
-	Confirmed bool `json:"confirmed"`
+		} `json:"homeTeam"`
+		AwayTeam struct {
+			ID   int    `json:"id"`
+			Name string `json:"name"`
+		} `json:"awayTeam"`
+		Status struct {
+			Code int `json:"code"`
+		} `json:"status"`
+	} `json:"events"`
+	PlayedForTeamMap map[string]int `json:"playedForTeamMap"`
+}
+
+type SofaPlayerMatchStatResponse struct {
+	Statistics SofaPlayerStats `json:"statistics"`
+	Position   string          `json:"position"`
+}
+
+type SofaTeamEventsResponse struct {
+	Events []struct {
+		ID         int    `json:"id"`
+		Slug       string `json:"slug"`
+		StartTS    int64  `json:"startTimestamp"`
+		Tournament struct {
+			ID               int    `json:"id"`
+			Name             string `json:"name"`
+			UniqueTournament struct {
+				ID   int    `json:"id"`
+				Name string `json:"name"`
+			} `json:"uniqueTournament"`
+		} `json:"tournament"`
+		HomeTeam struct {
+			ID   int    `json:"id"`
+			Name string `json:"name"`
+		} `json:"homeTeam"`
+		AwayTeam struct {
+			ID   int    `json:"id"`
+			Name string `json:"name"`
+		} `json:"awayTeam"`
+		Status struct {
+			Code int `json:"code"`
+		} `json:"status"`
+	} `json:"events"`
+}
+
+type SofaSeasonsResponse struct {
+	TournamentSeasons []struct {
+		Tournament struct {
+			Name             string `json:"name"`
+			UniqueTournament struct {
+				Name string `json:"name"`
+				ID   int    `json:"id"`
+			} `json:"uniqueTournament"`
+		} `json:"tournament"`
+	} `json:"tournamentSeasons"`
 }
 
 // ==========================================
@@ -240,21 +344,10 @@ func getCacheFilePath(filename string) string {
 }
 
 func loadTeamCache() map[string]string {
-	full := loadTeamCacheFull()
-	out := make(map[string]string, len(full))
-	for slug, entry := range full {
-		if entry.StatsHub != "" {
-			out[slug] = entry.StatsHub
-		}
-	}
-	return out
-}
-
-func loadLeagueCache() map[string]string {
 	cacheMutex.Lock()
 	defer cacheMutex.Unlock()
 
-	path := getCacheFilePath("league_cache.json")
+	path := getCacheFilePath("sofa_team_cache.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return make(map[string]string)
@@ -263,6 +356,26 @@ func loadLeagueCache() map[string]string {
 	var m map[string]string
 	_ = json.Unmarshal(data, &m)
 	return m
+}
+
+func saveTeamCache(slug, id string) {
+	slug = strings.TrimSpace(strings.ToLower(slug))
+	id = strings.TrimSpace(id)
+	if slug == "" || id == "" {
+		return
+	}
+
+	cacheMutex.Lock()
+	defer cacheMutex.Unlock()
+
+	path := getCacheFilePath("sofa_team_cache.json")
+	m := make(map[string]string)
+	if data, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(data, &m)
+	}
+	m[slug] = id
+	b, _ := json.MarshalIndent(m, "", "  ")
+	_ = os.WriteFile(path, b, 0644)
 }
 
 func extractIDAndSlug(rawURL string) (string, string, string) {
@@ -307,7 +420,7 @@ func extractIDAndSlug(rawURL string) (string, string, string) {
 	return id, lastSegment, "UNKNOWN"
 }
 
-func parseTeamsFromSlug(slug, provider string) (string, string) {
+func parseTeamsFromSlug(slug, _ string) (string, string) {
 	slug = strings.ToLower(slug)
 	slug = strings.ReplaceAll(slug, "–", "-")
 
@@ -349,37 +462,6 @@ func parseTeamsFromSlug(slug, provider string) (string, string) {
 	}
 
 	return slug, ""
-}
-
-func splitTeamsFromCache(slug string, cache map[string]string) (string, string, string, string, bool) {
-	parts := strings.Split(strings.Trim(slug, "-"), "-")
-	if len(parts) < 2 {
-		return "", "", "", "", false
-	}
-
-	type candidate struct {
-		homeSlug string
-		awaySlug string
-		homeID   string
-		awayID   string
-	}
-	var candidates []candidate
-	for splitAt := 1; splitAt < len(parts); splitAt++ {
-		homeSlug := strings.Join(parts[:splitAt], "-")
-		awaySlug := strings.Join(parts[splitAt:], "-")
-		homeID := findTeamIDInCache(homeSlug, cache)
-		awayID := findTeamIDInCache(awaySlug, cache)
-		if homeID != "" && awayID != "" {
-			candidates = append(candidates, candidate{homeSlug, awaySlug, homeID, awayID})
-		}
-	}
-
-	if len(candidates) != 1 {
-		return "", "", "", "", false
-	}
-
-	match := candidates[0]
-	return match.homeSlug, match.awaySlug, match.homeID, match.awayID, true
 }
 
 func canonicalTeamCore(s string) string {
@@ -424,26 +506,13 @@ func findTeamIDInCache(teamSlug string, cache map[string]string) string {
 		return id
 	}
 
-	candidates := make(map[string][]string)
 	for cacheSlug, id := range cache {
 		if canonicalTeamCore(cacheSlug) == cleanCore {
-			candidates[id] = append(candidates[id], cacheSlug)
-		}
-	}
-	if len(candidates) == 1 {
-		for id, slugs := range candidates {
-			sort.Strings(slugs)
 			return id
 		}
 	}
 
 	return ""
-}
-
-func unorderedTeamKey(homeID, awayID string) string {
-	ids := []string{homeID, awayID}
-	sort.Strings(ids)
-	return strings.Join(ids, "|")
 }
 
 func displayOpponentName(name string) string {
@@ -465,48 +534,155 @@ func displayOpponentName(name string) string {
 }
 
 // ==========================================
-// 3. POBIERANIE SIECIOWE
+// 3. POBIERANIE SIECIOWE (TLS BROWSER IMPERSONATION)
 // ==========================================
 
 type ResilientClient struct {
 	httpClient *http.Client
-	userAgent  string
+	tlsClient  tls_client.HttpClient
 }
 
 func NewResilientClient() *ResilientClient {
 	jar, _ := cookiejar.New(nil)
+	tlsJar := tls_client.NewCookieJar()
+
+	options := []tls_client.HttpClientOption{
+		tls_client.WithTimeoutSeconds(20),
+		tls_client.WithClientProfile(profiles.Firefox_120),
+		tls_client.WithCookieJar(tlsJar),
+		tls_client.WithRandomTLSExtensionOrder(),
+	}
+
+	tlsCli, err := tls_client.NewHttpClient(tls_client.NewNoopLogger(), options...)
+	if err != nil {
+		panic(fmt.Sprintf("Inicjalizacja TLS klienta nie powiodła się: %v", err))
+	}
+
 	return &ResilientClient{
 		httpClient: &http.Client{
 			Timeout: 20 * time.Second,
 			Jar:     jar,
 		},
-		userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+		tlsClient: tlsCli,
 	}
 }
 
-func (c *ResilientClient) GetWithAntiBan(urlStr string, isStatsHub bool) (*http.Response, error) {
-	time.Sleep(time.Duration(150+rand.Intn(150)) * time.Millisecond)
+func (c *ResilientClient) GetSofa(endpoint string) ([]byte, error) {
+	time.Sleep(time.Duration(90+rand.Intn(90)) * time.Millisecond)
 
-	req, err := http.NewRequest("GET", urlStr, nil)
+	reqURL := endpoint
+	if !strings.HasPrefix(reqURL, "http") {
+		reqURL = sofaBase + endpoint
+	}
+
+	req, err := fhttp.NewRequest(fhttp.MethodGet, reqURL, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", c.userAgent)
-	req.Header.Set("Accept", "application/json, text/plain, */*")
-	req.Header.Set("Accept-Language", "pl,en-US;q=0.9,en;q=0.8")
 
-	if isStatsHub {
-		req.Header.Set("Referer", "https://www.statshub.com/")
-		req.Header.Set("Origin", "https://www.statshub.com")
+	req.Header = fhttp.Header{
+		"user-agent":       {"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0"},
+		"accept":           {"*/*"},
+		"accept-language":  {"en-US,en;q=0.9,pl;q=0.8"},
+		"referer":          {"https://www.sofascore.com/"},
+		"x-requested-with": {"c88344"},
+		"sec-fetch-dest":   {"empty"},
+		"sec-fetch-mode":   {"cors"},
+		"sec-fetch-site":   {"same-origin"},
+		"te":               {"trailers"},
+		fhttp.HeaderOrderKey: {
+			"user-agent",
+			"accept",
+			"accept-language",
+			"referer",
+			"x-requested-with",
+			"sec-fetch-dest",
+			"sec-fetch-mode",
+			"sec-fetch-site",
+			"te",
+		},
 	}
 
-	return c.httpClient.Do(req)
+	resp, err := c.tlsClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != fhttp.StatusOK {
+		return nil, fmt.Errorf("SofaScore HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	return body, nil
+}
+
+func SearchSofaTeamID(teamSlug string) (string, error) {
+	if strings.TrimSpace(teamSlug) == "" {
+		return "", fmt.Errorf("pusty slug")
+	}
+
+	client := NewResilientClient()
+	queryName := strings.ReplaceAll(canonicalTeamCore(teamSlug), "-", " ")
+	q := url.QueryEscape(queryName)
+
+	body, err := client.GetSofa(fmt.Sprintf("/search/all?q=%s&page=0", q))
+	if err != nil {
+		return "", err
+	}
+
+	var res SofaSearchResponse
+	if err := json.Unmarshal(body, &res); err != nil {
+		return "", err
+	}
+
+	teams := res.ExtractTeams()
+	if len(teams) == 0 {
+		parts := strings.Fields(queryName)
+		if len(parts) > 1 {
+			qShort := url.QueryEscape(parts[0])
+			if bodyShort, errShort := client.GetSofa(fmt.Sprintf("/search/all?q=%s&page=0", qShort)); errShort == nil {
+				var resShort SofaSearchResponse
+				_ = json.Unmarshal(bodyShort, &resShort)
+				teams = resShort.ExtractTeams()
+			}
+		}
+	}
+
+	if len(teams) == 0 {
+		return "", fmt.Errorf("nie znaleziono drużyny dla: %s", teamSlug)
+	}
+
+	cleanTarget := canonicalTeamCore(teamSlug)
+	for _, t := range teams {
+		if canonicalTeamCore(t.Slug) == cleanTarget || canonicalTeamCore(t.Name) == cleanTarget {
+			idStr := strconv.Itoa(t.ID)
+			saveTeamCache(teamSlug, idStr)
+			return idStr, nil
+		}
+	}
+
+	firstID := strconv.Itoa(teams[0].ID)
+	saveTeamCache(teamSlug, firstID)
+	return firstID, nil
 }
 
 func FetchSuperbetMatchData(matchID string) (string, error) {
 	client := NewResilientClient()
 	urlStr := fmt.Sprintf("https://production-superbet-bmb.freetls.fastly.net/betbuilder/v2/getBetbuilderMarketsForMatch?match_id=%s&lang=pl-PL&target=SB_PL", matchID)
-	resp, err := client.GetWithAntiBan(urlStr, false)
+
+	req, err := http.NewRequest("GET", urlStr, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0")
+	req.Header.Set("Accept", "application/json, text/plain, */*")
+
+	resp, err := client.httpClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -521,7 +697,7 @@ func FetchSTSSnapshotData(fixtureID string) (string, error) {
 	wsURL := "wss://www.sts.pl/sbk/api/sbk"
 	header := http.Header{}
 	header.Set("Origin", "https://www.sts.pl")
-	header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
 
 	dialer := websocket.Dialer{HandshakeTimeout: 10 * time.Second}
 	conn, _, err := dialer.Dial(wsURL, header)
@@ -603,7 +779,7 @@ func FetchBetclicStreamData(matchIDStr string) ([]byte, error) {
 	req.Header.Set("Sec-Fetch-Dest", "empty")
 	req.Header.Set("Sec-Fetch-Mode", "cors")
 	req.Header.Set("Sec-Fetch-Site", "cross-site")
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
 	req.Header.Set("X-Bg-Ref-Brand", "BETCLIC")
 	req.Header.Set("X-Bg-Ref-Platform", "DESKTOP")
 	req.Header.Set("X-Bg-Ref-Regulator-Zone", "PL")
@@ -658,135 +834,554 @@ FinishStream:
 	return fullBuffer.Bytes(), nil
 }
 
-const statsHubFetchLimit = 40
+// ==========================================
+// 4. SOFASCORE SERVICE (PEŁNA KADRA + HISTORIA ZAWODNIKÓW)
+// ==========================================
 
-func FetchStatsHubTeamData(idOrURL string, tournamentIDs string) (string, error) {
+func FetchSofaTeamSquad(teamID string) ([]SofaPlayerDetails, string, error) {
 	client := NewResilientClient()
-	teamIDPattern := regexp.MustCompile(`^\d+$`)
-	id := strings.TrimSpace(idOrURL)
 
-	if !teamIDPattern.MatchString(id) {
-		return "", fmt.Errorf("niepoprawne ID drużyny StatsHub: %q", idOrURL)
-	}
+	playerMap := make(map[int]SofaPlayerDetails)
+	teamDisplayName := teamID
 
-	params := url.Values{}
-	params.Set("limit", strconv.Itoa(statsHubFetchLimit))
-	params.Set("location", "both")
-
-	tIDs := strings.TrimSpace(tournamentIDs)
-	if tIDs == "" {
-		leagueCache := loadLeagueCache()
-		tIDs = strings.TrimSpace(leagueCache[id])
-	}
-
-	if tIDs != "" && tIDs != "ALL" {
-		params.Set("tournamentId", tIDs)
-	}
-
-	targetURL := fmt.Sprintf("https://www.statshub.com/api/team/%s/players/performance?%s", id, params.Encode())
-
-	resp, err := client.GetWithAntiBan(targetURL, true)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-
-	if resp.StatusCode == http.StatusNotFound && params.Get("tournamentId") != "" {
-		params.Del("tournamentId")
-		fallbackURL := fmt.Sprintf("https://www.statshub.com/api/team/%s/players/performance?%s", id, params.Encode())
-
-		respFb, errFb := client.GetWithAntiBan(fallbackURL, true)
-		if errFb != nil {
-			return "", errFb
+	body, err := client.GetSofa(fmt.Sprintf("/team/%s/players", teamID))
+	if err == nil {
+		var sqRes SofaTeamPlayersResponse
+		if json.Unmarshal(body, &sqRes) == nil && len(sqRes.Players) > 0 {
+			for _, p := range sqRes.Players {
+				if p.Player.ID > 0 {
+					playerMap[p.Player.ID] = p.Player
+				}
+			}
+			fmt.Printf("[DEBUG][SOFASCORE] /team/%s/players zwróciło %d zawodników kadry podstawowej.\n", teamID, len(sqRes.Players))
 		}
-		defer respFb.Body.Close()
+	} else {
+		fmt.Printf("[DEBUG][SOFASCORE] /team/%s/players zwróciło błąd: %v. Próba uzupełnienia z meczów.\n", teamID, err)
+	}
 
-		bFb, errFb := io.ReadAll(respFb.Body)
-		if errFb == nil && respFb.StatusCode == http.StatusOK {
-			return string(bFb), nil
+	evBody, err := client.GetSofa(fmt.Sprintf("/team/%s/events/last/0", teamID))
+	if err == nil {
+		var evRes SofaTeamEventsResponse
+		if json.Unmarshal(evBody, &evRes) == nil && len(evRes.Events) > 0 {
+			teamNumericID, _ := strconv.Atoi(teamID)
+			for _, e := range evRes.Events {
+				if e.HomeTeam.ID == teamNumericID && e.HomeTeam.Name != "" {
+					teamDisplayName = e.HomeTeam.Name
+					break
+				}
+				if e.AwayTeam.ID == teamNumericID && e.AwayTeam.Name != "" {
+					teamDisplayName = e.AwayTeam.Name
+					break
+				}
+			}
+
+			limit := 3
+			if len(evRes.Events) < limit {
+				limit = len(evRes.Events)
+			}
+			for i := 0; i < limit; i++ {
+				lBody, err := client.GetSofa(fmt.Sprintf("/event/%d/lineups", evRes.Events[i].ID))
+				if err != nil {
+					continue
+				}
+				var lRes SofaLineupResponse
+				if json.Unmarshal(lBody, &lRes) != nil {
+					continue
+				}
+
+				collect := func(players []SofaLineupPlayer) {
+					for _, p := range players {
+						if p.Player.ID > 0 {
+							playerMap[p.Player.ID] = p.Player
+						}
+					}
+				}
+
+				if evRes.Events[i].HomeTeam.ID == teamNumericID {
+					collect(lRes.Home.Players)
+				} else {
+					collect(lRes.Away.Players)
+				}
+			}
 		}
 	}
 
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		bodyPreview := strings.TrimSpace(string(b))
-		if len(bodyPreview) > 300 {
-			bodyPreview = bodyPreview[:300]
-		}
-		return "", fmt.Errorf("StatsHub HTTP %s: %s", resp.Status, bodyPreview)
+	var squad []SofaPlayerDetails
+	for _, p := range playerMap {
+		squad = append(squad, p)
 	}
-	return string(b), nil
+
+	if len(squad) == 0 {
+		return nil, teamDisplayName, fmt.Errorf("nie udało się pobrać kadry dla drużyny %s", teamID)
+	}
+
+	fmt.Printf("[DEBUG][SOFASCORE] Łącznie zaindeksowano %d unikalnych graczy w kadrze %s (ID: %s).\n", len(squad), teamDisplayName, teamID)
+	return squad, teamDisplayName, nil
 }
 
-// ==========================================
-// 4. PARSERY I DETEKCJA SKŁADÓW (LINEUPS)
-// ==========================================
+type SofaIncidentResponse struct {
+	Incidents []struct {
+		IncidentType string `json:"incidentType"`
+		PlayerIn     struct {
+			ID int `json:"id"`
+		} `json:"playerIn"`
+		PlayerOut struct {
+			ID int `json:"id"`
+		} `json:"playerOut"`
+	} `json:"incidents"`
+}
 
-func FindStatsHubUpcomingEventID(homeID, awayID string) string {
+func FetchSofaPlayerCompleteHistory(playerID int, matchLimit int, allowedTournamentIDs string) (*PlayerStatHistory, error) {
 	client := NewResilientClient()
-	urlStr := fmt.Sprintf("https://www.statshub.com/api/team/%s/players/performance?limit=10&location=both", homeID)
-	resp, err := client.GetWithAntiBan(urlStr, true)
+
+	endpoint := fmt.Sprintf("/player/%d/events/last/0", playerID)
+	body, err := client.GetSofa(endpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	var pEvents struct {
+		Events []struct {
+			ID         int    `json:"id"`
+			Slug       string `json:"slug"`
+			StartTS    int64  `json:"startTimestamp"`
+			Tournament struct {
+				ID               int    `json:"id"`
+				Name             string `json:"name"`
+				UniqueTournament struct {
+					ID   int    `json:"id"`
+					Name string `json:"name"`
+				} `json:"uniqueTournament"`
+			} `json:"tournament"`
+			HomeTeam struct {
+				ID   int    `json:"id"`
+				Name string `json:"name"`
+			} `json:"homeTeam"`
+			AwayTeam struct {
+				ID   int    `json:"id"`
+				Name string `json:"name"`
+			} `json:"awayTeam"`
+			Status struct {
+				Code int `json:"code"`
+			} `json:"status"`
+		} `json:"events"`
+		PlayedForTeamMap map[string]int `json:"playedForTeamMap"`
+		StatisticsMap    map[string]struct {
+			MinutesPlayed int `json:"minutesPlayed"`
+		} `json:"statisticsMap"`
+	}
+
+	if err := json.Unmarshal(body, &pEvents); err != nil {
+		return nil, err
+	}
+
+	allowedTIDs := make(map[int]bool)
+	if allowedTournamentIDs != "" && allowedTournamentIDs != "ALL" {
+		for _, part := range strings.Split(allowedTournamentIDs, ",") {
+			if id, err := strconv.Atoi(strings.TrimSpace(part)); err == nil {
+				allowedTIDs[id] = true
+			}
+		}
+	}
+
+	type matchCandidate struct {
+		EventID  int
+		Opponent string
+		Date     string
+		StartTS  int64
+	}
+
+	var allPlayedMatches []matchCandidate
+
+	for _, e := range pEvents.Events {
+		if e.Status.Code != 100 {
+			continue
+		}
+
+		evIDStr := strconv.Itoa(e.ID)
+		if stat, ok := pEvents.StatisticsMap[evIDStr]; ok {
+			if stat.MinutesPlayed <= 0 {
+				continue
+			}
+		}
+
+		uTID := e.Tournament.UniqueTournament.ID
+		if uTID == 0 {
+			uTID = e.Tournament.ID
+		}
+		if len(allowedTIDs) > 0 && !allowedTIDs[uTID] {
+			continue
+		}
+
+		opp := "Mecz"
+		if e.HomeTeam.Name != "" && e.AwayTeam.Name != "" {
+			playedTeamID := pEvents.PlayedForTeamMap[evIDStr]
+			if playedTeamID == e.HomeTeam.ID {
+				opp = displayOpponentName(e.AwayTeam.Name)
+			} else {
+				opp = displayOpponentName(e.HomeTeam.Name)
+			}
+		}
+
+		dStr := ""
+		if e.StartTS > 0 {
+			dStr = time.Unix(e.StartTS, 0).Format("02.01")
+		}
+
+		allPlayedMatches = append(allPlayedMatches, matchCandidate{
+			EventID:  e.ID,
+			Opponent: opp,
+			Date:     dStr,
+			StartTS:  e.StartTS,
+		})
+	}
+
+	// Ściśle od najnowszego do najstarszego
+	sort.Slice(allPlayedMatches, func(i, j int) bool {
+		return allPlayedMatches[i].StartTS > allPlayedMatches[j].StartTS
+	})
+
+	if matchLimit > 0 && len(allPlayedMatches) > matchLimit {
+		allPlayedMatches = allPlayedMatches[:matchLimit]
+	}
+
+	hist := &PlayerStatHistory{
+		ID:                       playerID,
+		MetricValues:             make(map[CanonicalMarket][]int),
+		MetricValuesWithSuperSub: make(map[CanonicalMarket][]int),
+	}
+
+	type matchStatResult struct {
+		order    int
+		opp      string
+		date     string
+		stats    SofaPlayerStats
+		subStats SofaPlayerStats
+		pos      string
+	}
+
+	resultsChan := make(chan matchStatResult, len(allPlayedMatches))
+	var wg sync.WaitGroup
+
+	for i, m := range allPlayedMatches {
+		wg.Add(1)
+		go func(idx int, match matchCandidate) {
+			defer wg.Done()
+
+			// 1. Statystyki bazowe zawodnika
+			statURL := fmt.Sprintf("/event/%d/player/%d/statistics", match.EventID, playerID)
+			sBody, err := client.GetSofa(statURL)
+			if err != nil {
+				return
+			}
+			var pStat SofaPlayerMatchStatResponse
+			if err := json.Unmarshal(sBody, &pStat); err != nil || pStat.Statistics.MinutesPlayed <= 0 {
+				return
+			}
+
+			// 2. Wyszukiwanie zmiennika (SuperSub) przez incydenty meczowe
+			var subStats SofaPlayerStats
+			incURL := fmt.Sprintf("/event/%d/incidents", match.EventID)
+			if incBody, err := client.GetSofa(incURL); err == nil {
+				var incRes SofaIncidentResponse
+				if json.Unmarshal(incBody, &incRes) == nil {
+					subPlayerID := 0
+					for _, inc := range incRes.Incidents {
+						if inc.IncidentType == "substitution" && inc.PlayerOut.ID == playerID {
+							subPlayerID = inc.PlayerIn.ID
+							break
+						}
+					}
+
+					// Jeśli nastąpiła zmiana – pobierz statystyki zmiennika
+					if subPlayerID > 0 {
+						subURL := fmt.Sprintf("/event/%d/player/%d/statistics", match.EventID, subPlayerID)
+						if subBody, err := client.GetSofa(subURL); err == nil {
+							var subStatRes SofaPlayerMatchStatResponse
+							if json.Unmarshal(subBody, &subStatRes) == nil {
+								subStats = subStatRes.Statistics
+							}
+						}
+					}
+				}
+			}
+
+			resultsChan <- matchStatResult{
+				order:    idx,
+				opp:      match.Opponent,
+				date:     match.Date,
+				stats:    pStat.Statistics,
+				subStats: subStats,
+				pos:      pStat.Position,
+			}
+		}(i, m)
+	}
+
+	wg.Wait()
+	close(resultsChan)
+
+	var collected []matchStatResult
+	for r := range resultsChan {
+		collected = append(collected, r)
+	}
+
+	sort.Slice(collected, func(i, j int) bool {
+		return collected[i].order < collected[j].order
+	})
+
+	for _, c := range collected {
+		hist.Matches++
+		hist.Minutes = append(hist.Minutes, c.stats.MinutesPlayed)
+		hist.Positions = append(hist.Positions, c.pos)
+		hist.Opponents = append(hist.Opponents, c.opp)
+		hist.Dates = append(hist.Dates, c.date)
+
+		tackles := c.stats.WonTackle
+		if tackles == 0 {
+			tackles = c.stats.TotalTackle
+		}
+		subTackles := c.subStats.WonTackle
+		if subTackles == 0 {
+			subTackles = c.subStats.TotalTackle
+		}
+
+		// Dane bazowe (bez SuperSub)
+		hist.MetricValues[MarketShotsTotal] = append(hist.MetricValues[MarketShotsTotal], c.stats.TotalShots)
+		hist.MetricValues[MarketShotsOnTarget] = append(hist.MetricValues[MarketShotsOnTarget], c.stats.OnTargetScoringAttempt)
+		hist.MetricValues[MarketShotsBlocked] = append(hist.MetricValues[MarketShotsBlocked], c.stats.BlockedScoringAttempt)
+		hist.MetricValues[MarketShotsOffTarget] = append(hist.MetricValues[MarketShotsOffTarget], c.stats.ShotOffTarget)
+		hist.MetricValues[MarketTackles] = append(hist.MetricValues[MarketTackles], tackles)
+		hist.MetricValues[MarketInterceptions] = append(hist.MetricValues[MarketInterceptions], c.stats.InterceptionWon)
+		hist.MetricValues[MarketFoulsCommitted] = append(hist.MetricValues[MarketFoulsCommitted], c.stats.Fouls)
+		hist.MetricValues[MarketFoulsDrawn] = append(hist.MetricValues[MarketFoulsDrawn], c.stats.WasFouled)
+		hist.MetricValues[MarketOffsides] = append(hist.MetricValues[MarketOffsides], c.stats.TotalOffside)
+		hist.MetricValues[MarketDispossessed] = append(hist.MetricValues[MarketDispossessed], c.stats.Dispossessed)
+
+		// Dane z SuperSub (starter + zmiennik)
+		hist.MetricValuesWithSuperSub[MarketShotsTotal] = append(hist.MetricValuesWithSuperSub[MarketShotsTotal], c.stats.TotalShots+c.subStats.TotalShots)
+		hist.MetricValuesWithSuperSub[MarketShotsOnTarget] = append(hist.MetricValuesWithSuperSub[MarketShotsOnTarget], c.stats.OnTargetScoringAttempt+c.subStats.OnTargetScoringAttempt)
+		hist.MetricValuesWithSuperSub[MarketShotsBlocked] = append(hist.MetricValuesWithSuperSub[MarketShotsBlocked], c.stats.BlockedScoringAttempt+c.subStats.BlockedScoringAttempt)
+		hist.MetricValuesWithSuperSub[MarketShotsOffTarget] = append(hist.MetricValuesWithSuperSub[MarketShotsOffTarget], c.stats.ShotOffTarget+c.subStats.ShotOffTarget)
+		hist.MetricValuesWithSuperSub[MarketTackles] = append(hist.MetricValuesWithSuperSub[MarketTackles], tackles+subTackles)
+		hist.MetricValuesWithSuperSub[MarketInterceptions] = append(hist.MetricValuesWithSuperSub[MarketInterceptions], c.stats.InterceptionWon+c.subStats.InterceptionWon)
+		hist.MetricValuesWithSuperSub[MarketFoulsCommitted] = append(hist.MetricValuesWithSuperSub[MarketFoulsCommitted], c.stats.Fouls+c.subStats.Fouls)
+		hist.MetricValuesWithSuperSub[MarketFoulsDrawn] = append(hist.MetricValuesWithSuperSub[MarketFoulsDrawn], c.stats.WasFouled+c.subStats.WasFouled)
+		hist.MetricValuesWithSuperSub[MarketOffsides] = append(hist.MetricValuesWithSuperSub[MarketOffsides], c.stats.TotalOffside+c.subStats.TotalOffside)
+		hist.MetricValuesWithSuperSub[MarketDispossessed] = append(hist.MetricValuesWithSuperSub[MarketDispossessed], c.stats.Dispossessed+c.subStats.Dispossessed)
+	}
+
+	return hist, nil
+}
+
+func FetchSofaTeamDataComprehensive(teamID string, matchLimit int, tournamentIDs string, targetPlayerNames []string) ([]*PlayerStatHistory, string, error) {
+	squad, teamDisplayName, err := FetchSofaTeamSquad(teamID)
+	if err != nil {
+		return nil, "", err
+	}
+
+	lookupMap := make(map[string]int)
+	for _, p := range squad {
+		regSofaAliases(lookupMap, p.Name, p.ShortName, p.Slug, p.ID)
+	}
+
+	matchedPlayerIDs := make(map[int]SofaPlayerDetails)
+	unmatchedBookmakerNames := make(map[string]bool)
+
+	lookupStringMap := lookupMapInt(lookupMap)
+
+	for _, targetName := range targetPlayerNames {
+		matchedID := matchPlayerStrict(targetName, lookupStringMap)
+		if matchedID != "" {
+			idVal, _ := strconv.Atoi(matchedID)
+			for _, p := range squad {
+				if p.ID == idVal {
+					matchedPlayerIDs[idVal] = p
+					break
+				}
+			}
+		} else {
+			targetNorm := NormalizePlayerName(targetName)
+			parts := strings.Fields(targetNorm)
+			foundBySurname := false
+			if len(parts) > 0 {
+				last := parts[len(parts)-1]
+				for _, p := range squad {
+					pNorm := NormalizePlayerName(p.Name)
+					pParts := strings.Fields(pNorm)
+					if len(pParts) > 0 && pParts[len(pParts)-1] == last {
+						matchedPlayerIDs[p.ID] = p
+						foundBySurname = true
+						break
+					}
+				}
+			}
+			if !foundBySurname {
+				unmatchedBookmakerNames[targetName] = true
+			}
+		}
+	}
+
+	fmt.Printf("[DEBUG][MATCHER] Zespół %s (ID: %s): dopasowano %d graczy z ofert bukmacherów.\n", teamDisplayName, teamID, len(matchedPlayerIDs))
+	if len(unmatchedBookmakerNames) > 0 {
+		var listUnmatched []string
+		for n := range unmatchedBookmakerNames {
+			listUnmatched = append(listUnmatched, n)
+		}
+		sort.Strings(listUnmatched)
+		limitShow := 10
+		if len(listUnmatched) < limitShow {
+			limitShow = len(listUnmatched)
+		}
+		fmt.Printf("[DEBUG][MATCHER] Niedopasowane nazwiska z bukmacherów dla %s (%d): %v...\n", teamDisplayName, len(listUnmatched), listUnmatched[:limitShow])
+	}
+
+	var playersToFetch []SofaPlayerDetails
+	if len(matchedPlayerIDs) > 0 {
+		for _, p := range matchedPlayerIDs {
+			playersToFetch = append(playersToFetch, p)
+		}
+	} else {
+		playersToFetch = squad
+	}
+
+	fmt.Printf("[DEBUG][SOFASCORE] Rozpoczynanie pobierania historii meczów dla %d zawodników drużyny %s...\n", len(playersToFetch), teamDisplayName)
+
+	var finalHistories []*PlayerStatHistory
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 6)
+
+	for _, p := range playersToFetch {
+		wg.Add(1)
+		go func(player SofaPlayerDetails) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			h, err := FetchSofaPlayerCompleteHistory(player.ID, matchLimit, tournamentIDs)
+			if err != nil {
+				fmt.Printf("[DEBUG][SOFASCORE] Błąd historii dla %s (ID: %d): %v\n", player.Name, player.ID, err)
+				return
+			}
+			if h == nil || h.Matches == 0 {
+				fmt.Printf("[DEBUG][SOFASCORE] Gracz %s (ID: %d) ma 0 rozegranych meczów w wybranym filtrze.\n", player.Name, player.ID)
+				return
+			}
+			h.FullName = player.Name
+			h.TeamID = teamID
+			h.TeamName = teamDisplayName
+
+			mu.Lock()
+			finalHistories = append(finalHistories, h)
+			mu.Unlock()
+			fmt.Printf("[DEBUG][SOFASCORE] Pomyślnie pobrano: %-22s (ID: %-8d) -> %2d meczów w próbce.\n", player.Name, player.ID, h.Matches)
+		}(p)
+	}
+
+	wg.Wait()
+	fmt.Printf("[DEBUG][SOFASCORE] Zakończono pobieranie: %s ma %d zawodników z historią statystyk.\n", teamDisplayName, len(finalHistories))
+	return finalHistories, teamDisplayName, nil
+}
+
+func regSofaAliases(m map[string]int, name, shortName, slug string, id int) {
+	for _, raw := range []string{name, shortName, strings.ReplaceAll(slug, "-", " ")} {
+		norm := NormalizePlayerName(raw)
+		if norm == "" {
+			continue
+		}
+		m[norm] = id
+		parts := strings.Fields(norm)
+		if len(parts) >= 2 {
+			first := parts[0]
+			last := parts[len(parts)-1]
+			m[last] = id
+			m[last+" "+first] = id
+			if r := []rune(first); len(r) > 0 {
+				m[string(r[0])+" "+last] = id
+				m[last+" "+string(r[0])] = id
+			}
+		}
+	}
+}
+
+func lookupMapInt(src map[string]int) map[string]string {
+	res := make(map[string]string, len(src))
+	for k, v := range src {
+		res[k] = strconv.Itoa(v)
+	}
+	return res
+}
+
+func FindSofaUpcomingEventID(homeID, awayID string) string {
+	client := NewResilientClient()
+	body, err := client.GetSofa(fmt.Sprintf("/team/%s/events/next/0", homeID))
 	if err != nil {
 		return ""
 	}
-	defer resp.Body.Close()
 
-	b, _ := io.ReadAll(resp.Body)
-	var sh StatsHubResponse
-	_ = json.Unmarshal(b, &sh)
+	var evRes SofaTeamEventsResponse
+	if err := json.Unmarshal(body, &evRes); err != nil {
+		return ""
+	}
 
-	for _, e := range sh.Events {
-		h := strconv.Itoa(e.HomeTeam.ID)
-		a := strconv.Itoa(e.AwayTeam.ID)
-		if (h == homeID && a == awayID) || (h == awayID && a == homeID) {
-			targetID := e.Events.ID
-			if targetID == 0 {
-				targetID = e.Tournaments.ID
-			}
-			if targetID > 0 {
-				return strconv.Itoa(targetID)
-			}
+	hID, _ := strconv.Atoi(homeID)
+	aID, _ := strconv.Atoi(awayID)
+
+	for _, e := range evRes.Events {
+		if (e.HomeTeam.ID == hID && e.AwayTeam.ID == aID) ||
+			(e.HomeTeam.ID == aID && e.AwayTeam.ID == hID) {
+			return strconv.Itoa(e.ID)
 		}
 	}
 	return ""
 }
 
-func FetchStatsHubLineup(eventID, teamID string) (map[string]bool, bool) {
-	if eventID == "" || teamID == "" {
-		return nil, false
+func FetchSofaConfirmedLineups(eventID string) (map[string]bool, map[string]bool, bool) {
+	if eventID == "" {
+		return nil, nil, false
 	}
 	client := NewResilientClient()
-	targetURL := fmt.Sprintf("https://www.statshub.com/api/event/%s/team-lineup?teamId=%s&heatmap=false", eventID, teamID)
-
-	resp, err := client.GetWithAntiBan(targetURL, true)
-	if err != nil || resp.StatusCode != http.StatusOK {
-		return nil, false
-	}
-	defer resp.Body.Close()
-
-	b, err := io.ReadAll(resp.Body)
+	body, err := client.GetSofa(fmt.Sprintf("/event/%s/lineups", eventID))
 	if err != nil {
-		return nil, false
+		return nil, nil, false
 	}
 
-	var lineupResp StatsHubLineupResponse
-	if err := json.Unmarshal(b, &lineupResp); err != nil || len(lineupResp.Players) == 0 {
-		return nil, false
+	var res SofaLineupResponse
+	if err := json.Unmarshal(body, &res); err != nil || (!res.Confirmed && len(res.Home.Players) == 0) {
+		return nil, nil, false
 	}
 
-	res := make(map[string]bool)
-	for _, p := range lineupResp.Players {
-		norm := NormalizePlayerName(p.Player.Name)
-		if norm != "" {
-			res[norm] = !p.Substitute
+	homeMap := make(map[string]bool)
+	awayMap := make(map[string]bool)
+
+	regLineup := func(m map[string]bool, p SofaLineupPlayer) {
+		isStarter := !p.Substitute
+		for _, raw := range []string{p.Player.Name, p.Player.ShortName, strings.ReplaceAll(p.Player.Slug, "-", " ")} {
+			norm := NormalizePlayerName(raw)
+			if norm != "" {
+				m[norm] = isStarter
+				parts := strings.Fields(norm)
+				if len(parts) >= 2 {
+					m[parts[len(parts)-1]] = isStarter
+				}
+			}
 		}
 	}
-	return res, true
+
+	for _, p := range res.Home.Players {
+		regLineup(homeMap, p)
+	}
+	for _, p := range res.Away.Players {
+		regLineup(awayMap, p)
+	}
+
+	fmt.Printf("[DEBUG][LINEUP] Pobrano składy meczu %s: Gospodarze=%d, Goście=%d (potwierdzone: %v)\n", eventID, len(homeMap), len(awayMap), res.Confirmed)
+	return homeMap, awayMap, true
 }
+
+// ==========================================
+// 5. PARSERY BUKMACHERSKIE I MAPOWANIE RYNKÓW
+// ==========================================
 
 var numRe = regexp.MustCompile(`(\d+(?:\.\d+)?)`)
 
@@ -813,6 +1408,8 @@ func isUnsupportedMethodOrZone(s string) bool {
 		"podania", "podan", "pass",
 		"kartki", "kartek", "card",
 		"asyst",
+		"spoza pola", "spoza szesnast", "spoza", "z dystansu", "outside the box", "outside box",
+		"z pola karnego", "w polu karnym", "w szesnastce", "z szesnastki", "inside the box", "inside box",
 	}
 	for _, m := range markers {
 		if strings.Contains(low, m) {
@@ -820,51 +1417,6 @@ func isUnsupportedMethodOrZone(s string) bool {
 		}
 	}
 	return false
-}
-
-func foldLabel(s string) string {
-	return strings.Join(strings.Fields(removeDiacritics(strings.ToLower(s))), " ")
-}
-
-func containsZonePhrase(raw string) bool {
-	s := foldLabel(raw)
-	phrases := []string{
-		"spoza pola", "spoza szesnast", "spoza", "z dystansu", "outside the box", "outside box",
-		"z pola karnego", "w polu karnym", "w szesnastce", "z szesnastki", "inside the box", "inside box",
-	}
-	for _, p := range phrases {
-		if strings.Contains(s, p) {
-			return true
-		}
-	}
-	return false
-}
-
-func mapZoneShotMarket(raw string) (CanonicalMarket, bool) {
-	s := foldLabel(raw)
-
-	if !strings.Contains(s, "strzal") && !strings.Contains(s, "shot") {
-		return "", false
-	}
-	if strings.Contains(s, "celn") || strings.Contains(s, "zablokowan") ||
-		strings.Contains(s, "on target") || strings.Contains(s, "off target") || strings.Contains(s, "blocked") {
-		return "", false
-	}
-	if strings.Contains(s, "glow") || strings.Contains(s, "head") ||
-		strings.Contains(s, "nog") || strings.Contains(s, "foot") {
-		return "", false
-	}
-
-	if strings.Contains(s, "spoza") || strings.Contains(s, "z dystansu") ||
-		strings.Contains(s, "outside the box") || strings.Contains(s, "outside box") {
-		return MarketShotsOutsideBox, true
-	}
-	if strings.Contains(s, "z pola karnego") || strings.Contains(s, "w polu karnym") ||
-		strings.Contains(s, "w szesnastce") || strings.Contains(s, "z szesnastki") ||
-		strings.Contains(s, "inside the box") || strings.Contains(s, "inside box") {
-		return MarketShotsInsideBox, true
-	}
-	return "", false
 }
 
 func mapMarketCanonical(raw string) (CanonicalMarket, bool) {
@@ -879,14 +1431,6 @@ func mapMarketCanonical(raw string) (CanonicalMarket, bool) {
 	if isHalfOrPeriodMarket(raw) {
 		return "", false
 	}
-
-	if zone, ok := mapZoneShotMarket(raw); ok {
-		return zone, true
-	}
-	if containsZonePhrase(raw) {
-		return "", false
-	}
-
 	if isUnsupportedMethodOrZone(raw) {
 		return "", false
 	}
@@ -894,12 +1438,10 @@ func mapMarketCanonical(raw string) (CanonicalMarket, bool) {
 	if strings.Contains(sd, "przechwyt") || strings.Contains(s, "interception") {
 		return MarketInterceptions, true
 	}
-
 	if strings.Contains(sd, "odbiorow na zawodniku") || strings.Contains(sd, "odbior na zawodnik") ||
 		strings.Contains(sd, "odbiory na zawodniku") {
 		return MarketDispossessed, true
 	}
-
 	if strings.Contains(sd, "odbior") || strings.Contains(s, "tackle") {
 		return MarketTackles, true
 	}
@@ -949,10 +1491,7 @@ func ParseSuperbetProps(rawJSON string) ([]NormalizedProp, error) {
 
 	var props []NormalizedProp
 	for _, m := range resp.Markets {
-		if isHalfOrPeriodMarket(m.Name) {
-			continue
-		}
-		if isUnsupportedMethodOrZone(m.Name) && !containsZonePhrase(m.Name) {
+		if isHalfOrPeriodMarket(m.Name) || isUnsupportedMethodOrZone(m.Name) {
 			continue
 		}
 
@@ -965,10 +1504,7 @@ func ParseSuperbetProps(rawJSON string) ([]NormalizedProp, error) {
 			if odd.Status != "ACTIVE" && odd.Status != "" {
 				continue
 			}
-			if isHalfOrPeriodMarket(odd.Name) {
-				continue
-			}
-			if isUnsupportedMethodOrZone(odd.Name) && !containsZonePhrase(odd.Name) {
+			if isHalfOrPeriodMarket(odd.Name) || isUnsupportedMethodOrZone(odd.Name) {
 				continue
 			}
 
@@ -1065,7 +1601,7 @@ func ParseSTSProps(rawJSON string) ([]NormalizedProp, error) {
 				cleanName = strings.ReplaceAll(cleanName, "(z dogrywka)", "")
 				cleanName = strings.TrimSpace(cleanName)
 
-				if isHalfOrPeriodMarket(cleanName) {
+				if isHalfOrPeriodMarket(cleanName) || isUnsupportedMethodOrZone(cleanName) {
 					continue
 				}
 
@@ -1092,11 +1628,7 @@ func ParseSTSProps(rawJSON string) ([]NormalizedProp, error) {
 					}
 				}
 
-				if !okMarket || pName == "" || isIDToken(pName) {
-					continue
-				}
-
-				if isUnsupportedMethodOrZone(mType) && !containsZonePhrase(mType) {
+				if !okMarket || pName == "" || isIDToken(pName) || isUnsupportedMethodOrZone(mType) {
 					continue
 				}
 
@@ -1123,7 +1655,6 @@ func ParseSTSProps(rawJSON string) ([]NormalizedProp, error) {
 						strings.HasPrefix(lowerLine, "-")
 
 					lineVal := 0.5
-
 					cleanLineStr := strings.TrimSpace(lowerLine)
 					if strings.HasSuffix(cleanLineStr, "+") {
 						valStr := strings.TrimSuffix(cleanLineStr, "+")
@@ -1156,7 +1687,7 @@ func ParseSTSProps(rawJSON string) ([]NormalizedProp, error) {
 	return props, nil
 }
 
-// --- BETCLIC ---
+// --- BETCLIC PROTOBUF ---
 type protoNode struct {
 	fieldNo  int
 	wireType int
@@ -1295,10 +1826,7 @@ func ParseBetclicProps(rawBuf []byte) []NormalizedProp {
 				if isHalfOrPeriodMarket(current.market) || isHalfOrPeriodMarket(current.playerRaw) {
 					continue
 				}
-				if isUnsupportedMethodOrZone(current.market) && !containsZonePhrase(current.market) {
-					continue
-				}
-				if isUnsupportedMethodOrZone(current.playerRaw) && !containsZonePhrase(current.playerRaw) {
+				if isUnsupportedMethodOrZone(current.market) || isUnsupportedMethodOrZone(current.playerRaw) {
 					continue
 				}
 
@@ -1351,7 +1879,7 @@ func ParseBetclicProps(rawBuf []byte) []NormalizedProp {
 }
 
 // ==========================================
-// 5. SILNIK POISSONA I STATYSTYK Z SUPERSUB
+// 6. ADAPTACYJNY FUZZY MATCHING I STATYSTYKA
 // ==========================================
 
 var strokeLetterReplacer = strings.NewReplacer(
@@ -1379,6 +1907,7 @@ func NormalizePlayerName(s string) string {
 	stopWords := map[string]bool{
 		"de": true, "del": true, "la": true, "las": true,
 		"los": true, "da": true, "das": true, "dos": true,
+		"jr": true, "junior": true,
 	}
 
 	parts := strings.Fields(s)
@@ -1396,10 +1925,6 @@ func NormalizePlayerName(s string) string {
 }
 
 func matchPlayerStrict(targetName string, playerMap map[string]string) string {
-	return matchPlayerWithScoring(targetName, playerMap)
-}
-
-func matchPlayerWithScoring(targetName string, playerMap map[string]string) string {
 	targetNorm := NormalizePlayerName(targetName)
 	if targetNorm == "" {
 		return ""
@@ -1412,78 +1937,94 @@ func matchPlayerWithScoring(targetName string, playerMap map[string]string) stri
 	if len(parts) == 0 {
 		return ""
 	}
-	surname := parts[len(parts)-1]
 
-	var candidateNames []string
-	var candidateIDs []string
-	for fullName, id := range playerMap {
-		matchAny := false
-		for _, t := range parts {
-			if strings.Contains(fullName, t) {
-				matchAny = true
-				break
+	if len(parts) >= 2 {
+		first := parts[0]
+		last := parts[len(parts)-1]
+
+		if len(first) == 1 {
+			targetInitial := rune(first[0])
+			for candName, id := range playerMap {
+				candParts := strings.Fields(candName)
+				if len(candParts) >= 2 && candParts[len(candParts)-1] == last {
+					if rune(candParts[0][0]) == targetInitial {
+						return id
+					}
+				}
 			}
 		}
-		if matchAny {
-			candidateNames = append(candidateNames, fullName)
-			candidateIDs = append(candidateIDs, id)
+
+		if len(last) == 1 {
+			targetInitial := rune(last[0])
+			for candName, id := range playerMap {
+				candParts := strings.Fields(candName)
+				if len(candParts) >= 2 && candParts[len(candParts)-1] == first {
+					if rune(candParts[0][0]) == targetInitial {
+						return id
+					}
+				}
+			}
+		}
+
+		reversed := last + " " + strings.Join(parts[:len(parts)-1], " ")
+		if id, ok := playerMap[reversed]; ok {
+			return id
 		}
 	}
-	if len(candidateIDs) == 0 {
-		for fullName, id := range playerMap {
-			if strings.Contains(fullName, surname) {
-				candidateNames = append(candidateNames, fullName)
-				candidateIDs = append(candidateIDs, id)
-			}
+
+	surname := parts[len(parts)-1]
+	var candidateIDs []string
+	for fullName, id := range playerMap {
+		fParts := strings.Fields(fullName)
+		if len(fParts) > 0 && fParts[len(fParts)-1] == surname {
+			candidateIDs = append(candidateIDs, id)
 		}
 	}
 	if len(candidateIDs) == 1 {
 		return candidateIDs[0]
 	}
 
-	type scoredCandidate struct {
+	var scoredCandidates []struct {
 		id    string
 		score int
 	}
-	var scored []scoredCandidate
 	bestScore := 0
 
-	for i := range candidateNames {
+	for fullName, id := range playerMap {
+		candTokens := strings.Fields(fullName)
 		score := 0
-		candTokens := strings.Fields(candidateNames[i])
 		for _, p := range parts {
 			for _, ct := range candTokens {
 				if p == ct {
-					score++
-					break
+					score += 2
+				} else if strings.HasPrefix(ct, p) || strings.HasPrefix(p, ct) {
+					score += 1
 				}
-			}
-		}
-		if len(parts) > 0 && len(candTokens) > 0 {
-			r1 := []rune(parts[0])
-			r2 := []rune(candTokens[0])
-			if len(r1) > 0 && len(r2) > 0 && r1[0] == r2[0] {
-				score += 1
 			}
 		}
 		if score > bestScore {
 			bestScore = score
 		}
-		scored = append(scored, scoredCandidate{id: candidateIDs[i], score: score})
+		if score > 0 {
+			scoredCandidates = append(scoredCandidates, struct {
+				id    string
+				score int
+			}{id: id, score: score})
+		}
 	}
 
-	if bestScore > 0 {
-		matchedID := ""
-		for _, sc := range scored {
+	if bestScore >= 2 {
+		var matched string
+		for _, sc := range scoredCandidates {
 			if sc.score == bestScore {
-				if matchedID == "" {
-					matchedID = sc.id
-				} else if matchedID != sc.id {
+				if matched == "" {
+					matched = sc.id
+				} else if matched != sc.id {
 					return ""
 				}
 			}
 		}
-		return matchedID
+		return matched
 	}
 
 	return ""
@@ -1532,281 +2073,42 @@ func calcPoissonUnder(line float64, lambda float64) float64 {
 	return underProb
 }
 
-type PlayerStatHistory struct {
-	ID                       int
-	FullName                 string
-	TeamSide                 string
-	TeamID                   string
-	TeamName                 string
-	Matches                  int
-	MetricValues             map[CanonicalMarket][]int
-	MetricValuesWithSuperSub map[CanonicalMarket][]int
-	Minutes                  []int
-	Positions                []string
-	Opponents                []string
-	Dates                    []string
-}
-
-func extractPlayerID(val any) (int, bool) {
-	switch v := val.(type) {
-	case float64:
-		if v > 0 {
-			return int(v), true
-		}
-	case int:
-		if v > 0 {
-			return v, true
-		}
-	case string:
-		s := strings.TrimSpace(v)
-		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			return n, true
-		}
-	}
-	return 0, false
-}
-
-func CalculateValueBets(props []NormalizedProp, homeSH_JSON, awaySH_JSON string, maxMatches int, tournamentIDs string, homeTeamID, awayTeamID string) ([]AnalyzedBet, error) {
-	return CalculateValueBetsWithZones(props, homeSH_JSON, awaySH_JSON, maxMatches, tournamentIDs, homeTeamID, awayTeamID, nil, nil, nil, nil)
-}
-
-func CalculateValueBetsWithZones(
+func CalculateValueBets(
 	props []NormalizedProp,
-	homeSH_JSON, awaySH_JSON string,
-	maxMatches int,
-	tournamentIDs string,
-	homeTeamID, awayTeamID string,
-	fmHome, fmAway *FMTeamIndex,
+	homePlayers, awayPlayers []*PlayerStatHistory,
 	homeLineup, awayLineup map[string]bool,
-) ([]AnalyzedBet, error) {
-	var homeSH, awaySH StatsHubResponse
-	_ = json.Unmarshal([]byte(homeSH_JSON), &homeSH)
-	_ = json.Unmarshal([]byte(awaySH_JSON), &awaySH)
-
+) []AnalyzedBet {
 	playerHistory := make(map[string]*PlayerStatHistory)
 	strictMap := make(map[string]string)
 
-	indexSH := func(sh StatsHubResponse, ownTeamID, side string) {
-		type EventMeta struct {
-			Timestamp    int64
-			TournamentID int
-			Opponent     string
-			DateStr      string
-		}
-		eventMetaMap := make(map[int]EventMeta)
-		allowedEventIDs := make(map[int]bool)
+	registerPlayers := func(list []*PlayerStatHistory, side string) {
+		for _, p := range list {
+			p.TeamSide = side
+			idStr := strconv.Itoa(p.ID)
+			playerHistory[idStr] = p
 
-		selectedMap := make(map[int]bool)
-		if tournamentIDs != "" && tournamentIDs != "ALL" {
-			for _, tidStr := range strings.Split(tournamentIDs, ",") {
-				if tid, err := strconv.Atoi(strings.TrimSpace(tidStr)); err == nil {
-					selectedMap[tid] = true
-				}
-			}
-		}
-
-		teamDisplayName := ownTeamID
-		for _, e := range sh.Events {
-			if strconv.Itoa(e.HomeTeam.ID) == ownTeamID && e.HomeTeam.Name != "" {
-				teamDisplayName = e.HomeTeam.Name
-				break
-			}
-			if strconv.Itoa(e.AwayTeam.ID) == ownTeamID && e.AwayTeam.Name != "" {
-				teamDisplayName = e.AwayTeam.Name
-				break
-			}
-		}
-
-		for _, e := range sh.Events {
-			eID := e.Events.ID
-			if eID == 0 {
-				eID = e.Tournaments.ID
-			}
-			if eID == 0 {
-				eID = e.Tournament.ID
-			}
-
-			tID := e.Tournaments.InternalID
-			if tID == 0 {
-				tID = e.Tournament.InternalID
-			}
-			if tID == 0 {
-				tID = e.Tournaments.ID
-			}
-			if tID == 0 {
-				tID = e.Tournament.ID
-			}
-
-			if len(selectedMap) == 0 || selectedMap[tID] {
-				allowedEventIDs[eID] = true
-			}
-
-			dStr := ""
-			if e.Events.TimeStartTimestamp > 0 {
-				t := time.Unix(e.Events.TimeStartTimestamp, 0)
-				dStr = t.Format("02.01")
-			}
-
-			opp := "Mecz"
-			if e.AwayTeam.Name != "" && e.HomeTeam.Name != "" {
-				switch ownTeamID {
-				case strconv.Itoa(e.HomeTeam.ID):
-					opp = e.AwayTeam.Name
-				case strconv.Itoa(e.AwayTeam.ID):
-					opp = e.HomeTeam.Name
-				default:
-					opp = e.AwayTeam.Name
-				}
-				opp = displayOpponentName(opp)
-			}
-
-			eventMetaMap[eID] = EventMeta{
-				Timestamp:    e.Events.TimeStartTimestamp,
-				TournamentID: tID,
-				Opponent:     opp,
-				DateStr:      dStr,
-			}
-		}
-
-		type substitute struct {
-			PlayerID int
-			Stats    StatsHubMatchDetail
-		}
-		substituteFor := make(map[int]map[int]substitute)
-		for _, p := range sh.Data {
-			for _, m := range p.Stats {
-				if m.MinutesPlayed <= 0 {
-					continue
-				}
-				if replacedID, ok := extractPlayerID(m.SubstitutedOut); ok {
-					if substituteFor[m.EventID] == nil {
-						substituteFor[m.EventID] = make(map[int]substitute)
-					}
-					substituteFor[m.EventID][replacedID] = substitute{PlayerID: p.ID, Stats: m}
-				}
-			}
-		}
-
-		for _, p := range sh.Data {
-			hist := &PlayerStatHistory{
-				ID:                       p.ID,
-				FullName:                 p.Name,
-				TeamSide:                 side,
-				TeamID:                   ownTeamID,
-				TeamName:                 teamDisplayName,
-				MetricValues:             make(map[CanonicalMarket][]int),
-				MetricValuesWithSuperSub: make(map[CanonicalMarket][]int),
-			}
-
-			var matches []StatsHubMatchDetail
-			for _, m := range p.Stats {
-				if m.MinutesPlayed > 0 && (len(allowedEventIDs) == 0 || allowedEventIDs[m.EventID]) {
-					matches = append(matches, m)
-				}
-			}
-
-			sort.Slice(matches, func(i, j int) bool {
-				tI := eventMetaMap[matches[i].EventID].Timestamp
-				tJ := eventMetaMap[matches[j].EventID].Timestamp
-				if tI != tJ {
-					return tI > tJ
-				}
-				return matches[i].EventID > matches[j].EventID
-			})
-
-			count := 0
-			for _, m := range matches {
-				if maxMatches > 0 && count >= maxMatches {
-					break
-				}
-				hist.Matches++
-				count++
-				hist.Minutes = append(hist.Minutes, m.MinutesPlayed)
-				pos := strings.TrimSpace(m.Position)
-				hist.Positions = append(hist.Positions, pos)
-
-				meta := eventMetaMap[m.EventID]
-				hist.Opponents = append(hist.Opponents, meta.Opponent)
-				hist.Dates = append(hist.Dates, meta.DateStr)
-
-				hist.MetricValues[MarketShotsTotal] = append(hist.MetricValues[MarketShotsTotal], m.Shots)
-				hist.MetricValues[MarketShotsOnTarget] = append(hist.MetricValues[MarketShotsOnTarget], m.OnTargetScoringAttempt)
-				hist.MetricValues[MarketShotsBlocked] = append(hist.MetricValues[MarketShotsBlocked], m.BlockedScoringAttempt)
-				hist.MetricValues[MarketShotsOffTarget] = append(hist.MetricValues[MarketShotsOffTarget], m.ShotOffTarget)
-				hist.MetricValues[MarketInterceptions] = append(hist.MetricValues[MarketInterceptions], m.InterceptionWon)
-				hist.MetricValues[MarketFoulsCommitted] = append(hist.MetricValues[MarketFoulsCommitted], m.Fouls)
-				hist.MetricValues[MarketFoulsDrawn] = append(hist.MetricValues[MarketFoulsDrawn], m.WasFouled)
-				hist.MetricValues[MarketOffsides] = append(hist.MetricValues[MarketOffsides], m.TotalOffside)
-				hist.MetricValues[MarketDispossessed] = append(hist.MetricValues[MarketDispossessed], m.Dispossessed)
-
-				var subM StatsHubMatchDetail
-				hasMatchingSub := false
-				if evMap, exists := substituteFor[m.EventID]; exists {
-					if sm, found := evMap[p.ID]; found {
-						if replacementID, confirmed := extractPlayerID(m.SubstitutedIn); confirmed && replacementID == sm.PlayerID {
-							subM = sm.Stats
-							hasMatchingSub = true
-						}
-					}
-				}
-
-				addIfSub := func(starterVal, subVal int) int {
-					if hasMatchingSub {
-						return starterVal + subVal
-					}
-					return starterVal
-				}
-
-				hist.MetricValuesWithSuperSub[MarketShotsTotal] = append(hist.MetricValuesWithSuperSub[MarketShotsTotal], addIfSub(m.Shots, subM.Shots))
-				hist.MetricValuesWithSuperSub[MarketShotsOnTarget] = append(hist.MetricValuesWithSuperSub[MarketShotsOnTarget], addIfSub(m.OnTargetScoringAttempt, subM.OnTargetScoringAttempt))
-				hist.MetricValuesWithSuperSub[MarketShotsBlocked] = append(hist.MetricValuesWithSuperSub[MarketShotsBlocked], addIfSub(m.BlockedScoringAttempt, subM.BlockedScoringAttempt))
-				hist.MetricValuesWithSuperSub[MarketShotsOffTarget] = append(hist.MetricValuesWithSuperSub[MarketShotsOffTarget], addIfSub(m.ShotOffTarget, subM.ShotOffTarget))
-				hist.MetricValuesWithSuperSub[MarketInterceptions] = append(hist.MetricValuesWithSuperSub[MarketInterceptions], addIfSub(m.InterceptionWon, subM.InterceptionWon))
-				hist.MetricValuesWithSuperSub[MarketFoulsCommitted] = append(hist.MetricValuesWithSuperSub[MarketFoulsCommitted], addIfSub(m.Fouls, subM.Fouls))
-				hist.MetricValuesWithSuperSub[MarketFoulsDrawn] = append(hist.MetricValuesWithSuperSub[MarketFoulsDrawn], addIfSub(m.WasFouled, subM.WasFouled))
-				hist.MetricValuesWithSuperSub[MarketOffsides] = append(hist.MetricValuesWithSuperSub[MarketOffsides], addIfSub(m.TotalOffside, subM.TotalOffside))
-				hist.MetricValuesWithSuperSub[MarketDispossessed] = append(hist.MetricValuesWithSuperSub[MarketDispossessed], addIfSub(m.Dispossessed, subM.Dispossessed))
-			}
-
-			if hist.Matches > 0 {
-				playerHistory[strconv.Itoa(p.ID)] = hist
-				idStr := strconv.Itoa(p.ID)
-				norm := NormalizePlayerName(p.Name)
-				if norm != "" {
-					strictMap[norm] = idStr
-					parts := strings.Fields(norm)
-					if len(parts) >= 2 {
-						strictMap[parts[len(parts)-1]+" "+strings.Join(parts[:len(parts)-1], " ")] = idStr
-						if len(parts) == 3 {
-							strictMap[parts[0]+" "+parts[1]] = idStr
-							strictMap[parts[1]+" "+parts[0]] = idStr
-						}
+			norm := NormalizePlayerName(p.FullName)
+			if norm != "" {
+				strictMap[norm] = idStr
+				parts := strings.Fields(norm)
+				if len(parts) >= 2 {
+					strictMap[parts[len(parts)-1]+" "+strings.Join(parts[:len(parts)-1], " ")] = idStr
+					first := parts[0]
+					last := parts[len(parts)-1]
+					if len(first) > 0 {
+						strictMap[string(first[0])+" "+last] = idStr
+						strictMap[last+" "+string(first[0])] = idStr
 					}
 				}
 			}
 		}
 	}
 
-	indexSH(homeSH, homeTeamID, "HOME")
-	indexSH(awaySH, awayTeamID, "AWAY")
+	registerPlayers(homePlayers, "HOME")
+	registerPlayers(awayPlayers, "AWAY")
 
-	homeDisplayName := homeTeamID
-	awayDisplayName := awayTeamID
-	for _, h := range playerHistory {
-		if h.TeamSide == "HOME" && h.TeamName != "" {
-			homeDisplayName = h.TeamName
-		}
-		if h.TeamSide == "AWAY" && h.TeamName != "" {
-			awayDisplayName = h.TeamName
-		}
-	}
-
-	zoneMeta := map[string]zoneTeamMeta{
-		"HOME": {TeamID: homeTeamID, TeamName: homeDisplayName},
-		"AWAY": {TeamID: awayTeamID, TeamName: awayDisplayName},
-	}
-
-	results := make([]AnalyzedBet, 0)
+	fmt.Printf("[DEBUG][ANALYSIS] CalculateValueBets: Zarejestrowano %d graczy do strictMap (Gospodarze: %d, Goście: %d). Liczba propsów do analizy: %d.\n",
+		len(strictMap), len(homePlayers), len(awayPlayers), len(props))
 
 	getLineupStatus := func(pName, side string) (string, bool) {
 		norm := NormalizePlayerName(pName)
@@ -1843,32 +2145,19 @@ func CalculateValueBetsWithZones(
 		return "BENCH", false
 	}
 
-	for _, prop := range props {
-		if isFootyMetricsMarket(prop.MarketType) {
-			if bet, ok := BuildZoneBet(prop, []*FMTeamIndex{fmHome, fmAway}, maxMatches, zoneMeta); ok {
-				status, isStarting := getLineupStatus(bet.PlayerName, bet.TeamSide)
-				bet.LineupStatus = status
-				bet.IsStartingXI = isStarting
-				results = append(results, bet)
-			}
-			continue
-		}
+	results := make([]AnalyzedBet, 0)
+	matchedCount := 0
+	unmatchedPlayerProps := make(map[string]int)
 
+	for _, prop := range props {
 		matchedID := matchPlayerStrict(prop.PlayerName, strictMap)
 		if matchedID == "" {
+			unmatchedPlayerProps[prop.PlayerName]++
 			continue
 		}
 
 		hist, exists := playerHistory[matchedID]
 		if !exists || hist.Matches == 0 {
-			continue
-		}
-
-		minRequired := 1
-		if maxMatches < minRequired {
-			minRequired = maxMatches
-		}
-		if hist.Matches < minRequired {
 			continue
 		}
 
@@ -1878,6 +2167,7 @@ func CalculateValueBetsWithZones(
 		}
 		valuesSuperSub := hist.MetricValuesWithSuperSub[prop.MarketType]
 
+		matchedCount++
 		sample := len(values)
 		hitsOver, hitsUnder, total := 0, 0, 0
 		for _, v := range values {
@@ -1945,7 +2235,7 @@ func CalculateValueBetsWithZones(
 			SamplePositions:      append([]string(nil), hist.Positions...),
 			SampleOpponents:      append([]string(nil), hist.Opponents...),
 			SampleDates:          append([]string(nil), hist.Dates...),
-			StatsSource:          "STATSHUB",
+			StatsSource:          "SOFASCORE",
 			TeamSide:             hist.TeamSide,
 			TeamID:               hist.TeamID,
 			TeamName:             hist.TeamName,
@@ -1955,11 +2245,27 @@ func CalculateValueBetsWithZones(
 		})
 	}
 
-	return results, nil
+	fmt.Printf("[DEBUG][ANALYSIS] Pomyślnie dopasowano i przeliczono %d rynków. Pominięto %d niedopasowanych rynków (łącznie %d graczy bez dopasowania).\n",
+		matchedCount, len(props)-matchedCount, len(unmatchedPlayerProps))
+
+	if len(unmatchedPlayerProps) > 0 {
+		var topUnmatched []string
+		for name, count := range unmatchedPlayerProps {
+			topUnmatched = append(topUnmatched, fmt.Sprintf("%s (%d rynków)", name, count))
+		}
+		sort.Strings(topUnmatched)
+		limitShow := 15
+		if len(topUnmatched) < limitShow {
+			limitShow = len(topUnmatched)
+		}
+		fmt.Printf("[DEBUG][ANALYSIS] Przykładowi niedopasowani gracze: %v\n", topUnmatched[:limitShow])
+	}
+
+	return results
 }
 
 // ==========================================
-// 6. MOST WAILS APP
+// 7. WAILS APP BRIDGE
 // ==========================================
 
 type App struct {
@@ -2037,7 +2343,6 @@ func (a *App) DeleteMatchHistory(index int) []MatchHistoryEntry {
 	return updated
 }
 
-// Cache dla MyBets
 func (a *App) LoadMyBets() []MyBetItem {
 	cacheMutex.Lock()
 	defer cacheMutex.Unlock()
@@ -2068,34 +2373,9 @@ func (a *App) SaveMyBets(bets []MyBetItem) bool {
 	return os.WriteFile(path, data, 0644) == nil
 }
 
-func (a *App) SaveTeamStatsHubID(slug, statsHubID string) bool {
-	slug = strings.TrimSpace(strings.ToLower(slug))
-	statsHubID = strings.TrimSpace(statsHubID)
-	if slug == "" || statsHubID == "" {
-		return false
-	}
-
-	cacheMutex.Lock()
-	defer cacheMutex.Unlock()
-
-	path := getCacheFilePath("team_cache.json")
-	m := make(map[string]TeamCacheEntry)
-	if data, err := os.ReadFile(path); err == nil {
-		_ = json.Unmarshal(data, &m)
-	}
-
-	entry := m[slug]
-	if entry.StatsHub == statsHubID {
-		return false
-	}
-	entry.StatsHub = statsHubID
-	m[slug] = entry
-
-	out, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return false
-	}
-	return os.WriteFile(path, out, 0644) == nil
+func (a *App) SaveTeamSofaID(slug, sofaID string) bool {
+	saveTeamCache(slug, sofaID)
+	return true
 }
 
 func (a *App) DetectTeamsFromURL(rawURL string) TeamDetectionResult {
@@ -2106,40 +2386,14 @@ func (a *App) DetectTeamsFromURL(rawURL string) TeamDetectionResult {
 	homeID := findTeamIDInCache(homeSlug, cache)
 	awayID := findTeamIDInCache(awaySlug, cache)
 
-	tryFind := func(s string) string {
-		if s == "" {
-			return ""
+	if homeID == "" && homeSlug != "" {
+		if id, err := SearchSofaTeamID(homeSlug); err == nil && id != "" {
+			homeID = id
 		}
-		if id := findTeamIDInCache(s, cache); id != "" {
-			return id
-		}
-		if strings.Contains(s, "-") {
-			parts := strings.Split(s, "-")
-			candidates := []string{parts[0], parts[len(parts)-1]}
-			if len(parts) >= 2 {
-				candidates = append(candidates, strings.Join(parts[:2], "-"))
-				candidates = append(candidates, strings.Join(parts[len(parts)-2:], "-"))
-			}
-			for _, c := range candidates {
-				if id := findTeamIDInCache(c, cache); id != "" {
-					return id
-				}
-			}
-		}
-		return ""
 	}
-
-	if homeID == "" {
-		homeID = tryFind(homeSlug)
-	}
-	if awayID == "" {
-		awayID = tryFind(awaySlug)
-	}
-
-	if (homeID == "" || awayID == "") && !strings.Contains(slug, "-vs-") && !strings.Contains(slug, "-v-") {
-		if splitHomeSlug, splitAwaySlug, splitHomeID, splitAwayID, ok := splitTeamsFromCache(slug, cache); ok {
-			homeSlug, awaySlug = splitHomeSlug, splitAwaySlug
-			homeID, awayID = splitHomeID, splitAwayID
+	if awayID == "" && awaySlug != "" {
+		if id, err := SearchSofaTeamID(awaySlug); err == nil && id != "" {
+			awayID = id
 		}
 	}
 
@@ -2148,80 +2402,66 @@ func (a *App) DetectTeamsFromURL(rawURL string) TeamDetectionResult {
 		AwaySlug: awaySlug,
 		HomeID:   homeID,
 		AwayID:   awayID,
-		HomeFmID: findFMTeamIDBySlug(homeSlug),
-		AwayFmID: findFMTeamIDBySlug(awaySlug),
 	}
 }
 
 func (a *App) GetAvailableTournaments(homeID, awayID string) ([]LeagueOption, error) {
 	client := NewResilientClient()
-	urlStr := fmt.Sprintf("https://www.statshub.com/api/team/%s/players/performance?limit=15&location=both", homeID)
-	resp, err := client.GetWithAntiBan(urlStr, true)
+	body, err := client.GetSofa(fmt.Sprintf("/team/%s/standings/seasons", homeID))
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
 
-	b, _ := io.ReadAll(resp.Body)
-	var sh StatsHubResponse
-	_ = json.Unmarshal(b, &sh)
+	var res SofaSeasonsResponse
+	if err := json.Unmarshal(body, &res); err != nil {
+		return nil, err
+	}
 
 	seen := make(map[int]bool)
 	var list []LeagueOption
 
-	lCache := loadLeagueCache()
-	if tidStr, ok := lCache[homeID]; ok {
-		if tid, err := strconv.Atoi(tidStr); err == nil && tid > 0 {
-			seen[tid] = true
-			tName := fmt.Sprintf("Liga główna (%d)", tid)
-			if tid == 1 {
-				tName = "Premier League (1)"
-			} else if tid == 8 {
-				tName = "La Liga (8)"
-			} else if tid == 21 {
-				tName = "Serie A (21)"
-			} else if tid == 35 {
-				tName = "Bundesliga (35)"
-			} else if tid == 34 {
-				tName = "Ligue 1 (34)"
-			}
-			list = append(list, LeagueOption{ID: tid, Name: tName})
-		}
-	}
-
-	for _, e := range sh.Events {
-		tid := e.Tournaments.InternalID
-		tname := e.Tournaments.Name
-		if tid == 0 {
-			tid = e.Tournament.InternalID
-			tname = e.Tournament.Name
-		}
-		if tid == 0 {
-			tid = e.Tournaments.ID
-		}
-		if tid > 0 && tid < 100000 && !seen[tid] {
-			seen[tid] = true
-			if tname == "" {
-				tname = fmt.Sprintf("Rozgrywki %d", tid)
-			}
-			list = append(list, LeagueOption{ID: tid, Name: tname})
+	for _, ts := range res.TournamentSeasons {
+		tID := ts.Tournament.UniqueTournament.ID
+		tName := ts.Tournament.UniqueTournament.Name
+		if tID > 0 && !seen[tID] {
+			seen[tID] = true
+			list = append(list, LeagueOption{ID: tID, Name: tName})
 		}
 	}
 
 	return list, nil
 }
 
-func (a *App) AnalyzeThreeBookmakers(sbInput, betclicInput, stsInput, homeInput, awayInput string, matchLimit int, tournamentIDs string, fmHomeInput, fmAwayInput string) ([]AnalyzedBet, error) {
+func (a *App) AnalyzeThreeBookmakers(sbInput, betclicInput, stsInput, homeInput, awayInput string, matchLimit int, tournamentIDs string) ([]AnalyzedBet, error) {
 	if matchLimit <= 0 {
 		matchLimit = 10
 	}
 
-	teamIDPattern := regexp.MustCompile(`^\d+$`)
 	homeID := strings.TrimSpace(homeInput)
 	awayID := strings.TrimSpace(awayInput)
 
+	if homeID == "" || awayID == "" {
+		sampleURL := sbInput
+		if sampleURL == "" {
+			sampleURL = betclicInput
+		}
+		if sampleURL == "" {
+			sampleURL = stsInput
+		}
+		if sampleURL != "" {
+			det := a.DetectTeamsFromURL(sampleURL)
+			if homeID == "" {
+				homeID = det.HomeID
+			}
+			if awayID == "" {
+				awayID = det.AwayID
+			}
+		}
+	}
+
+	teamIDPattern := regexp.MustCompile(`^\d+$`)
 	if !teamIDPattern.MatchString(homeID) || !teamIDPattern.MatchString(awayID) {
-		return nil, fmt.Errorf("podaj numeryczne ID StatsHub dla obu zespołów")
+		return nil, fmt.Errorf("nie udało się ustalić ID zespołów w SofaScore (Gospodarze: %s, Goście: %s)", homeID, awayID)
 	}
 
 	var allProps []NormalizedProp
@@ -2292,73 +2532,44 @@ func (a *App) AnalyzeThreeBookmakers(sbInput, betclicInput, stsInput, homeInput,
 		}()
 	}
 
-	// FOOTYMETRICS
-	var fmHomeIdx, fmAwayIdx *FMTeamIndex
-	fmHomeID := strings.TrimSpace(fmHomeInput)
-	fmAwayID := strings.TrimSpace(fmAwayInput)
-	if fmHomeID == "" {
-		fmHomeID = findFMTeamIDByStatsHubID(homeID)
-	}
-	if fmAwayID == "" {
-		fmAwayID = findFMTeamIDByStatsHubID(awayID)
+	fetchWg.Wait()
+
+	if len(allProps) == 0 {
+		return nil, fmt.Errorf("brak pobranych rynków od bukmacherów (sprawdź wprowadzone linki)")
 	}
 
-	if fmHomeID != "" {
-		fetchWg.Add(1)
-		go func() {
-			defer fetchWg.Done()
-			idx, err := FetchFootyMetricsTeamIndex(fmHomeID, matchLimit)
-			if err != nil {
-				fmt.Printf("[FOOTYMETRICS ERROR] home id=%s: %v\n", fmHomeID, err)
-				return
-			}
-			idx.Side = "HOME"
-			fmHomeIdx = idx
-		}()
-	}
-	if fmAwayID != "" {
-		fetchWg.Add(1)
-		go func() {
-			defer fetchWg.Done()
-			idx, err := FetchFootyMetricsTeamIndex(fmAwayID, matchLimit)
-			if err != nil {
-				fmt.Printf("[FOOTYMETRICS ERROR] home id=%s: %v\n", fmHomeID, err)
-				return
-			}
-			idx.Side = "AWAY"
-			fmAwayIdx = idx
-		}()
+	fmt.Printf("[DEBUG][ANALYSIS] Pobrano łącznie %d rynków od bukmacherów.\n", len(allProps))
+
+	var targetPlayerNames []string
+	for _, p := range allProps {
+		targetPlayerNames = append(targetPlayerNames, p.PlayerName)
 	}
 
-	// STATSHUB HISTORIA
-	var homeJSON, awayJSON string
+	// SOFASCORE PEŁNA HISTORIA ZAWODNIKÓW (WSZYSTKIE LIGI I ROZGRYWKI)
+	var homePlayers, awayPlayers []*PlayerStatHistory
 	var homeErr, awayErr error
 
 	fetchWg.Add(2)
 	go func() {
 		defer fetchWg.Done()
-		homeJSON, homeErr = FetchStatsHubTeamData(homeID, tournamentIDs)
+		homePlayers, _, homeErr = FetchSofaTeamDataComprehensive(homeID, matchLimit, tournamentIDs, targetPlayerNames)
 	}()
 	go func() {
 		defer fetchWg.Done()
-		awayJSON, awayErr = FetchStatsHubTeamData(awayID, tournamentIDs)
+		awayPlayers, _, awayErr = FetchSofaTeamDataComprehensive(awayID, matchLimit, tournamentIDs, targetPlayerNames)
 	}()
 
-	// STATSHUB SKŁADY
+	// SOFASCORE POTWIERDZONE SKŁADY
 	var homeLineup, awayLineup map[string]bool
 	fetchWg.Add(1)
 	go func() {
 		defer fetchWg.Done()
-		eventID := FindStatsHubUpcomingEventID(homeID, awayID)
-		if eventID != "" {
-			fmt.Printf("[STATSHUB LINEUPS] Wykryto eventId=%s. Pobieranie składów...\n", eventID)
-			var hOk, aOk bool
-			homeLineup, hOk = FetchStatsHubLineup(eventID, homeID)
-			awayLineup, aOk = FetchStatsHubLineup(eventID, awayID)
-			if hOk || aOk {
-				fmt.Printf("[STATSHUB LINEUPS] Pomyślnie pobrano potwierdzone składy (Gospodarze: %d, Goście: %d)\n", len(homeLineup), len(awayLineup))
-			} else {
-				fmt.Printf("[STATSHUB LINEUPS] Składy dla eventId=%s nie są jeszcze dostępne.\n", eventID)
+		evID := FindSofaUpcomingEventID(homeID, awayID)
+		if evID != "" {
+			hMap, aMap, ok := FetchSofaConfirmedLineups(evID)
+			if ok {
+				homeLineup = hMap
+				awayLineup = aMap
 			}
 		}
 	}()
@@ -2366,26 +2577,13 @@ func (a *App) AnalyzeThreeBookmakers(sbInput, betclicInput, stsInput, homeInput,
 	fetchWg.Wait()
 
 	if homeErr != nil {
-		return nil, fmt.Errorf("StatsHub gospodarze: %w", homeErr)
+		return nil, fmt.Errorf("SofaScore błąd gospodarzy: %w", homeErr)
 	}
 	if awayErr != nil {
-		return nil, fmt.Errorf("StatsHub goście: %w", awayErr)
-	}
-	if len(allProps) == 0 {
-		return nil, fmt.Errorf("brak pobranych rynków od bukmacherów (sprawdź logi w terminalu)")
+		return nil, fmt.Errorf("SofaScore błąd gości: %w", awayErr)
 	}
 
-	saveTeamCacheFM(map[string]string{
-		slugForStatsHubID(homeID): fmHomeID,
-		slugForStatsHubID(awayID): fmAwayID,
-	})
-
-	allProps = sanitizeZoneProps(allProps)
-
-	results, err := CalculateValueBetsWithZones(allProps, homeJSON, awayJSON, matchLimit, tournamentIDs, homeID, awayID, fmHomeIdx, fmAwayIdx, homeLineup, awayLineup)
-	if err != nil {
-		return nil, err
-	}
+	results := CalculateValueBets(allProps, homePlayers, awayPlayers, homeLineup, awayLineup)
 
 	sort.Slice(results, func(i, j int) bool {
 		if results[i].HitRate == results[j].HitRate {
@@ -2395,1288 +2593,4 @@ func (a *App) AnalyzeThreeBookmakers(sbInput, betclicInput, stsInput, homeInput,
 	})
 
 	return results, nil
-}
-
-// ==========================================
-// 7. FOOTYMETRICS
-// ==========================================
-
-const footyMetricsBase = "https://www.footymetrics.com"
-
-var fmNumericID = regexp.MustCompile(`^\d+$`)
-var fmAnyNumber = regexp.MustCompile(`\d+`)
-var fmLogoTeamID = regexp.MustCompile(`/teams/(\d+)\.`)
-
-func (c *ResilientClient) getFootyMetrics(urlStr string) (*http.Response, error) {
-	time.Sleep(time.Duration(150+rand.Intn(150)) * time.Millisecond)
-
-	req, err := http.NewRequest("GET", urlStr, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", c.userAgent)
-	req.Header.Set("Accept", "application/json, text/plain, */*")
-	req.Header.Set("Accept-Language", "pl,en-US;q=0.9,en;q=0.8")
-	req.Header.Set("Referer", footyMetricsBase+"/")
-	req.Header.Set("Origin", footyMetricsBase)
-	req.Header.Set("X-Requested-With", "XMLHttpRequest")
-
-	return c.httpClient.Do(req)
-}
-
-func fmFetch(urlStr string) ([]byte, error) {
-	client := NewResilientClient()
-	resp, err := client.getFootyMetrics(urlStr)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		preview := strings.TrimSpace(string(b))
-		if len(preview) > 300 {
-			preview = preview[:300]
-		}
-		return nil, fmt.Errorf("FootyMetrics HTTP %s: %s", resp.Status, preview)
-	}
-	return b, nil
-}
-
-func footyMetricsTableURL(teamID, period, stat, group string) string {
-	params := url.Values{}
-	params.Set("stat", stat)
-	params.Set("id", teamID)
-	params.Set("period", period)
-	params.Set("location", "both")
-	params.Set("group", group)
-	params.Set("selectedLeagues", "")
-	params.Set("half", "")
-	params.Set("dl", "true")
-	params.Set("se", "false")
-	params.Set("sm", "easier")
-	return footyMetricsBase + "/api/front/teams/table?" + params.Encode()
-}
-
-type FMTeamIDs struct {
-	HomeID string `json:"homeId"`
-	AwayID string `json:"awayId"`
-}
-
-type FMHarvestResult struct {
-	HomeID     string `json:"homeId"`
-	AwayID     string `json:"awayId"`
-	TeamsAdded int    `json:"teamsAdded"`
-	TeamsTotal int    `json:"teamsTotal"`
-	Message    string `json:"message"`
-}
-
-type fmPivotStats struct {
-	Shots       int            `json:"sh"`
-	ShotsOB     *int           `json:"shob"`
-	TacklesWon  int            `json:"tw"`
-	TacklesWon2 int            `json:"tacklesWon"`
-	TacklesWon3 int            `json:"tkw"`
-	TacklesWon4 int            `json:"tk"`
-	Extra       map[string]any `json:"-"`
-	SOT         int            `json:"sot"`
-	SOTOB       *int           `json:"sotob"`
-	Minutes     int            `json:"mins"`
-	Detailed    string         `json:"detailed"`
-	Sub         bool           `json:"sub"`
-	SubName     string         `json:"subName"`
-	SubAPID     int64          `json:"subApid"`
-}
-
-func (s *fmPivotStats) UnmarshalJSON(data []byte) error {
-	type Alias fmPivotStats
-	aux := &struct {
-		*Alias
-	}{
-		Alias: (*Alias)(s),
-	}
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-	var rawMap map[string]any
-	if err := json.Unmarshal(data, &rawMap); err == nil {
-		s.Extra = rawMap
-		if s.TacklesWon == 0 {
-			for k, v := range rawMap {
-				low := strings.ToLower(k)
-				if low == "tw" || low == "tkw" || low == "tk" || low == "tackleswon" || strings.Contains(low, "tackle") {
-					if fl, ok := v.(float64); ok {
-						s.TacklesWon = int(fl)
-						break
-					}
-				}
-			}
-		}
-	}
-	if s.TacklesWon == 0 {
-		if s.TacklesWon2 > 0 {
-			s.TacklesWon = s.TacklesWon2
-		} else if s.TacklesWon3 > 0 {
-			s.TacklesWon = s.TacklesWon3
-		} else if s.TacklesWon4 > 0 {
-			s.TacklesWon = s.TacklesWon4
-		}
-	}
-	return nil
-}
-
-type fmFixture struct {
-	APID      int64  `json:"apid"`
-	Timestamp string `json:"timestamp"`
-	LID       int    `json:"lid"`
-	HID       int    `json:"hid"`
-	AID       int    `json:"aid"`
-	Opponent  struct {
-		APID int    `json:"apid"`
-		Name string `json:"name"`
-	} `json:"opponent"`
-}
-
-type fmPlayer struct {
-	APID      int64  `json:"apid"`
-	ShortName string `json:"shortName"`
-	Slug      string `json:"slug"`
-	Position  string `json:"position"`
-	Team      any    `json:"team"`
-	HasStats  bool   `json:"hasStats"`
-}
-
-type fmLeague struct {
-	Name string `json:"name"`
-}
-
-type fmTableResponse struct {
-	Fixtures  []fmFixture                        `json:"fixtures"`
-	PivotData map[string]map[string]fmPivotStats `json:"pivotData"`
-	Players   []fmPlayer                         `json:"players"`
-	Leagues   map[string]fmLeague                `json:"leagues"`
-}
-
-type FMPlayerHistory struct {
-	ID           string
-	Name         string
-	Shots        []int
-	ShotsOutside []int
-	ShotsInside  []int
-	TacklesWon   []int
-	Minutes      []int
-	Positions    []string
-	Opponents    []string
-	Dates        []string
-}
-
-func (h *FMPlayerHistory) valuesFor(market CanonicalMarket) []int {
-	switch market {
-	case MarketShotsOutsideBox:
-		return h.ShotsOutside
-	case MarketShotsInsideBox:
-		return h.ShotsInside
-	case MarketShotsTotal:
-		return h.Shots
-	case MarketTackles:
-		return h.TacklesWon
-	}
-	return nil
-}
-
-type FMTeamIndex struct {
-	TeamID   string
-	Side     string
-	Players  map[string]*FMPlayerHistory
-	NameMap  map[string]string
-	Matches  int
-	Leagues  []string
-	Warnings []string
-}
-
-func (idx *FMTeamIndex) Lookup(playerName string) *FMPlayerHistory {
-	if idx == nil || len(idx.NameMap) == 0 {
-		return nil
-	}
-	id := matchPlayerStrict(playerName, idx.NameMap)
-	if id == "" {
-		return nil
-	}
-	return idx.Players[id]
-}
-
-type TeamCacheEntry struct {
-	StatsHub     string `json:"statshub"`
-	FootyMetrics string `json:"footymetrics,omitempty"`
-}
-
-func (e *TeamCacheEntry) UnmarshalJSON(data []byte) error {
-	var legacy string
-	if err := json.Unmarshal(data, &legacy); err == nil {
-		e.StatsHub = strings.TrimSpace(legacy)
-		e.FootyMetrics = ""
-		return nil
-	}
-	type rawEntry TeamCacheEntry
-	var r rawEntry
-	if err := json.Unmarshal(data, &r); err != nil {
-		return err
-	}
-	e.StatsHub = strings.TrimSpace(r.StatsHub)
-	e.FootyMetrics = strings.TrimSpace(r.FootyMetrics)
-	return nil
-}
-
-func (e TeamCacheEntry) MarshalJSON() ([]byte, error) {
-	if e.FootyMetrics == "" {
-		return json.Marshal(e.StatsHub)
-	}
-	type rawEntry TeamCacheEntry
-	return json.Marshal(rawEntry(e))
-}
-
-func loadTeamCacheFull() map[string]TeamCacheEntry {
-	cacheMutex.Lock()
-	defer cacheMutex.Unlock()
-
-	data, err := os.ReadFile(getCacheFilePath("team_cache.json"))
-	if err != nil {
-		return make(map[string]TeamCacheEntry)
-	}
-	m := make(map[string]TeamCacheEntry)
-	_ = json.Unmarshal(data, &m)
-	return m
-}
-
-func saveTeamCacheFM(pairs map[string]string) int {
-	if len(pairs) == 0 {
-		return 0
-	}
-
-	cacheMutex.Lock()
-	defer cacheMutex.Unlock()
-
-	path := getCacheFilePath("team_cache.json")
-	m := make(map[string]TeamCacheEntry)
-	if data, err := os.ReadFile(path); err == nil {
-		_ = json.Unmarshal(data, &m)
-	}
-	if len(m) == 0 {
-		return 0
-	}
-
-	added := 0
-	for slug, fmID := range pairs {
-		slug = strings.TrimSpace(slug)
-		fmID = strings.TrimSpace(fmID)
-		if slug == "" || fmID == "" {
-			continue
-		}
-		entry, ok := m[slug]
-		if !ok || entry.StatsHub == "" {
-			continue
-		}
-		if entry.FootyMetrics == fmID {
-			continue
-		}
-		entry.FootyMetrics = fmID
-		m[slug] = entry
-		added++
-	}
-
-	if added == 0 {
-		return 0
-	}
-
-	out, _ := json.MarshalIndent(m, "", "  ")
-	_ = os.WriteFile(path, out, 0644)
-	return added
-}
-
-func forgetTeamCacheFM(fmID string) {
-	cacheMutex.Lock()
-	defer cacheMutex.Unlock()
-
-	path := getCacheFilePath("team_cache.json")
-	m := make(map[string]TeamCacheEntry)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return
-	}
-	_ = json.Unmarshal(data, &m)
-
-	changed := false
-	for slug, entry := range m {
-		if entry.FootyMetrics == fmID {
-			entry.FootyMetrics = ""
-			m[slug] = entry
-			changed = true
-		}
-	}
-	if changed {
-		out, _ := json.MarshalIndent(m, "", "  ")
-		_ = os.WriteFile(path, out, 0644)
-	}
-}
-
-func findFMTeamIDBySlug(slug string) string {
-	if strings.TrimSpace(slug) == "" {
-		return ""
-	}
-	clean := strings.ToLower(strings.TrimSpace(slug))
-	if alias, ok := teamSlugAliases[clean]; ok {
-		clean = alias
-	}
-
-	cache := loadTeamCacheFull()
-	if entry, ok := cache[clean]; ok && entry.FootyMetrics != "" {
-		return entry.FootyMetrics
-	}
-
-	core := canonicalTeamCore(clean)
-	distinct := make(map[string]bool)
-	for cacheSlug, entry := range cache {
-		if entry.FootyMetrics == "" {
-			continue
-		}
-		if canonicalTeamCore(cacheSlug) == core {
-			distinct[entry.FootyMetrics] = true
-		}
-	}
-	if len(distinct) == 1 {
-		for id := range distinct {
-			return id
-		}
-	}
-	return ""
-}
-
-func slugForStatsHubID(statsHubID string) string {
-	statsHubID = strings.TrimSpace(statsHubID)
-	if statsHubID == "" {
-		return ""
-	}
-	for slug, entry := range loadTeamCacheFull() {
-		if entry.StatsHub == statsHubID {
-			return slug
-		}
-	}
-	return ""
-}
-
-func findFMTeamIDByStatsHubID(statsHubID string) string {
-	statsHubID = strings.TrimSpace(statsHubID)
-	if statsHubID == "" {
-		return ""
-	}
-	for _, entry := range loadTeamCacheFull() {
-		if entry.StatsHub == statsHubID && entry.FootyMetrics != "" {
-			return entry.FootyMetrics
-		}
-	}
-	return ""
-}
-
-func fmSlugForTeamName(name string, cache map[string]TeamCacheEntry) string {
-	core := canonicalTeamCore(name)
-	if core == "" {
-		return ""
-	}
-	if _, ok := cache[core]; ok {
-		return core
-	}
-
-	if slug := fmUniqueSlug(cache, func(cacheSlug string) bool {
-		return canonicalTeamCore(cacheSlug) == core
-	}); slug != "" {
-		return slug
-	}
-
-	if len(core) < 4 {
-		return ""
-	}
-	return fmUniqueSlug(cache, func(cacheSlug string) bool {
-		return strings.HasPrefix(canonicalTeamCore(cacheSlug), core+"-")
-	})
-}
-
-func fmUniqueSlug(cache map[string]TeamCacheEntry, match func(string) bool) string {
-	var hits []string
-	ids := make(map[string]bool)
-	for slug, entry := range cache {
-		if match(slug) {
-			hits = append(hits, slug)
-			ids[entry.StatsHub] = true
-		}
-	}
-	if len(hits) == 0 || len(ids) != 1 {
-		return ""
-	}
-	sort.Strings(hits)
-	return hits[0]
-}
-
-var fmLogoRe = regexp.MustCompile(`teams/(\d+)\.webp`)
-var fmNameRe = regexp.MustCompile(`"name":"([^"]{2,60})"`)
-var fmTeamPathRe = regexp.MustCompile(`/teams/(\d+)-([a-z0-9-]+)`)
-var fmLeaguePathRe = regexp.MustCompile(`/leagues/\d+-[a-z0-9-]+`)
-
-func fmFetchPage(urlStr string) (string, error) {
-	client := NewResilientClient()
-	req, err := http.NewRequest("GET", urlStr, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("User-Agent", client.userAgent)
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-	req.Header.Set("Accept-Language", "pl,en-US;q=0.9,en;q=0.8")
-	req.Header.Set("Referer", footyMetricsBase+"/")
-
-	resp, err := client.httpClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return "", fmt.Errorf("FootyMetrics HTTP %s dla %s", resp.Status, urlStr)
-	}
-	return string(b), nil
-}
-
-func harvestFMFromText(text string) map[string]string {
-	clean := strings.ReplaceAll(text, `\`, "")
-
-	logos := fmLogoRe.FindAllStringSubmatchIndex(clean, -1)
-	names := fmNameRe.FindAllStringSubmatchIndex(clean, -1)
-	if len(logos) == 0 || len(names) == 0 {
-		return nil
-	}
-
-	const maxDistance = 220
-	out := make(map[string]string)
-	conflicted := make(map[string]bool)
-
-	for _, l := range logos {
-		id := clean[l[2]:l[3]]
-		best, bestDist := "", maxDistance+1
-
-		for _, n := range names {
-			dist := l[0] - n[1]
-			if dist < 0 {
-				dist = n[0] - l[1]
-			}
-			if dist < 0 || dist > maxDistance {
-				continue
-			}
-			if dist < bestDist {
-				bestDist = dist
-				best = clean[n[2]:n[3]]
-			}
-		}
-
-		if best == "" {
-			continue
-		}
-		core := canonicalTeamCore(best)
-		if core == "" || conflicted[core] {
-			continue
-		}
-		if existing, ok := out[core]; ok && existing != id {
-			delete(out, core)
-			conflicted[core] = true
-			continue
-		}
-		out[core] = id
-	}
-	return out
-}
-
-func storeHarvestedFMNames(byName map[string]string) int {
-	if len(byName) == 0 {
-		return 0
-	}
-	cache := loadTeamCacheFull()
-	pairs := make(map[string]string)
-	for name, id := range byName {
-		if slug := fmSlugForTeamName(name, cache); slug != "" {
-			pairs[slug] = id
-		}
-	}
-	return saveTeamCacheFM(pairs)
-}
-
-func harvestFMOpponents(resp *fmTableResponse) int {
-	byName := make(map[string]string)
-	for _, f := range resp.Fixtures {
-		if f.Opponent.APID > 0 && strings.TrimSpace(f.Opponent.Name) != "" {
-			byName[canonicalTeamCore(f.Opponent.Name)] = strconv.Itoa(f.Opponent.APID)
-		}
-	}
-	return storeHarvestedFMNames(byName)
-}
-
-func fmValidateTeamID(id string) bool {
-	if !fmNumericID.MatchString(id) {
-		return false
-	}
-	raw, err := fmFetch(footyMetricsTableURL(id, "5", "shots-outside-box", "attack"))
-	if err != nil {
-		return false
-	}
-	var resp fmTableResponse
-	if json.Unmarshal(raw, &resp) != nil {
-		return false
-	}
-	if len(resp.PivotData) == 0 || len(resp.Fixtures) == 0 {
-		return false
-	}
-	if !fmResponseBelongsTo(&resp, id) {
-		return false
-	}
-	harvestFMOpponents(&resp)
-	return true
-}
-
-func fmResponseBelongsTo(resp *fmTableResponse, id string) bool {
-	for _, p := range resp.Players {
-		if p.Team != nil {
-			var teamIDStr string
-			switch v := p.Team.(type) {
-			case float64:
-				teamIDStr = strconv.FormatInt(int64(v), 10)
-			case string:
-				teamIDStr = v
-			case map[string]any:
-				if rawID, ok := v["id"]; ok {
-					teamIDStr = fmt.Sprintf("%v", rawID)
-				} else if rawAPID, ok := v["apid"]; ok {
-					teamIDStr = fmt.Sprintf("%v", rawAPID)
-				}
-			}
-			if teamIDStr == id {
-				return true
-			}
-		}
-	}
-	for _, f := range resp.Fixtures {
-		if strconv.Itoa(f.HID) == id || strconv.Itoa(f.AID) == id {
-			return true
-		}
-	}
-	return false
-}
-
-func fmTeamIDFromPage(pageURL string) string {
-	body, err := fmFetchPage(pageURL)
-	if err != nil {
-		return ""
-	}
-
-	clean := strings.ReplaceAll(body, `\`, "")
-	counts := make(map[string]int)
-	for _, m := range fmLogoRe.FindAllStringSubmatch(clean, -1) {
-		counts[m[1]]++
-	}
-
-	best, bestCount := "", 0
-	for id, n := range counts {
-		if n > bestCount {
-			best, bestCount = id, n
-		}
-	}
-
-	if names := harvestFMFromText(body); len(names) > 0 {
-		storeHarvestedFMNames(names)
-	}
-
-	return best
-}
-
-func resolveFMCandidate(candidateID, pageURL string) string {
-	if candidateID != "" && fmValidateTeamID(candidateID) {
-		return candidateID
-	}
-	if pageURL == "" {
-		return ""
-	}
-	fromPage := fmTeamIDFromPage(pageURL)
-	if fromPage == "" || fromPage == candidateID {
-		return ""
-	}
-	if fmValidateTeamID(fromPage) {
-		return fromPage
-	}
-	return ""
-}
-
-func ParseFootyMetricsIDs(input string) (string, string, bool) {
-	s := strings.TrimSpace(input)
-	if s == "" {
-		return "", "", false
-	}
-
-	if u, err := url.Parse(s); err == nil && u.RawQuery != "" {
-		q := u.Query()
-		h := strings.TrimSpace(q.Get("home"))
-		a := strings.TrimSpace(q.Get("away"))
-		if fmNumericID.MatchString(h) && fmNumericID.MatchString(a) {
-			return h, a, true
-		}
-	}
-
-	nums := fmAnyNumber.FindAllString(s, -1)
-	if len(nums) >= 2 {
-		return nums[0], nums[1], true
-	}
-	return "", "", false
-}
-
-func FetchFootyMetricsH2H(homeID, awayID string) (int, error) {
-	if !fmNumericID.MatchString(homeID) || !fmNumericID.MatchString(awayID) {
-		return 0, fmt.Errorf("ID FootyMetrics muszą być liczbami")
-	}
-	target := fmt.Sprintf("%s/api/front/fixtures/h2h?home=%s&away=%s", footyMetricsBase, homeID, awayID)
-
-	raw, err := fmFetch(target)
-	if err != nil {
-		return 0, err
-	}
-	return storeHarvestedFMNames(harvestFMFromText(string(raw))), nil
-}
-
-func FetchFootyMetricsTeamIndex(teamID string, maxMatches int) (*FMTeamIndex, error) {
-	id := strings.TrimSpace(teamID)
-	if !fmNumericID.MatchString(id) {
-		return nil, fmt.Errorf("niepoprawne ID drużyny FootyMetrics: %q", teamID)
-	}
-	if maxMatches <= 0 {
-		maxMatches = 10
-	}
-
-	periods := []string{strconv.Itoa(maxMatches)}
-	if maxMatches != 5 {
-		periods = append(periods, "5")
-	}
-
-	var lastErr error
-	for _, period := range periods {
-		targetShots := footyMetricsTableURL(id, period, "shots-outside-box", "attack")
-		targetTackles := footyMetricsTableURL(id, period, "tackles-won", "defense")
-
-		rawShots, err := fmFetch(targetShots)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-
-		rawTackles, err := fmFetch(targetTackles)
-		if err != nil {
-			fmt.Printf("[FOOTYMETRICS WARNING] Odbiory błąd dla %s: %v\n", id, err)
-		}
-
-		var probe fmTableResponse
-		if json.Unmarshal(rawShots, &probe) == nil {
-			if len(probe.Fixtures) > 0 && !fmResponseBelongsTo(&probe, id) {
-				forgetTeamCacheFM(id)
-				return nil, fmt.Errorf("FootyMetrics: ID %s zwraca dane innej drużyny", id)
-			}
-			harvestFMOpponents(&probe)
-		}
-
-		idx, err := ParseFootyMetricsTablesCombined(rawShots, rawTackles, maxMatches)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		if idx.Matches == 0 {
-			lastErr = fmt.Errorf("FootyMetrics zwrócił 0 spotkań dla period=%s", period)
-			continue
-		}
-
-		idx.TeamID = id
-		return idx, nil
-	}
-
-	return nil, lastErr
-}
-
-func ParseFootyMetricsTablesCombined(rawShots, rawTackles []byte, maxMatches int) (*FMTeamIndex, error) {
-	var respShots fmTableResponse
-	if err := json.Unmarshal(rawShots, &respShots); err != nil {
-		return nil, fmt.Errorf("FootyMetrics strzały: błąd unmarshal: %w", err)
-	}
-
-	var respTackles fmTableResponse
-	if len(rawTackles) > 0 {
-		_ = json.Unmarshal(rawTackles, &respTackles)
-	}
-
-	if len(respShots.PivotData) == 0 && len(respTackles.PivotData) == 0 {
-		return nil, fmt.Errorf("FootyMetrics: brak pivotData w odpowiedziach")
-	}
-
-	fixturesSrc := respShots.Fixtures
-	if len(fixturesSrc) == 0 {
-		fixturesSrc = respTackles.Fixtures
-	}
-	if len(fixturesSrc) == 0 {
-		return nil, fmt.Errorf("FootyMetrics: brak listy spotkań (fixtures)")
-	}
-
-	fixtures := append([]fmFixture(nil), fixturesSrc...)
-	sort.Slice(fixtures, func(i, j int) bool {
-		return fmTimestamp(fixtures[i].Timestamp) > fmTimestamp(fixtures[j].Timestamp)
-	})
-	if maxMatches > 0 && len(fixtures) > maxMatches {
-		fixtures = fixtures[:maxMatches]
-	}
-
-	type fixtureMeta struct {
-		Order    int
-		Opponent string
-		Date     string
-	}
-	fixtureByID := make(map[string]fixtureMeta, len(fixtures))
-	leagueSeen := make(map[int]bool)
-	var leagues []string
-
-	for i, f := range fixtures {
-		opp := strings.TrimSpace(f.Opponent.Name)
-		if opp == "" {
-			opp = "Mecz"
-		} else {
-			opp = displayOpponentName(opp)
-		}
-		date := ""
-		if ts := fmTimestamp(f.Timestamp); ts > 0 {
-			date = time.Unix(ts, 0).Format("02.01")
-		}
-		fixtureByID[strconv.FormatInt(f.APID, 10)] = fixtureMeta{Order: i, Opponent: opp, Date: date}
-
-		if f.LID > 0 && !leagueSeen[f.LID] {
-			leagueSeen[f.LID] = true
-			name := fmt.Sprintf("liga %d", f.LID)
-			if l, ok := respShots.Leagues[strconv.Itoa(f.LID)]; ok && l.Name != "" {
-				name = l.Name
-			} else if l, ok := respTackles.Leagues[strconv.Itoa(f.LID)]; ok && l.Name != "" {
-				name = l.Name
-			}
-			leagues = append(leagues, name)
-		}
-	}
-
-	type nameInfo struct{ display, slug, short string }
-	names := make(map[string]nameInfo)
-
-	registerPlayerMeta := func(players []fmPlayer) {
-		for _, p := range players {
-			id := strconv.FormatInt(p.APID, 10)
-			slugName := strings.TrimSpace(strings.ReplaceAll(p.Slug, "-", " "))
-			short := strings.TrimSpace(p.ShortName)
-
-			display := fmTitleCase(slugName)
-			if display == "" {
-				display = short
-			}
-			names[id] = nameInfo{display: display, slug: slugName, short: short}
-		}
-	}
-
-	registerPlayerMeta(respShots.Players)
-	registerPlayerMeta(respTackles.Players)
-
-	allPlayerIDs := make(map[string]bool)
-	for pid := range respShots.PivotData {
-		allPlayerIDs[pid] = true
-	}
-	for pid := range respTackles.PivotData {
-		allPlayerIDs[pid] = true
-	}
-
-	idx := &FMTeamIndex{
-		Players: make(map[string]*FMPlayerHistory),
-		NameMap: make(map[string]string),
-		Matches: len(fixtures),
-		Leagues: leagues,
-	}
-
-	unnamed := 0
-	for playerID := range allPlayerIDs {
-		shotsMap := respShots.PivotData[playerID]
-		tacklesMap := respTackles.PivotData[playerID]
-
-		type cell struct {
-			order   int
-			shotsSt fmPivotStats
-			tackSt  fmPivotStats
-			meta    fixtureMeta
-		}
-		var cells []cell
-
-		for fixtureID, meta := range fixtureByID {
-			sSt, hasShots := shotsMap[fixtureID]
-			tSt, hasTack := tacklesMap[fixtureID]
-
-			if !hasShots && !hasTack {
-				continue
-			}
-
-			mins := sSt.Minutes
-			if mins <= 0 {
-				mins = tSt.Minutes
-			}
-			if mins <= 0 {
-				continue
-			}
-
-			cells = append(cells, cell{
-				order:   meta.Order,
-				shotsSt: sSt,
-				tackSt:  tSt,
-				meta:    meta,
-			})
-		}
-
-		if len(cells) == 0 {
-			continue
-		}
-		sort.Slice(cells, func(i, j int) bool { return cells[i].order < cells[j].order })
-
-		info, hasName := names[playerID]
-		if !hasName || (info.display == "" && info.short == "") {
-			unnamed++
-			continue
-		}
-
-		display := info.display
-		if display == "" {
-			display = info.short
-		}
-
-		hist := &FMPlayerHistory{ID: playerID, Name: display}
-		for _, c := range cells {
-			outside := 0
-			if c.shotsSt.ShotsOB != nil {
-				outside = *c.shotsSt.ShotsOB
-			}
-			inside := c.shotsSt.Shots - outside
-			if inside < 0 {
-				inside = 0
-			}
-
-			mins := c.shotsSt.Minutes
-			if mins <= 0 {
-				mins = c.tackSt.Minutes
-			}
-
-			pos := strings.TrimSpace(c.shotsSt.Detailed)
-			if pos == "" {
-				pos = strings.TrimSpace(c.tackSt.Detailed)
-			}
-
-			tacklesVal := c.tackSt.TacklesWon
-			if tacklesVal == 0 {
-				tacklesVal = c.shotsSt.TacklesWon
-			}
-
-			hist.Shots = append(hist.Shots, c.shotsSt.Shots)
-			hist.ShotsOutside = append(hist.ShotsOutside, outside)
-			hist.ShotsInside = append(hist.ShotsInside, inside)
-			hist.TacklesWon = append(hist.TacklesWon, tacklesVal)
-			hist.Minutes = append(hist.Minutes, mins)
-			hist.Positions = append(hist.Positions, pos)
-			hist.Opponents = append(hist.Opponents, c.meta.Opponent)
-			hist.Dates = append(hist.Dates, c.meta.Date)
-		}
-
-		idx.Players[playerID] = hist
-		fmRegisterName(idx.NameMap, info.slug, playerID)
-		fmRegisterName(idx.NameMap, info.short, playerID)
-		fmRegisterName(idx.NameMap, display, playerID)
-	}
-
-	if unnamed > 0 {
-		msg := fmt.Sprintf("%d zawodników w pivotData nie ma wpisu w `players` — pominięci", unnamed)
-		idx.Warnings = append(idx.Warnings, msg)
-	}
-
-	return idx, nil
-}
-
-func fmTimestamp(s string) int64 {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return 0
-	}
-	layouts := []string{time.RFC3339, "2006-01-02T15:04:05.000Z", "2006-01-02T15:04:05Z", "2006-01-02 15:04:05", "2006-01-02"}
-	for _, l := range layouts {
-		if t, err := time.Parse(l, s); err == nil {
-			return t.Unix()
-		}
-	}
-	return 0
-}
-
-func fmTitleCase(s string) string {
-	parts := strings.Fields(s)
-	for i, p := range parts {
-		r := []rune(p)
-		if len(r) == 0 {
-			continue
-		}
-		parts[i] = strings.ToUpper(string(r[0])) + string(r[1:])
-	}
-	return strings.Join(parts, " ")
-}
-
-func fmRegisterName(nameMap map[string]string, name, id string) {
-	norm := NormalizePlayerName(name)
-	if norm == "" {
-		return
-	}
-	if _, exists := nameMap[norm]; !exists {
-		nameMap[norm] = id
-	}
-
-	parts := strings.Fields(norm)
-	if len(parts) < 2 {
-		return
-	}
-	last := parts[len(parts)-1]
-	first := parts[0]
-
-	variants := []string{
-		first + " " + last,
-		last + " " + first,
-	}
-	if r := []rune(first); len(r) > 0 {
-		variants = append(variants, string(r[0])+" "+last)
-	}
-	for _, v := range variants {
-		if _, exists := nameMap[v]; !exists {
-			nameMap[v] = id
-		}
-	}
-}
-
-func isFootyMetricsMarket(m CanonicalMarket) bool {
-	return m == MarketShotsOutsideBox || m == MarketShotsInsideBox || m == MarketTackles
-}
-
-func isZoneShotMarket(m CanonicalMarket) bool {
-	return m == MarketShotsOutsideBox || m == MarketShotsInsideBox
-}
-
-type betScore struct {
-	HitRate  float64
-	FairOdds float64
-	Edge     float64
-	EVTax    float64
-	Verdict  string
-}
-
-func scoreSample(values []int, line float64, isUnder bool, odds float64) betScore {
-	sample := len(values)
-	if sample == 0 {
-		return betScore{}
-	}
-
-	hits, total := 0, 0
-	for _, v := range values {
-		total += v
-		if isUnder {
-			if float64(v) <= line {
-				hits++
-			}
-		} else if float64(v) > line {
-			hits++
-		}
-	}
-
-	lambda := float64(total) / float64(sample)
-	pHit := float64(hits) / float64(sample)
-
-	var pPois float64
-	if isUnder {
-		pPois = calcPoissonUnder(line, lambda)
-	} else {
-		pPois = calcPoissonOver(line, lambda)
-	}
-
-	pFinal := pHit*0.65 + pPois*0.35
-	if pFinal < 0.005 {
-		pFinal = 0.005
-	}
-	if pFinal > 0.95 {
-		pFinal = 0.95
-	}
-
-	fair := 1.0 / pFinal
-	edge := (odds - fair) / fair * 100.0
-	ev := (pFinal*(odds*0.88-1.0) - (1.0 - pFinal)) * 100.0
-
-	verdict := "NEUTRAL"
-	if ev > 0.0 {
-		verdict = "VALUE"
-	} else if ev < -15.0 {
-		verdict = "TRAP"
-	}
-
-	return betScore{HitRate: pHit, FairOdds: fair, Edge: edge, EVTax: ev, Verdict: verdict}
-}
-
-type zoneTeamMeta struct {
-	TeamID   string
-	TeamName string
-}
-
-func BuildZoneBet(prop NormalizedProp, indexes []*FMTeamIndex, maxMatches int, meta map[string]zoneTeamMeta) (AnalyzedBet, bool) {
-	for _, idx := range indexes {
-		if idx == nil {
-			continue
-		}
-		hist := idx.Lookup(prop.PlayerName)
-		if hist == nil {
-			continue
-		}
-
-		values := hist.valuesFor(prop.MarketType)
-		if len(values) == 0 {
-			continue
-		}
-
-		limit := len(values)
-		if maxMatches > 0 && maxMatches < limit {
-			limit = maxMatches
-		}
-		values = append([]int(nil), values[:limit]...)
-
-		score := scoreSample(values, prop.Line, prop.IsUnder, prop.Odds)
-
-		label := prop.MarketLabel
-		if prop.IsUnder && !strings.Contains(label, "Poniżej") {
-			label += " (Poniżej)"
-		}
-
-		teamID := idx.TeamID
-		teamName := "Team " + idx.TeamID
-		if m, ok := meta[idx.Side]; ok {
-			teamID = m.TeamID
-			teamName = m.TeamName
-		}
-
-		return AnalyzedBet{
-			Bookmaker:            prop.Bookmaker,
-			PlayerName:           hist.Name,
-			MarketType:           prop.MarketType,
-			MarketLabel:          label,
-			Line:                 prop.Line,
-			IsUnder:              prop.IsUnder,
-			BookmakerOdds:        prop.Odds,
-			FairOdds:             math.Round(score.FairOdds*100) / 100,
-			HitRate:              math.Round(score.HitRate*1000) / 10,
-			EdgePercent:          math.Round(score.Edge*10) / 10,
-			EVWithTax:            math.Round(score.EVTax*10) / 10,
-			MatchesSample:        len(values),
-			SampleValues:         values,
-			SampleValuesSuperSub: append([]int(nil), values...),
-			SampleMinutes:        fmTrimInt(hist.Minutes, limit),
-			SamplePositions:      fmTrimStr(hist.Positions, limit),
-			SampleOpponents:      fmTrimStr(hist.Opponents, limit),
-			SampleDates:          fmTrimStr(hist.Dates, limit),
-			StatsSource:          "FOOTYMETRICS",
-			TeamSide:             idx.Side,
-			TeamID:               teamID,
-			TeamName:             teamName,
-			Verdict:              score.Verdict,
-		}, true
-	}
-
-	return AnalyzedBet{}, false
-}
-
-func fmTrimInt(src []int, limit int) []int {
-	if limit > len(src) {
-		limit = len(src)
-	}
-	return append([]int(nil), src[:limit]...)
-}
-
-func fmTrimStr(src []string, limit int) []string {
-	if limit > len(src) {
-		limit = len(src)
-	}
-	return append([]string(nil), src[:limit]...)
-}
-
-func sanitizeZoneProps(props []NormalizedProp) []NormalizedProp {
-	out := make([]NormalizedProp, 0, len(props))
-	dropped := 0
-
-	for _, p := range props {
-		if p.MarketType == MarketShotsInsideBox && p.Bookmaker != BookmakerBetclic {
-			dropped++
-			continue
-		}
-		out = append(out, p)
-	}
-
-	return out
-}
-
-func (a *App) ResolveFootyMetricsForMatch(homeSlug, awaySlug string) FMTeamIDs {
-	res := FMTeamIDs{
-		HomeID: findFMTeamIDBySlug(homeSlug),
-		AwayID: findFMTeamIDBySlug(awaySlug),
-	}
-	if res.HomeID != "" && res.AwayID != "" {
-		return res
-	}
-
-	known := res.HomeID
-	if known == "" {
-		known = res.AwayID
-	}
-	if known == "" {
-		return res
-	}
-
-	if raw, err := fmFetch(footyMetricsTableURL(known, "38", "shots-outside-box", "attack")); err == nil {
-		var resp fmTableResponse
-		if json.Unmarshal(raw, &resp) == nil {
-			harvestFMOpponents(&resp)
-		}
-	}
-
-	if res.HomeID == "" {
-		res.HomeID = findFMTeamIDBySlug(homeSlug)
-	}
-	if res.AwayID == "" {
-		res.AwayID = findFMTeamIDBySlug(awaySlug)
-	}
-	return res
-}
-
-func (a *App) HarvestFootyMetrics(input, homeSlug, awaySlug string) FMHarvestResult {
-	text := strings.TrimSpace(input)
-	if text == "" {
-		return FMHarvestResult{Message: "Wklej link do FootyMetrics albo dwa ID."}
-	}
-
-	res := FMHarvestResult{}
-	added := 0
-
-	teamLinks := fmTeamPathRe.FindAllStringSubmatch(text, -1)
-	if len(teamLinks) > 0 {
-		cache := loadTeamCacheFull()
-		seen := make(map[string]bool)
-		homeCore := canonicalTeamCore(homeSlug)
-		awayCore := canonicalTeamCore(awaySlug)
-
-		for _, m := range teamLinks {
-			candidate, slug := m[1], m[2]
-			if seen[slug] {
-				continue
-			}
-			seen[slug] = true
-
-			pageURL := fmt.Sprintf("%s/teams/%s-%s", footyMetricsBase, candidate, slug)
-			resolved := resolveFMCandidate(candidate, pageURL)
-			if resolved == "" {
-				res.Message = fmt.Sprintf("Nie udało się ustalić ID dla '%s'.", slug)
-				continue
-			}
-
-			target := fmSlugForTeamName(slug, cache)
-			if target != "" {
-				added += saveTeamCacheFM(map[string]string{target: resolved})
-			}
-
-			core := canonicalTeamCore(slug)
-			switch {
-			case core == homeCore || (target != "" && target == fmSlugForTeamName(homeSlug, cache)):
-				res.HomeID = resolved
-			case core == awayCore || (target != "" && target == fmSlugForTeamName(awaySlug, cache)):
-				res.AwayID = resolved
-			case res.HomeID == "":
-				res.HomeID = resolved
-			case res.AwayID == "":
-				res.AwayID = resolved
-			}
-		}
-	}
-
-	if leagueURL := fmLeaguePathRe.FindString(text); leagueURL != "" && len(teamLinks) == 0 {
-		if body, err := fmFetchPage(footyMetricsBase + leagueURL); err == nil {
-			added += storeHarvestedFMNames(harvestFMFromText(body))
-		} else {
-			res.Message = fmt.Sprintf("Strona ligi nie odpowiedziała: %v", err)
-		}
-	}
-
-	if res.HomeID == "" && res.AwayID == "" {
-		if home, away, ok := ParseFootyMetricsIDs(text); ok {
-			h2hAdded, err := FetchFootyMetricsH2H(home, away)
-			if err != nil {
-				res.Message = fmt.Sprintf("h2h nie odpowiedziało: %v", err)
-			} else {
-				added += h2hAdded
-				res.HomeID, res.AwayID = home, away
-			}
-		}
-	}
-
-	if res.HomeID == "" {
-		res.HomeID = findFMTeamIDBySlug(homeSlug)
-	}
-	if res.AwayID == "" {
-		res.AwayID = findFMTeamIDBySlug(awaySlug)
-	}
-
-	cache := loadTeamCacheFull()
-	saveTeamCacheFM(map[string]string{
-		fmSlugForTeamName(homeSlug, cache): res.HomeID,
-		fmSlugForTeamName(awaySlug, cache): res.AwayID,
-	})
-
-	res.TeamsAdded = added
-	for _, entry := range loadTeamCacheFull() {
-		if entry.FootyMetrics != "" {
-			res.TeamsTotal++
-		}
-	}
-	if res.Message == "" {
-		res.Message = fmt.Sprintf("Dodano %d drużyn (w team_cache.json łącznie %d z ID FootyMetrics).", added, res.TeamsTotal)
-	}
-	return res
-}
-
-func (a *App) GetFootyMetricsIDs(homeStatsID, awayStatsID string) FMTeamIDs {
-	return FMTeamIDs{
-		HomeID: findFMTeamIDByStatsHubID(homeStatsID),
-		AwayID: findFMTeamIDByStatsHubID(awayStatsID),
-	}
-}
-
-func (a *App) DumpFootyMetrics(teamID string, period int) (string, error) {
-	if period <= 0 {
-		period = 5
-	}
-	raw, err := fmFetch(footyMetricsTableURL(strings.TrimSpace(teamID), strconv.Itoa(period), "shots-outside-box", "attack"))
-	if err != nil {
-		return "", err
-	}
-	path := getCacheFilePath(fmt.Sprintf("fm_dump_%s.json", teamID))
-	if err := os.WriteFile(path, raw, 0644); err != nil {
-		return "", err
-	}
-	return path, nil
 }

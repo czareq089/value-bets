@@ -2,7 +2,7 @@
 <html lang="pl">
 <head>
     <meta charset="UTF-8">
-    <title>ValueBets 3.0</title>
+    <title>ValueBets 3.0 (SofaScore Edition)</title>
     <style>
         :root {
             --bg-main: #0b0f19;
@@ -354,7 +354,7 @@
         .legend-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
 
         .tag-src { font-size: 9px; font-weight: 800; padding: 1px 4px; border-radius: 3px; margin-left: 5px;
-            background: rgba(45,212,191,0.15); color: #2dd4bf; border: 1px solid rgba(45,212,191,0.4); }
+            background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.4); }
 
         .badge-starter {
             font-size: 9px; font-weight: 800; padding: 1px 4px; border-radius: 3px; margin-left: 5px;
@@ -375,11 +375,9 @@
         .risk-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 8px; }
         .risk-table th, .risk-table td { padding: 5px 7px; border-bottom: 1px solid #1e293b; text-align: left; }
         .risk-table th { color: var(--text-muted); font-weight: 600; }
-        .fm-row { display: grid; grid-template-columns: 2fr auto 1fr 1fr; gap: 10px; margin-top: 10px; align-items: end; }
         .btn-ghost { background: transparent; border: 1px solid var(--accent); color: var(--accent); font-weight: 700;
             border-radius: 6px; height: 34px; padding: 0 14px; cursor: pointer; font-size: 12px; }
         .btn-ghost:hover { background: rgba(56,189,248,0.12); }
-        .fm-status { font-size: 11px; color: var(--text-muted); margin-top: 6px; }
     </style>
 </head>
 <body>
@@ -395,8 +393,8 @@
 <div class="main-container">
     <div class="header">
         <div class="title-box">
-            <h1>ValueBets 3.0</h1>
-            <p style="color: var(--text-muted); font-size: 12px;">LPM na zdarzeniu pokazuje wykres próbki, PPM dodaje do MyBets. Kliknij nagłówek kolumny aby posortować.</p>
+            <h1>ValueBets 3.0 <span style="font-size:13px; color:var(--accent); font-weight:600;">(Auto-SofaScore)</span></h1>
+            <p style="color: var(--text-muted); font-size: 12px;">Wklej link do meczu — ID drużyn z SofaScore pobiorą się automatycznie! LPM = wykres, PPM = MyBets.</p>
         </div>
     </div>
 
@@ -418,12 +416,12 @@
 
         <div class="stats-grid">
             <div class="input-group">
-                <label>ID StatsHub (Gospodarze):</label>
-                <input type="text" id="homeIdInput" placeholder="np. 267828 lub URL" onchange="checkAndLoadTournaments()">
+                <label>SofaScore Gospodarze (Auto):</label>
+                <input type="text" id="homeIdInput" placeholder="Wykrywa się samo..." onchange="checkAndLoadTournaments()">
             </div>
             <div class="input-group">
-                <label>ID StatsHub (Goście):</label>
-                <input type="text" id="awayIdInput" placeholder="np. 267829 lub URL" onchange="checkAndLoadTournaments()">
+                <label>SofaScore Goście (Auto):</label>
+                <input type="text" id="awayIdInput" placeholder="Wykrywa się samo..." onchange="checkAndLoadTournaments()">
             </div>
             <div class="input-group">
                 <label>Zakres próbki:</label>
@@ -437,23 +435,6 @@
                 <button class="btn-ghost" style="height:34px; padding:0 12px; border-color:var(--border); color:var(--text-muted);" title="Wyczyść wszystkie pola" onclick="clearAllInputs()">✕</button>
             </div>
         </div>
-
-        <div class="fm-row">
-            <div class="input-group">
-                <label>FootyMetrics — link do drużyny, ligi albo h2h:</label>
-                <input type="text" id="fmInput" placeholder="https://www.footymetrics.com/teams/256-rayo-vallecano">
-            </div>
-            <button class="btn-ghost" onclick="harvestFootyMetrics()">Pobierz ID</button>
-            <div class="input-group">
-                <label>ID FM (Gospodarze):</label>
-                <input type="text" id="fmHomeId" placeholder="np. 377">
-            </div>
-            <div class="input-group">
-                <label>ID FM (Goście):</label>
-                <input type="text" id="fmAwayId" placeholder="np. 528">
-            </div>
-        </div>
-        <div class="fm-status" id="fmStatus">Strzały ze stref i odbiory (tackles won) liczone są z FootyMetrics. ID zapisują się w team_cache.json obok ID StatsHub.</div>
 
         <div id="leagueSelectorWrap" style="display:none; margin-top:10px; padding:8px 12px; background:var(--bg-input); border-radius:6px; font-size:12px; border:1px solid var(--border);">
             <span style="font-weight:700; color:var(--accent); margin-right:12px;">Rozgrywki:</span>
@@ -525,18 +506,16 @@
                     <button type="button" class="dropdown-action-btn" onclick="setAllCheckboxes('market-cb', true)">Wszystkie</button>
                     <button type="button" class="dropdown-action-btn" onclick="setAllCheckboxes('market-cb', false)">Wyczyść</button>
                 </div>
-                <label><input type="checkbox" class="market-cb" value="SHOTS_TOTAL" checked onchange="handleFilterChange()"> Strzały</label>
+                <label><input type="checkbox" class="market-cb" value="SHOTS_TOTAL" checked onchange="handleFilterChange()"> Strzały ogółem</label>
                 <label><input type="checkbox" class="market-cb" value="SHOTS_ON_TARGET" checked onchange="handleFilterChange()"> Strzały celne</label>
                 <label><input type="checkbox" class="market-cb" value="SHOTS_BLOCKED" checked onchange="handleFilterChange()"> Strzały zablokowane</label>
                 <label><input type="checkbox" class="market-cb" value="SHOTS_OFF_TARGET" checked onchange="handleFilterChange()"> Strzały niecelne</label>
-                <label><input type="checkbox" class="market-cb" value="SHOTS_OUTSIDE_BOX" checked onchange="handleFilterChange()"> Strzały spoza pola karnego (FM)</label>
-                <label><input type="checkbox" class="market-cb" value="SHOTS_INSIDE_BOX" checked onchange="handleFilterChange()"> Strzały z pola karnego (FM)</label>
-                <label><input type="checkbox" class="market-cb" value="TACKLES" checked onchange="handleFilterChange()"> Odbiory (FM)</label>
+                <label><input type="checkbox" class="market-cb" value="TACKLES" checked onchange="handleFilterChange()"> Odbiory</label>
                 <label><input type="checkbox" class="market-cb" value="FOULS_COMMITTED" checked onchange="handleFilterChange()"> Faule popełnione</label>
                 <label><input type="checkbox" class="market-cb" value="FOULS_DRAWN" checked onchange="handleFilterChange()"> Faule wywalczone</label>
                 <label><input type="checkbox" class="market-cb" value="INTERCEPTIONS" checked onchange="handleFilterChange()"> Przechwyty</label>
                 <label><input type="checkbox" class="market-cb" value="OFFSIDES" checked onchange="handleFilterChange()"> Spalone</label>
-                <label><input type="checkbox" class="market-cb" value="DISPOSSESSED" checked onchange="handleFilterChange()"> Straty / Wybicia</label>
+                <label><input type="checkbox" class="market-cb" value="DISPOSSESSED" checked onchange="handleFilterChange()"> Straty piłki</label>
             </div>
         </div>
 
@@ -621,7 +600,6 @@
             <span style="font-size:11px; color:var(--text-muted);">(Podatek bukmacherski 12% jest odliczony od wygranych)</span>
         </div>
 
-        <!-- GENERATOR ANTY-DOMINO -->
         <div style="background:var(--bg-input); border:1px solid var(--border); border-radius:8px; padding:12px; margin-bottom:14px;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
                 <div style="font-size:13px; font-weight:700; color:var(--accent);">
@@ -679,8 +657,7 @@
     const MARKET_LABELS = {
         SHOTS_TOTAL: "Strzały", SHOTS_ON_TARGET: "Strzały celne",
         SHOTS_BLOCKED: "Strzały zablokowane", SHOTS_OFF_TARGET: "Strzały niecelne",
-        SHOTS_OUTSIDE_BOX: "Strzały spoza pola karnego", SHOTS_INSIDE_BOX: "Strzały z pola karnego",
-        TACKLES: "Odbiory", DISPOSSESSED: "Dispossessed (odbiór/strata)", FOULS_COMMITTED: "Faule popełnione",
+        TACKLES: "Odbiory", DISPOSSESSED: "Straty piłki", FOULS_COMMITTED: "Faule popełnione",
         FOULS_DRAWN: "Faule wywalczone", INTERCEPTIONS: "Przechwyty", OFFSIDES: "Spalone"
     };
 
@@ -690,7 +667,6 @@
         renderTableHeaders();
         updateDropdownLabels();
 
-        // Inicjalizacja wypełnienia pasków suwaków
         updateDualRangeFill(document.getElementById("oddsMinSlider"), document.getElementById("oddsMaxSlider"), document.getElementById("oddsRangeFill"));
         updateDualRangeFill(document.getElementById("hrMinSlider"), document.getElementById("hrMaxSlider"), document.getElementById("hrRangeFill"));
         updateDualRangeFill(document.getElementById("sampleMinSlider"), document.getElementById("sampleMaxSlider"), document.getElementById("sampleRangeFill"));
@@ -710,7 +686,6 @@
             }
         } catch(e) {}
 
-        // Wczytanie utrwalonych MyBets z pliku bets_cache.json
         try {
             if (window.go?.main?.App?.LoadMyBets) {
                 const savedBets = await window.go.main.App.LoadMyBets();
@@ -778,7 +753,7 @@
     }
 
     function clearAllInputs() {
-        const ids = ['sbInput', 'betclicInput', 'stsInput', 'homeIdInput', 'awayIdInput', 'fmInput', 'fmHomeId', 'fmAwayId'];
+        const ids = ['sbInput', 'betclicInput', 'stsInput', 'homeIdInput', 'awayIdInput'];
         ids.forEach(id => {
             const el = document.getElementById(id);
             if (el) el.value = '';
@@ -792,7 +767,6 @@
         document.getElementById('leagueSelectorWrap').style.display = 'none';
         document.getElementById('leagueCheckboxes').innerHTML = '';
         document.getElementById('searchBox').value = '';
-        updateFmStatus('');
         updateStats();
 
         document.getElementById('resultsBody').innerHTML =
@@ -983,77 +957,6 @@
                 wrap.style.display = 'block';
             }
         } catch(e) {}
-
-        autofillFootyMetrics();
-    }
-
-    function updateFmStatus(extra) {
-        const hEl = document.getElementById('fmHomeId');
-        const aEl = document.getElementById('fmAwayId');
-        const missing = [];
-        if (!hEl.value) missing.push('gospodarzy');
-        if (!aEl.value) missing.push('gości');
-
-        document.getElementById('fmStatus').textContent = extra ? extra
-            : (missing.length === 0
-                ? 'ID FootyMetrics gotowe — strzały ze stref i odbiory (tackles won) zostaną policzone.'
-                : `Brakuje ID FootyMetrics dla ${missing.join(' i ')}. Wklej raz dowolny link z FootyMetrics (drużyna, liga albo h2h) i kliknij „Pobierz ID”.`);
-    }
-
-    async function autofillFootyMetrics() {
-        if (!window.go?.main?.App?.GetFootyMetricsIDs) return;
-        const home = document.getElementById('homeIdInput').value.trim();
-        const away = document.getElementById('awayIdInput').value.trim();
-        if (!home && !away) return;
-
-        try {
-            const ids = await window.go.main.App.GetFootyMetricsIDs(home, away);
-            const hEl = document.getElementById('fmHomeId');
-            const aEl = document.getElementById('fmAwayId');
-            if (ids.homeId && !hEl.value) hEl.value = ids.homeId;
-            if (ids.awayId && !aEl.value) aEl.value = ids.awayId;
-            updateFmStatus();
-        } catch (e) {}
-    }
-
-    async function resolveFootyMetricsForMatch() {
-        if (!window.go?.main?.App?.ResolveFootyMetricsForMatch) return;
-        const hEl = document.getElementById('fmHomeId');
-        const aEl = document.getElementById('fmAwayId');
-        if (hEl.value && aEl.value) {
-            updateFmStatus();
-            return;
-        }
-        if (!currentHomeSlug && !currentAwaySlug) return;
-
-        updateFmStatus('Szukam ID FootyMetrics...');
-        try {
-            const ids = await window.go.main.App.ResolveFootyMetricsForMatch(currentHomeSlug, currentAwaySlug);
-            if (ids.homeId && !hEl.value) hEl.value = ids.homeId;
-            if (ids.awayId && !aEl.value) aEl.value = ids.awayId;
-            updateFmStatus();
-        } catch (e) {
-            updateFmStatus('Nie udało się ustalić ID: ' + e);
-        }
-    }
-
-    async function harvestFootyMetrics() {
-        const input = document.getElementById('fmInput').value.trim();
-        if (!input) {
-            updateFmStatus('Wklej link do drużyny, ligi albo h2h z FootyMetrics.');
-            return;
-        }
-        if (!window.go?.main?.App?.HarvestFootyMetrics) return;
-
-        updateFmStatus('Pobieram z FootyMetrics...');
-        try {
-            const res = await window.go.main.App.HarvestFootyMetrics(input, currentHomeSlug, currentAwaySlug);
-            if (res.homeId) document.getElementById('fmHomeId').value = res.homeId;
-            if (res.awayId) document.getElementById('fmAwayId').value = res.awayId;
-            updateFmStatus(res.message || 'Gotowe.');
-        } catch (e) {
-            updateFmStatus('Błąd: ' + e);
-        }
     }
 
     async function handleUrlChange(url, source) {
@@ -1073,8 +976,6 @@
                 }
                 document.getElementById('homeIdInput').value = '';
                 document.getElementById('awayIdInput').value = '';
-                document.getElementById('fmHomeId').value = '';
-                document.getElementById('fmAwayId').value = '';
                 document.getElementById('leagueSelectorWrap').style.display = 'none';
             }
             if (key !== null) currentMatchKey = key;
@@ -1085,11 +986,7 @@
             if (detected.homeId) document.getElementById('homeIdInput').value = detected.homeId;
             if (detected.awayId) document.getElementById('awayIdInput').value = detected.awayId;
 
-            if (detected.homeFmId) document.getElementById('fmHomeId').value = detected.homeFmId;
-            if (detected.awayFmId) document.getElementById('fmAwayId').value = detected.awayFmId;
-
             checkAndLoadTournaments();
-            resolveFootyMetricsForMatch();
         } catch (e) {}
     }
 
@@ -1132,11 +1029,9 @@
         const sb = document.getElementById('sbInput').value.trim();
         const betclic = document.getElementById('betclicInput').value.trim();
         const sts = document.getElementById('stsInput').value.trim();
-        const home = document.getElementById('homeIdInput').value.trim();
-        const away = document.getElementById('awayIdInput').value.trim();
+        let home = document.getElementById('homeIdInput').value.trim();
+        let away = document.getElementById('awayIdInput').value.trim();
         const limit = parseInt(document.getElementById('matchSlider').value, 10) || 10;
-        const fmHome = document.getElementById('fmHomeId').value.trim();
-        const fmAway = document.getElementById('fmAwayId').value.trim();
 
         const checkedBoxes = Array.from(document.querySelectorAll('.league-cb:checked'));
         let selectedTournaments = "";
@@ -1151,24 +1046,27 @@
         btn.innerHTML = `⏳ Analizowanie...`;
         tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 40px; color: var(--accent);">
             <div style="font-size:16px; font-weight:700; margin-bottom:8px;">Pobieranie kursów bukmacherskich, składów i statystyk...</div>
-            <div style="font-size:12px; color:var(--text-muted);">Pobieranie strumieni Betclic gRPC, STS WebSocket oraz FootyMetrics...</div>
+            <div style="font-size:12px; color:var(--text-muted);">Auto-detekcja ID w SofaScore, pobieranie strumieni Betclic gRPC, STS WebSocket oraz SofaScore API...</div>
         </td></tr>`;
 
         try {
-            rawBets = await window.go.main.App.AnalyzeThreeBookmakers(sb, betclic, sts, home, away, limit, selectedTournaments, fmHome, fmAway);
+            rawBets = await window.go.main.App.AnalyzeThreeBookmakers(sb, betclic, sts, home, away, limit, selectedTournaments);
+
+            // Aktualizacja pól, jeśli zostały automatycznie uzupełnione w backendzie
+            if (!home && rawBets.length > 0) {
+                home = rawBets.find(b => b.teamSide === 'HOME')?.teamId || '';
+                document.getElementById('homeIdInput').value = home;
+            }
+            if (!away && rawBets.length > 0) {
+                away = rawBets.find(b => b.teamSide === 'AWAY')?.teamId || '';
+                document.getElementById('awayIdInput').value = away;
+            }
 
             updateTeamDropdown(rawBets);
             syncMinOddsSliderRange();
             renderFiltered();
             updateStats();
 
-            // Zapis ręcznie podanych lub wykrytych ID StatsHub do team_cache.json
-            if (window.go?.main?.App?.SaveTeamStatsHubID) {
-                if (currentHomeSlug && home) await window.go.main.App.SaveTeamStatsHubID(currentHomeSlug, home);
-                if (currentAwaySlug && away) await window.go.main.App.SaveTeamStatsHubID(currentAwaySlug, away);
-            }
-
-            // Konstrukcja czytelnego tytułu w historii spotkań
             let title = "";
             if (currentHomeSlug && currentAwaySlug) {
                 title = `${currentHomeSlug} vs ${currentAwaySlug}`;
@@ -1221,7 +1119,7 @@
                 <button class="card-del" onclick="deleteHistoryEntry(${idx}, event)">✕</button>
                 <div class="card-title">${item.title}</div>
                 <div class="card-date">${item.timestamp || ''}${sampleText}</div>
-                <div class="card-sub">SH: ${item.homeStatsId || '-'} / ${item.awayStatsId || '-'}</div>
+                <div class="card-sub">Sofa: ${item.homeStatsId || '-'} / ${item.awayStatsId || '-'}</div>
             `;
             div.onclick = () => {
                 document.getElementById('sbInput').value = item.sbUrl || '';
@@ -1229,10 +1127,7 @@
                 document.getElementById('stsInput').value = item.stsUrl || '';
                 document.getElementById('homeIdInput').value = item.homeStatsId || '';
                 document.getElementById('awayIdInput').value = item.awayStatsId || '';
-                document.getElementById('fmHomeId').value = '';
-                document.getElementById('fmAwayId').value = '';
 
-                // Przywrócenie zapisanej próbki suwaka
                 if (item.sampleLimit && item.sampleLimit > 0) {
                     const slider = document.getElementById('matchSlider');
                     slider.value = item.sampleLimit;
@@ -1446,7 +1341,7 @@
         useSuperSub = true;
         const btn = document.getElementById('superSubToggle');
         if (btn) {
-            btn.style.display = bet.statsSource === 'FOOTYMETRICS' ? 'none' : '';
+            btn.style.display = '';
             btn.textContent = "⚡ SuperSub: WŁ";
             btn.style.borderColor = "var(--accent)";
             btn.style.color = "var(--accent)";
@@ -1644,8 +1539,6 @@
             if (b.verdict === "VALUE") badge = '<span class="badge-value">🟢 VALUE</span>';
             if (b.verdict === "TRAP") badge = '<span class="badge-trap">🔴 PUŁAPKA</span>';
 
-            const isFmMarket = b.statsSource === 'FOOTYMETRICS' || b.marketType === 'TACKLES' || b.marketType === 'SHOTS_OUTSIDE_BOX' || b.marketType === 'SHOTS_INSIDE_BOX';
-
             let lineupBadge = '';
             if (b.lineupStatus === 'STARTER') {
                 lineupBadge = '<span class="badge-starter" title="Potwierdzona wyjściowa XI">XI</span>';
@@ -1656,7 +1549,7 @@
             tr.innerHTML = `
                 <td><span class="badge-bm bm-${b.bookmaker}">${b.bookmaker}</span></td>
                 <td><b>${b.playerName}</b>${lineupBadge}</td>
-                <td>${b.marketLabel}${isFmMarket ? '<span class="tag-src" title="Próbka z FootyMetrics">FM</span>' : ''}</td>
+                <td>${b.marketLabel}<span class="tag-src" title="Próbka z SofaScore">SOFA</span></td>
                 <td>${b.isUnder ? 'under' : 'over'} ${b.line}</td>
                 <td><b>${b.bookmakerOdds.toFixed(2)}</b></td>
                 <td>${b.fairOdds.toFixed(2)}</td>
@@ -1704,7 +1597,6 @@
                 </td>`;
             }).join("");
 
-            const isFmMarket = g.statsSource === 'FOOTYMETRICS' || g.marketType === 'TACKLES' || g.marketType === 'SHOTS_OUTSIDE_BOX' || g.marketType === 'SHOTS_INSIDE_BOX';
             const spreadText = Object.keys(g.books).length >= 2 ? g.bookmakerSpread.toFixed(2) : '—';
 
             let lineupBadge = '';
@@ -1718,7 +1610,7 @@
             tr.className = 'result-row';
             tr.innerHTML = `
                 <td><b>${g.playerName}</b>${lineupBadge}</td>
-                <td>${MARKET_LABELS[g.marketType] || g.marketType}${isFmMarket ? '<span class="tag-src" title="Próbka z FootyMetrics">FM</span>' : ''}</td>
+                <td>${MARKET_LABELS[g.marketType] || g.marketType}<span class="tag-src" title="Próbka z SofaScore">SOFA</span></td>
                 <td>${g.isUnder ? 'under' : 'over'} ${g.line}</td>
                 <td>${g.fairOdds.toFixed(2)}</td>
                 <td style="font-weight:700; color:var(--accent);">${g.hitRate}%</td>
@@ -1748,7 +1640,7 @@
                         evWithTax: o.evWithTax,
                         verdict: o.verdict,
                         matchesSample: g.matchesSample,
-                        statsSource: g.statsSource,
+                        statsSource: "SOFASCORE",
                         teamSide: g.teamSide,
                         teamId: g.teamId,
                         teamName: g.teamName,
@@ -1808,14 +1700,13 @@
 
         myBets.forEach(b => {
             const hasSample = Array.isArray(b.sampleValues) && b.sampleValues.length > 0;
-            const isFmMarket = b.statsSource === 'FOOTYMETRICS' || b.marketType === 'TACKLES' || b.marketType === 'SHOTS_OUTSIDE_BOX' || b.marketType === 'SHOTS_INSIDE_BOX';
 
             const card = document.createElement("div");
             card.className = "item-card";
             card.innerHTML = `
                 <div class="card-title">${b.playerName} ${b.lineupStatus === 'STARTER' ? '🟢' : (b.lineupStatus === 'BENCH' ? '🟡' : '')}</div>
                 <div style="font-size:11px; color:var(--text-muted); margin-top:-2px; margin-bottom:2px;">${b.teamName || (b.teamSide === 'HOME' ? 'Gospodarze' : (b.teamSide === 'AWAY' ? 'Goście' : ''))}</div>
-                <div class="card-sub">${b.marketLabel} (${b.isUnder ? 'under' : 'over'} ${b.line})${isFmMarket ? ' [FM]' : ''}</div>
+                <div class="card-sub">${b.marketLabel} (${b.isUnder ? 'under' : 'over'} ${b.line}) [SOFA]</div>
                 <div style="margin-top:4px; font-weight:700; color:var(--accent);">
                     @${b.bookmakerOdds ? b.bookmakerOdds.toFixed(2) : '-'} | HR: ${b.hitRate}% [${b.bookmaker}]
                 </div>
