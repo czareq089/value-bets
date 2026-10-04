@@ -206,6 +206,15 @@
             background: var(--pitch-color);
             display: block;
         }
+        .shotmap-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px 12px;
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+        .shotmap-legend span { white-space: nowrap; }
 
         .chart-legend { display: flex; flex-wrap: wrap; gap: 14px; color: var(--text-muted); font-size: 11px; margin-top: 10px; }
         .legend-item { display: flex; align-items: center; gap: 5px; }
@@ -463,11 +472,11 @@
                     <rect x="122" y="0" width="36" height="3" fill="#ffffff"></rect>
                     <g id="shotmapPointsGroup"></g>
                 </svg>
-                <div style="font-size:10px; color:var(--text-muted); display:flex; justify-content:space-between; margin-top:2px;">
+                <div class="shotmap-legend">
                     <span>🟢 Celny</span>
                     <span>🔴 Niecelny / Słupek</span>
                     <span style="color:#c084fc;">🟣 Zablokowany</span>
-                    <span>⭐ Gol (Celny + Gwiazdka)</span>
+                    <span>⭐ Gol (celny)</span>
                 </div>
                 <div id="shotmapMatchDetails" style="font-size:11px; color:#fff; border-top:1px solid var(--border); padding-top:6px; margin-top:4px;">
                     Kliknij słupek na wykresie, aby wyizolować strzały z danego meczu.
@@ -852,9 +861,9 @@
                     wrap.style.display = 'none';
                     return;
                 }
-                container.innerHTML = list.map((l, i) => `
+                container.innerHTML = list.map(l => `
                     <label style="margin-right:12px; cursor:pointer;">
-                        <input type="checkbox" class="league-cb" value="${l.id}" ${i === 0 ? 'checked' : ''}> ${l.name}
+                        <input type="checkbox" class="league-cb" value="${l.id}"> ${l.name}
                     </label>
                 `).join('');
                 wrap.style.display = 'block';
@@ -1501,19 +1510,23 @@
         const matchShotsList = bet.sampleShots || [];
         let shotsToRender = [];
 
-        if (matchIndex !== null && matchShotsList[matchIndex]) {
-            shotsToRender = matchShotsList[matchIndex];
+        const isSingleMatch = matchIndex !== null;
+        if (isSingleMatch) {
+            shotsToRender = Array.isArray(matchShotsList[matchIndex]) ? matchShotsList[matchIndex] : [];
+        } else {
+            matchShotsList.forEach(mShots => {
+                if (Array.isArray(mShots)) shotsToRender.push(...mShots);
+            });
+        }
+        shotsToRender = shotsToRender.filter(shot => useSuperSub || !shot.isSub);
+
+        if (isSingleMatch) {
             const opp = (bet.sampleOpponents || [])[matchIndex] || `Mecz ${matchIndex + 1}`;
             const dt = (bet.sampleDates || [])[matchIndex] || '';
             filterTitle.textContent = "Wróć do całości";
             filterTitle.style.textDecoration = "underline";
             details.innerHTML = `Strzały w meczu vs <b>${opp}</b> (${dt}): <b>${shotsToRender.length}</b>`;
         } else {
-            matchShotsList.forEach(mShots => {
-                if (Array.isArray(mShots)) {
-                    shotsToRender.push(...mShots);
-                }
-            });
             filterTitle.textContent = "Wszystkie mecze";
             filterTitle.style.textDecoration = "none";
             details.innerHTML = `Łącznie strzałów w całej próbce (${bet.matchesSample} spotkań): <b>${shotsToRender.length}</b>`;
@@ -1525,8 +1538,6 @@
         }
 
         shotsToRender.forEach(shot => {
-            if (!useSuperSub && shot.isSub) return;
-
             let pitchY = (shot.x <= 50 ? shot.x : (100 - shot.x)) * 3.8 + 10;
             let pitchX = shot.y * 2.8;
 
@@ -1549,7 +1560,9 @@
                     strokeColor = "#022c22";
                     r = 5.5;
                     break;
+                case "block":
                 case "blocked":
+                case "blocked-off-line":
                     fillColor = "#a855f7"; // Zablokowany = fioletowy
                     strokeColor = "#581c87";
                     r = 5.5;

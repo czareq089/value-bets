@@ -1,1 +1,4 @@
 *.md
+/build/
+/.llm_context/
+/frontend/wailsjs/

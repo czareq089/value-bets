@@ -240,6 +240,17 @@ type SofaPlayerStats struct {
 	Dispossessed           int `json:"dispossessed"`
 }
 
+func excludeBlockedShotsFromOnTarget(stats *SofaPlayerStats, shots []ShotCoordinate, isSub bool) {
+	for _, shot := range shots {
+		// SofaScore includes goal-line blocks in onTargetScoringAttempt.
+		// Our shot markets classify every blocked shot separately from saves and goals.
+		if shot.IsSub == isSub && shot.ShotType == "blocked-off-line" && stats.OnTargetScoringAttempt > 0 {
+			stats.OnTargetScoringAttempt--
+			stats.BlockedScoringAttempt++
+		}
+	}
+}
+
 type SofaPlayerDetails struct {
 	ID        int    `json:"id"`
 	Name      string `json:"name"`
@@ -290,11 +301,35 @@ type SofaShotmapResponse struct {
 		} `json:"player"`
 		IsHome            bool   `json:"isHome"`
 		ShotType          string `json:"shotType"`
+		GoalType          string `json:"goalType"`
 		PlayerCoordinates struct {
 			X float64 `json:"x"`
 			Y float64 `json:"y"`
 		} `json:"playerCoordinates"`
 	} `json:"shotmap"`
+}
+
+func (s SofaShotmapResponse) PlayerShots(playerID, subPlayerID int) []ShotCoordinate {
+	var shots []ShotCoordinate
+	for _, shot := range s.Shotmap {
+		// Own goals are defensive incidents, not the player's scoring attempts.
+		if shot.GoalType == "own" {
+			continue
+		}
+		isSub := subPlayerID > 0 && shot.Player.ID == subPlayerID
+		if shot.Player.ID != playerID && !isSub {
+			continue
+		}
+		shots = append(shots, ShotCoordinate{
+			X:        shot.PlayerCoordinates.X,
+			Y:        shot.PlayerCoordinates.Y,
+			ShotType: shot.ShotType,
+			InBox:    isShotInsideBox(shot.PlayerCoordinates.X, shot.PlayerCoordinates.Y),
+			OnTarget: shot.ShotType == "save" || shot.ShotType == "goal",
+			IsSub:    shot.Player.ID != playerID,
+		})
+	}
+	return shots
 }
 
 type SofaPlayerEventsResponse struct {
@@ -381,6 +416,7 @@ var (
 )
 
 const playerCacheTTL = 6 * time.Hour
+const playerCacheVersion = 3
 
 func initPlayerCache() {
 	playerStatsCacheMu.Lock()
@@ -1126,7 +1162,7 @@ func isShotInsideBox(x, y float64) bool {
 
 func FetchSofaPlayerCompleteHistory(playerID int, matchLimit int, allowedTournamentIDs string) (*PlayerStatHistory, error) {
 	// Sprawdzenie pamięci podręcznej (Cache 6h)
-	cacheKey := fmt.Sprintf("%d_%d_%s", playerID, matchLimit, allowedTournamentIDs)
+	cacheKey := fmt.Sprintf("v%d_%d_%d_%s", playerCacheVersion, playerID, matchLimit, allowedTournamentIDs)
 	if cached, ok := getPlayerCache(cacheKey); ok {
 		log.Printf("[SOFA-PLAYER-CACHE] Trafienie w cache dla gracza %d (limit: %d, turnieje: %s)", playerID, matchLimit, allowedTournamentIDs)
 		return cached, nil
@@ -1333,57 +1369,30 @@ func FetchSofaPlayerCompleteHistory(playerID int, matchLimit int, allowedTournam
 				if smBody, err := client.GetSofa(smURL); err == nil {
 					var smRes SofaShotmapResponse
 					if json.Unmarshal(smBody, &smRes) == nil {
-						for _, shot := range smRes.Shotmap {
-							inBox := isShotInsideBox(shot.PlayerCoordinates.X, shot.PlayerCoordinates.Y)
-							isOnTarget := shot.ShotType == "save" || shot.ShotType == "goal"
-
-							if shot.Player.ID == playerID {
-								if inBox {
-									playerZone.inside++
-									if isOnTarget {
-										playerZone.insideTarget++
-									}
-								} else {
-									playerZone.outside++
-									if isOnTarget {
-										playerZone.outsideTarget++
-									}
+						matchShots = smRes.PlayerShots(playerID, subPlayerID)
+						for _, shot := range matchShots {
+							zone := &playerZone
+							if shot.IsSub {
+								zone = &subZone
+							}
+							if shot.InBox {
+								zone.inside++
+								if shot.OnTarget {
+									zone.insideTarget++
 								}
-
-								matchShots = append(matchShots, ShotCoordinate{
-									X:        shot.PlayerCoordinates.X,
-									Y:        shot.PlayerCoordinates.Y,
-									ShotType: shot.ShotType,
-									InBox:    inBox,
-									OnTarget: isOnTarget,
-									IsSub:    false,
-								})
-							} else if subPlayerID > 0 && shot.Player.ID == subPlayerID {
-								if inBox {
-									subZone.inside++
-									if isOnTarget {
-										subZone.insideTarget++
-									}
-								} else {
-									subZone.outside++
-									if isOnTarget {
-										subZone.outsideTarget++
-									}
+							} else {
+								zone.outside++
+								if shot.OnTarget {
+									zone.outsideTarget++
 								}
-
-								matchShots = append(matchShots, ShotCoordinate{
-									X:        shot.PlayerCoordinates.X,
-									Y:        shot.PlayerCoordinates.Y,
-									ShotType: shot.ShotType,
-									InBox:    inBox,
-									OnTarget: isOnTarget,
-									IsSub:    true,
-								})
 							}
 						}
 					}
 				}
 			}
+
+			excludeBlockedShotsFromOnTarget(&pStat.Statistics, matchShots, false)
+			excludeBlockedShotsFromOnTarget(&subStats, matchShots, true)
 
 			resultsChan <- matchStatResult{
 				order:    idx,
