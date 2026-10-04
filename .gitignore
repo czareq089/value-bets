@@ -2,3 +2,6 @@
 /build/
 /.llm_context/
 /frontend/wailsjs/
+/bookmaker_calendar_cache.json
+/logs/
+/.calendar-cache-*.tmp

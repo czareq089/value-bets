@@ -224,6 +224,103 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class PrefetchProgress {
+	    running: boolean;
+	    day: string;
+	    completed: number;
+	    total: number;
+	    cached: number;
+	    skipped: number;
+	    failed: number;
+	    currentMatch: string;
+	    playersDone: number;
+	    playersTotal: number;
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PrefetchProgress(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.running = source["running"];
+	        this.day = source["day"];
+	        this.completed = source["completed"];
+	        this.total = source["total"];
+	        this.cached = source["cached"];
+	        this.skipped = source["skipped"];
+	        this.failed = source["failed"];
+	        this.currentMatch = source["currentMatch"];
+	        this.playersDone = source["playersDone"];
+	        this.playersTotal = source["playersTotal"];
+	        this.message = source["message"];
+	    }
+	}
+	
+	export class SuperbetCalendarEvent {
+	    id: string;
+	    home: string;
+	    away: string;
+	    competition: string;
+	    country: string;
+	    startTime: string;
+	    url: string;
+	    live: boolean;
+	    betBuilder: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SuperbetCalendarEvent(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.home = source["home"];
+	        this.away = source["away"];
+	        this.competition = source["competition"];
+	        this.country = source["country"];
+	        this.startTime = source["startTime"];
+	        this.url = source["url"];
+	        this.live = source["live"];
+	        this.betBuilder = source["betBuilder"];
+	    }
+	}
+	export class SuperbetCalendar {
+	    date: string;
+	    events: SuperbetCalendarEvent[];
+	    warnings: string[];
+	    fetchedAt?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SuperbetCalendar(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.date = source["date"];
+	        this.events = this.convertValues(source["events"], SuperbetCalendarEvent);
+	        this.warnings = source["warnings"];
+	        this.fetchedAt = source["fetchedAt"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	
 	export class TeamDetectionResult {
 	    homeSlug: string;

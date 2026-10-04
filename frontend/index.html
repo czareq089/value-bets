@@ -49,6 +49,14 @@
             border-radius: 4px; cursor: pointer; width: 22px; height: 22px; line-height: 18px; text-align: center;
         }
         .dock-toggle:hover { color: #fff; border-color: var(--accent); }
+        .dock-calendar { width: 280px; min-width: 280px; }
+        .calendar-status { font-size: 11px; color: var(--text-muted); line-height: 1.5; }
+        .calendar-list { display: flex; flex-direction: column; gap: 8px; }
+        .calendar-controls { display: flex; gap: 6px; }
+        .calendar-controls input { min-width: 0; flex: 1; color-scheme: dark; }
+        .calendar-card { width: 100%; text-align: left; color: #fff; }
+        .calendar-card.selected { border-color: var(--sb-color); }
+        .calendar-live { color: var(--danger); font-weight: 700; }
         .dock-content { padding: 10px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 8px; }
 
         .item-card {
@@ -63,6 +71,10 @@
 
         .main-container { flex: 1; display: flex; flex-direction: column; padding: 14px 18px; overflow-y: auto; min-width: 800px; }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+        .prefetch-strip { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; color: var(--text-muted); font-size: 10px; }
+        .prefetch-strip[hidden] { display: none; }
+        .prefetch-strip progress { width: 130px; height: 4px; accent-color: var(--accent); flex-shrink: 0; }
+        .prefetch-strip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .title-box h1 { font-size: 20px; font-weight: 800; color: var(--accent); }
         .panel { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
 
@@ -245,9 +257,43 @@
         .btn-ghost { background: transparent; border: 1px solid var(--accent); color: var(--accent); font-weight: 700;
             border-radius: 6px; height: 34px; padding: 0 14px; cursor: pointer; font-size: 12px; }
         .btn-ghost:hover { background: rgba(56,189,248,0.12); }
+        @media (max-width: 1700px) {
+            .main-container { min-width: 0; }
+            .dock:not(.collapsed):not(.dock-calendar) { width: 220px; min-width: 220px; }
+            .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
     </style>
 </head>
 <body>
+
+<div class="dock dock-calendar" id="dockCalendar">
+    <div class="dock-header">
+        <span class="dock-title">📅 Kalendarz meczów</span>
+        <button class="dock-toggle" onclick="toggleDock('dockCalendar')" aria-label="Zwiń kalendarz">◀</button>
+    </div>
+    <div class="dock-content">
+        <select id="calendarBookmaker" class="filter-select" onchange="loadSuperbetCalendar()" aria-label="Bukmacher kalendarza">
+            <option value="SUPERBET">Superbet</option>
+            <option value="STS">STS</option>
+            <option value="BETCLIC">Betclic</option>
+        </select>
+        <div class="input-group">
+            <label for="calendarDate">Dzień (czas polski)</label>
+            <div class="calendar-controls">
+                <input type="date" id="calendarDate" onchange="loadSuperbetCalendar()">
+                <button class="btn-ghost" id="calendarRefresh" onclick="loadSuperbetCalendar(true)" title="Odśwież wszystkie kalendarze">↻</button>
+            </div>
+        </div>
+        <input type="search" id="calendarSearch" class="search-box" style="flex:none; width:100%;" placeholder="Szukaj drużyny lub ligi…" oninput="renderSuperbetCalendar()" aria-label="Szukaj w kalendarzu">
+        <select class="filter-select" id="calendarLeague" onchange="renderSuperbetCalendar()" aria-label="Rozgrywki kalendarza">
+            <option value="">Wszystkie rozgrywki</option>
+        </select>
+        <label style="font-size:11px; color:var(--text-muted);"><input type="checkbox" id="calendarBuilderOnly" onchange="renderSuperbetCalendar()"> Tylko mecze z BetBuilderem</label>
+        <div id="calendarStatus" class="calendar-status" role="status"></div>
+        <div id="calendarWarnings" class="calendar-status" style="color:var(--sb-color);"></div>
+        <div id="calendarList" class="calendar-list"></div>
+    </div>
+</div>
 
 <div class="dock" id="dockLeft">
     <div class="dock-header">
@@ -263,6 +309,11 @@
             <h1>ValueBets 3.0 <span style="font-size:13px; color:var(--accent); font-weight:600;">(Auto-SofaScore + Shotmap)</span></h1>
             <p style="color: var(--text-muted); font-size: 12px;">Wklej link do meczu — ID drużyn z SofaScore pobiorą się automatycznie! LPM = wykres i mini-mapa, PPM = MyBets.</p>
         </div>
+    </div>
+
+    <div id="prefetchStrip" class="prefetch-strip" hidden>
+        <progress id="prefetchBar" max="100" value="0" aria-label="Postęp pobierania w tle"></progress>
+        <span id="prefetchLabel" role="status"></span>
     </div>
 
     <div class="panel">
@@ -557,6 +608,16 @@
     let currentChartBet = null;
     let useSuperSub = true;
     let selectedMatchIndexForShotmap = null;
+    let calendarEvents = [];
+    let calendarRequest = 0;
+    let calendarSelectedID = null;
+    let calendarSelecting = false;
+    let calendarSelection = 0;
+    const calendarCache = new Map();
+    const CALENDAR_METHODS = { SUPERBET: 'GetSuperbetCalendar', STS: 'GetSTSCalendar', BETCLIC: 'GetBetclicCalendar' };
+    const CALENDAR_INPUTS = { SUPERBET: 'sbInput', STS: 'stsInput', BETCLIC: 'betclicInput' };
+    const CALENDAR_LABELS = { SUPERBET: 'Superbet', STS: 'STS', BETCLIC: 'Betclic' };
+    let prefetchPolling = false;
 
     const MARKET_LABELS = {
         SHOTS_TOTAL: "Strzały",
@@ -578,6 +639,12 @@
     const BOOKMAKERS = ["SUPERBET", "BETCLIC", "STS"];
 
     window.onload = async () => {
+        const dateParts = new Intl.DateTimeFormat('en-CA', {timeZone: 'Europe/Warsaw', year: 'numeric', month: '2-digit', day: '2-digit'}).formatToParts(new Date());
+        const datePart = type => dateParts.find(part => part.type === type).value;
+        document.getElementById('calendarDate').value = `${datePart('year')}-${datePart('month')}-${datePart('day')}`;
+        loadSuperbetCalendar();
+        refreshPrefetchProgress();
+        setInterval(refreshPrefetchProgress, 1500);
         renderTableHeaders();
         updateDropdownLabels();
 
@@ -667,6 +734,7 @@
     }
 
     function clearAllInputs() {
+        cancelCalendarSelection();
         const ids = ['sbInput', 'betclicInput', 'stsInput', 'homeIdInput', 'awayIdInput'];
         ids.forEach(id => {
             const el = document.getElementById(id);
@@ -783,10 +851,320 @@
         const d = document.getElementById(id);
         d.classList.toggle('collapsed');
         const btn = d.querySelector('.dock-toggle');
-        if (id === 'dockLeft') {
+        if (id === 'dockLeft' || id === 'dockCalendar') {
             btn.textContent = d.classList.contains('collapsed') ? '▶' : '◀';
         } else {
             btn.textContent = d.classList.contains('collapsed') ? '◀' : '▶';
+        }
+    }
+
+    async function refreshPrefetchProgress() {
+        if (prefetchPolling || !window.go?.main?.App?.GetPrefetchProgress) return;
+        prefetchPolling = true;
+        try {
+            const state = await window.go.main.App.GetPrefetchProgress();
+            const strip = document.getElementById('prefetchStrip');
+            const bar = document.getElementById('prefetchBar');
+            const label = document.getElementById('prefetchLabel');
+            strip.hidden = !state.running && !state.message;
+            if (state.running && !state.total) bar.removeAttribute('value');
+            else bar.value = state.total ? Math.min(100, state.completed / state.total * 100) : 0;
+            const date = state.day ? state.day.slice(5).split('-').reverse().join('.') : '';
+            const counts = state.total ? ` · ${state.completed}/${state.total} meczów` : '';
+            const players = state.running && state.playersTotal ? ` · zawodnicy ${state.playersDone}/${state.playersTotal}` : '';
+            const details = state.running && state.currentMatch ? ` · ${state.currentMatch}` : ` · ${state.message || ''}`;
+            const errors = state.failed ? ` · błędy: ${state.failed}` : '';
+            label.textContent = `W tle${date ? ' · ' + date : ''}${counts}${players}${details}${errors}`;
+            strip.title = state.message || '';
+        } catch (error) {
+            console.error('Błąd odczytu postępu pobierania w tle:', error);
+        } finally {
+            prefetchPolling = false;
+        }
+    }
+
+    function cancelCalendarSelection() {
+        const wasSelecting = calendarSelecting;
+        const hadSelection = calendarSelectedID !== null;
+        calendarSelection++;
+        if (wasSelecting) document.getElementById('btnAnalyze').disabled = false;
+        calendarSelecting = false;
+        calendarSelectedID = null;
+        if (wasSelecting || hadSelection) renderSuperbetCalendar();
+    }
+
+    function fetchBookmakerCalendar(bookmaker, date, force = false) {
+        const key = `${date}:${bookmaker}`;
+        const cached = calendarCache.get(key);
+        if (cached?.promise) return cached.promise;
+        if (!force && cached?.result && Date.now() - cached.fetchedAt < 2 * 60 * 60 * 1000) {
+            return Promise.resolve(cached.result);
+        }
+        const entry = {};
+        calendarCache.set(key, entry);
+        entry.promise = Promise.resolve().then(async () => {
+            const method = CALENDAR_METHODS[bookmaker];
+            if (!window.go?.main?.App?.[method]) throw new Error('Uruchom ponownie aplikację, aby wczytać kalendarz.');
+            if (force && !window.go?.main?.App?.RefreshBookmakerCalendar) throw new Error('Uruchom ponownie aplikację, aby odświeżyć kalendarze.');
+            const result = force
+                ? await window.go.main.App.RefreshBookmakerCalendar(bookmaker, date)
+                : await window.go.main.App[method](date);
+            entry.result = {
+                ...result,
+                events: (result.events || []).map(event => ({ ...event, bookmaker, calendarDate: date }))
+            };
+            // Use the source timestamp, not the time a disk cache hit reached the UI.
+            entry.fetchedAt = Date.parse(result.fetchedAt) || Date.now();
+            entry.promise = null;
+            return entry.result;
+        }).catch(error => {
+            if (calendarCache.get(key) === entry) calendarCache.delete(key);
+            throw error;
+        });
+        return entry.promise;
+    }
+
+    async function loadSuperbetCalendar(force = false) {
+        const date = document.getElementById('calendarDate').value;
+        if (!date) return;
+        const bookmaker = document.getElementById('calendarBookmaker').value;
+        if (force) calendarCache.clear();
+        cancelCalendarSelection();
+        const builderOnly = document.getElementById('calendarBuilderOnly');
+        builderOnly.disabled = bookmaker === 'BETCLIC';
+        if (builderOnly.disabled) builderOnly.checked = false;
+        const request = ++calendarRequest;
+        calendarSelectedID = null;
+        const status = document.getElementById('calendarStatus');
+        const refresh = document.getElementById('calendarRefresh');
+        refresh.disabled = true;
+        calendarEvents = [];
+        document.getElementById('calendarList').replaceChildren();
+        document.getElementById('calendarWarnings').textContent = '';
+        status.textContent = 'Pobieranie kalendarza…';
+        // Warm all sources concurrently; a click joins the same pending requests.
+        BOOKMAKERS.filter(source => source !== bookmaker).forEach(source => {
+            fetchBookmakerCalendar(source, date, force).catch(error => {
+                console.error(`Kalendarz ${CALENDAR_LABELS[source]} (${date}):`, error);
+            });
+        });
+        try {
+            const result = await fetchBookmakerCalendar(bookmaker, date, force);
+            if (request !== calendarRequest) return;
+            calendarEvents = result.events;
+            document.getElementById('calendarWarnings').textContent = (result.warnings || []).join(' · ');
+            const select = document.getElementById('calendarLeague');
+            const previous = select.value;
+            select.replaceChildren(new Option('Wszystkie rozgrywki', ''));
+            const leagues = new Map();
+            calendarEvents.forEach(event => leagues.set(JSON.stringify([event.country, event.competition]),
+                [event.country, event.competition].filter(Boolean).join(' · ')));
+            [...leagues.entries()].sort((a, b) => a[1].localeCompare(b[1], 'pl')).forEach(([value, label]) => select.add(new Option(label, value)));
+            select.value = leagues.has(previous) ? previous : '';
+            renderSuperbetCalendar();
+        } catch (error) {
+            if (request !== calendarRequest) return;
+            status.textContent = `Nie udało się pobrać kalendarza: ${error.message || error}`;
+        } finally {
+            if (request === calendarRequest) refresh.disabled = false;
+        }
+    }
+
+    function renderSuperbetCalendar() {
+        const normalize = text => String(text || '').toLowerCase().replace(/ł/g, 'l').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        const search = normalize(document.getElementById('calendarSearch').value.trim());
+        const league = document.getElementById('calendarLeague').value;
+        const builderOnly = document.getElementById('calendarBuilderOnly').checked;
+        const events = calendarEvents.filter(event => (!builderOnly || event.betBuilder) &&
+            (!league || JSON.stringify([event.country, event.competition]) === league) &&
+            normalize(`${event.home} ${event.away} ${event.competition} ${event.country}`).includes(search));
+        const list = document.getElementById('calendarList');
+        list.replaceChildren();
+        document.getElementById('calendarStatus').textContent = calendarEvents.length
+            ? `${events.length} z ${calendarEvents.length} meczów · kliknij mecz, aby go wybrać`
+            : 'Brak meczów w dostępnej ofercie na ten dzień.';
+        if (!events.length && calendarEvents.length) document.getElementById('calendarStatus').textContent = 'Brak meczów pasujących do filtrów.';
+        events.forEach(event => {
+            const card = document.createElement('button');
+            card.type = 'button';
+            card.className = `item-card calendar-card${event.id === calendarSelectedID ? ' selected' : ''}`;
+            card.disabled = calendarSelecting;
+            const time = document.createElement('div');
+            time.className = 'card-date';
+            time.textContent = new Intl.DateTimeFormat('pl-PL', {timeZone: 'Europe/Warsaw', hour: '2-digit', minute: '2-digit'}).format(new Date(event.startTime));
+            if (event.live) {
+                const live = document.createElement('span');
+                live.className = 'calendar-live';
+                live.textContent = ' · NA ŻYWO';
+                time.appendChild(live);
+            }
+            const title = document.createElement('div');
+            title.className = 'card-title';
+            title.textContent = `${event.home} – ${event.away}`;
+            const competition = document.createElement('div');
+            competition.className = 'card-sub';
+            competition.textContent = [event.country, event.competition].filter(Boolean).join(' · ');
+            const builder = document.createElement('div');
+            builder.className = 'card-sub';
+            builder.style.color = 'var(--sb-color)';
+            builder.textContent = event.bookmaker === 'BETCLIC' ? 'Rynki zawodników sprawdzimy podczas analizy' : (event.betBuilder ? 'BetBuilder dostępny' : '');
+            card.append(time, title, competition, builder);
+            card.onclick = () => selectSuperbetCalendarEvent(event);
+            list.appendChild(card);
+        });
+    }
+
+    function calendarTeamName(name) {
+        const normalized = String(name || '').toLowerCase().replace(/ł/g, 'l').replace(/ß/g, 'ss')
+            .replace(/ø/g, 'o').replace(/đ/g, 'd').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .replace(/u\s*[-.]?\s*(\d{2})\b/g, 'u$1').replace(/[^a-z0-9]+/g, ' ').trim();
+        const clubWords = new Set(['fc', 'cf', 'afc', 'fk', 'sk', 'ks', 'sc', 'ac', 'ssc', 'as', 'rc', 'cd']);
+        const qualifiers = [];
+        const words = normalized.split(/\s+/).filter(word => {
+            if (/^u\d{2}$/.test(word)) { qualifiers.push(word); return false; }
+            if (['women', 'woman', 'ladies', 'kobiety', 'fem', 'feminino', 'femenino', 'femminile'].includes(word)) {
+                qualifiers.push('women'); return false;
+            }
+            return !clubWords.has(word);
+        });
+        while (words.length) {
+            const last = words[words.length - 1];
+            if (['k', 'w', 'f'].includes(last)) qualifiers.push('women');
+            else if (['b', 'ii', 'res', 'reserves', 'rezerwy'].includes(last)) qualifiers.push('reserves');
+            else if (['iii', 'iv'].includes(last)) qualifiers.push(last);
+            else break;
+            words.pop();
+        }
+        let core = words.join(' ');
+        const aliases = {
+            'man utd': 'manchester united', 'manchester utd': 'manchester united', 'man united': 'manchester united',
+            'man city': 'manchester city', 'psg': 'paris saint germain', 'paris sg': 'paris saint germain',
+            'bayern monachium': 'bayern munich', 'bayern munchen': 'bayern munich',
+            'inter mediolan': 'inter', 'inter milan': 'inter', 'internazionale': 'inter',
+            'atletico madryt': 'atletico madrid', 'real madryt': 'real madrid',
+            'sporting lizbona': 'sporting lisboa', 'sporting lisbon': 'sporting lisboa', 'sporting cp': 'sporting lisboa',
+            'juventus turyn': 'juventus', 'ajax amsterdam': 'ajax', 'benfica lizbona': 'benfica',
+            'arsenal londyn': 'arsenal', 'chelsea londyn': 'chelsea', 'tottenham londyn': 'tottenham',
+            'tottenham hotspur': 'tottenham', 'west ham united': 'west ham',
+            'bvb': 'borussia dortmund', 'borussia m gladbach': 'borussia monchengladbach',
+            'borussia moenchengladbach': 'borussia monchengladbach'
+        };
+        core = aliases[core] || core;
+        return { core, qualifiers: [...new Set(qualifiers)].sort().join('|') };
+    }
+
+    function calendarTeamSimilarity(leftName, rightName) {
+        const left = calendarTeamName(leftName), right = calendarTeamName(rightName);
+        if (!left.core || !right.core || left.qualifiers !== right.qualifiers) return 0;
+        if (left.core === right.core) return 1;
+        const leftText = left.core.replace(/\s/g, ''), rightText = right.core.replace(/\s/g, '');
+        if (Math.min(leftText.length, rightText.length) < 5) return 0;
+        const pairs = text => {
+            const counts = new Map();
+            for (let i = 0; i < text.length - 1; i++) {
+                const pair = text.slice(i, i + 2);
+                counts.set(pair, (counts.get(pair) || 0) + 1);
+            }
+            return counts;
+        };
+        const a = pairs(leftText), b = pairs(rightText);
+        let common = 0;
+        for (const [pair, count] of a) common += Math.min(count, b.get(pair) || 0);
+        return 2 * common / (leftText.length + rightText.length - 2);
+    }
+
+    function matchCalendarEvent(selected, events) {
+        const selectedTime = Date.parse(selected.startTime);
+        if (!Number.isFinite(selectedTime)) return { reason: 'niepoprawny termin wybranego meczu' };
+        const candidates = [];
+        for (const candidate of events) {
+            if (!candidate.url) continue;
+            const difference = Math.abs(Date.parse(candidate.startTime) - selectedTime);
+            if (!Number.isFinite(difference) || difference > 10 * 60 * 1000) continue;
+            // Keep home/away orientation and youth, reserve and women's qualifiers.
+            const home = calendarTeamSimilarity(selected.home, candidate.home);
+            const away = calendarTeamSimilarity(selected.away, candidate.away);
+            const score = (home + away) / 2;
+            if (Math.min(home, away) >= 0.88 && score >= 0.94) {
+                candidates.push({ event: candidate, score: score - difference / (10 * 60 * 1000) * 0.01 });
+            }
+        }
+        candidates.sort((a, b) => b.score - a.score);
+        if (!candidates.length) return { reason: 'nie znaleziono zgodnego meczu w kalendarzu' };
+        if (candidates.length > 1 && candidates[0].score - candidates[1].score < 0.06) {
+            return { reason: 'kilka podobnych wydarzeń — wybierz link ręcznie' };
+        }
+        return { event: candidates[0].event };
+    }
+
+    async function fillCalendarLinks(event, selection) {
+        return Promise.all(BOOKMAKERS.map(async bookmaker => {
+            if (bookmaker === event.bookmaker) return { bookmaker, matched: true };
+            try {
+                const calendar = await fetchBookmakerCalendar(bookmaker, event.calendarDate);
+                if (selection !== calendarSelection) return { bookmaker, cancelled: true };
+                const match = matchCalendarEvent(event, calendar.events);
+                if (!match.event) return { bookmaker, reason: match.reason };
+                const input = document.getElementById(CALENDAR_INPUTS[bookmaker]);
+                // Preserve a link the user typed while calendars were loading.
+                if (!input.value.trim()) input.value = match.event.url;
+                console.info(`Dopasowanie ${CALENDAR_LABELS[bookmaker]}:`, event.id, match.event.id,
+                    `${match.event.home} – ${match.event.away}`, match.event.startTime);
+                return { bookmaker, matched: true };
+            } catch (error) {
+                return { bookmaker, reason: `błąd pobierania: ${error.message || error}` };
+            }
+        }));
+    }
+
+    async function selectSuperbetCalendarEvent(event) {
+        if (calendarSelecting) return;
+        if (document.getElementById('btnAnalyze').disabled) {
+            document.getElementById('calendarStatus').textContent = 'Poczekaj na zakończenie bieżącej analizy.';
+            return;
+        }
+        clearAllInputs();
+        const selection = calendarSelection;
+        calendarSelecting = true;
+        calendarSelectedID = event.id;
+        const analyze = document.getElementById('btnAnalyze');
+        analyze.disabled = true;
+        document.getElementById(CALENDAR_INPUTS[event.bookmaker]).value = event.url;
+        renderSuperbetCalendar();
+        document.getElementById('calendarStatus').textContent = 'Uzupełnianie linków Superbet, STS i Betclic oraz drużyn SofaScore…';
+        let links = [], teamError = '', linkError = '';
+        try {
+            const results = await Promise.allSettled([
+                fillCalendarLinks(event, selection),
+                (async () => {
+                    const detected = await window.go.main.App.DetectCalendarTeams(event.home, event.away);
+                    if (selection !== calendarSelection) return;
+                    currentHomeSlug = detected.homeSlug || '';
+                    currentAwaySlug = detected.awaySlug || '';
+                    const home = document.getElementById('homeIdInput'), away = document.getElementById('awayIdInput');
+                    if (!home.value.trim()) home.value = detected.homeId || '';
+                    if (!away.value.trim()) away.value = detected.awayId || '';
+                    currentMatchKey = home.value && away.value ? [home.value, away.value].sort().join('|') : null;
+                })()
+            ]);
+            if (selection !== calendarSelection) return;
+            if (results[0].status === 'fulfilled') links = results[0].value;
+            else linkError = `Nie udało się uzupełnić linków: ${results[0].reason?.message || results[0].reason}`;
+            if (results[1].status === 'rejected') teamError = `SofaScore: ${results[1].reason?.message || results[1].reason}`;
+            await checkAndLoadTournaments();
+        } finally {
+            if (selection !== calendarSelection) return;
+            calendarSelecting = false;
+            analyze.disabled = false;
+            renderSuperbetCalendar();
+            const found = document.getElementById('homeIdInput').value && document.getElementById('awayIdInput').value;
+            const matched = links.filter(link => link.matched).map(link => CALENDAR_LABELS[link.bookmaker]);
+            const missing = links.filter(link => link.reason).map(link => `${CALENDAR_LABELS[link.bookmaker]}: ${link.reason}`);
+            document.getElementById('calendarStatus').textContent = [
+                matched.length ? `Linki: ${matched.join(', ')}.` : '',
+                found ? 'Mecz wybrany. Kliknij Analizuj.' : 'Sprawdź ID drużyn przed analizą.',
+                ...missing, linkError, teamError
+            ].filter(Boolean).join(' ');
         }
     }
 
@@ -850,11 +1228,15 @@
     async function checkAndLoadTournaments() {
         const home = document.getElementById('homeIdInput').value.trim();
         const away = document.getElementById('awayIdInput').value.trim();
+        const selection = calendarSelection;
         if (!home) return;
 
         try {
             if (window.go?.main?.App?.GetAvailableTournaments) {
                 const list = await window.go.main.App.GetAvailableTournaments(home, away);
+                if (selection !== calendarSelection ||
+                    home !== document.getElementById('homeIdInput').value.trim() ||
+                    away !== document.getElementById('awayIdInput').value.trim()) return;
                 const container = document.getElementById('leagueCheckboxes');
                 const wrap = document.getElementById('leagueSelectorWrap');
                 if (!list || list.length === 0) {
@@ -873,6 +1255,7 @@
 
     async function handleUrlChange(url, source) {
         if (!url || url.length < 15) return;
+        cancelCalendarSelection();
         try {
             const detected = await window.go.main.App.DetectTeamsFromURL(url);
             if (!detected.homeSlug && !detected.awaySlug) return;
@@ -1033,6 +1416,7 @@
                 <div class="card-sub">Sofa: ${item.homeStatsId || '-'} / ${item.awayStatsId || '-'}</div>
             `;
             div.onclick = () => {
+                cancelCalendarSelection();
                 document.getElementById('sbInput').value = item.sbUrl || '';
                 document.getElementById('betclicInput').value = item.betclicUrl || '';
                 document.getElementById('stsInput').value = item.stsUrl || '';

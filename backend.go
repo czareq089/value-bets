@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -20,17 +21,19 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+	_ "time/tzdata"
 	"unicode"
 	"unicode/utf8"
 
 	fhttp "github.com/bogdanfinn/fhttp"
 	tls_client "github.com/bogdanfinn/tls-client"
 	"github.com/bogdanfinn/tls-client/profiles"
-	"github.com/gorilla/websocket"
 	"golang.org/x/text/runes"
 	"golang.org/x/text/transform"
 	"golang.org/x/text/unicode/norm"
+	"value-bets-3.0/internal/offering"
 )
 
 // ==========================================
@@ -710,9 +713,11 @@ func displayOpponentName(name string) string {
 // ==========================================
 
 var (
-	sharedSofaClient   *ResilientClient
-	sharedSofaOnce     sync.Once
-	globalSofaThrottle = make(chan struct{}, 6)
+	sharedSofaClient       *ResilientClient
+	sharedSofaOnce         sync.Once
+	globalSofaThrottle     = make(chan struct{}, 6)
+	backgroundSofaThrottle = make(chan struct{}, 1)
+	foregroundAnalyses     atomic.Int32
 )
 
 func GetSharedSofaClient() *ResilientClient {
@@ -725,6 +730,8 @@ func GetSharedSofaClient() *ResilientClient {
 type ResilientClient struct {
 	httpClient *http.Client
 	tlsClient  tls_client.HttpClient
+	ctx        context.Context
+	background bool
 }
 
 func NewResilientClient() *ResilientClient {
@@ -753,7 +760,61 @@ func NewResilientClient() *ResilientClient {
 }
 
 func (c *ResilientClient) GetSofa(endpoint string) ([]byte, error) {
-	globalSofaThrottle <- struct{}{}
+	ctx := c.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	for attempt := 0; ; attempt++ {
+		body, err := c.getSofaAttempt(endpoint)
+		if err == nil || ctx.Err() != nil {
+			return body, err
+		}
+		goaway := strings.Contains(strings.ToLower(err.Error()), "goaway")
+		if c.background {
+			backgroundSofaPacer.cooldown(prefetchErrorDelay(err))
+		}
+		if attempt >= 1 || (!c.background && !goaway) || !retryablePrefetchError(err) {
+			return nil, err
+		}
+		if goaway {
+			c.tlsClient.CloseIdleConnections()
+		}
+		log.Printf("[SOFA] Ponowna próba po błędzie połączenia (%s): %v", endpoint, err)
+		if !c.background {
+			if err := sleepWithContext(ctx, time.Second); err != nil {
+				return nil, err
+			}
+		}
+	}
+}
+
+func (c *ResilientClient) getSofaAttempt(endpoint string) ([]byte, error) {
+	ctx := c.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if c.background {
+		if err := waitForPrefetch(ctx); err != nil {
+			return nil, err
+		}
+		select {
+		case backgroundSofaThrottle <- struct{}{}:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		defer func() { <-backgroundSofaThrottle }()
+		if err := waitForPrefetch(ctx); err != nil {
+			return nil, err
+		}
+		if err := backgroundSofaPacer.wait(ctx); err != nil {
+			return nil, err
+		}
+	}
+	select {
+	case globalSofaThrottle <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 	defer func() { <-globalSofaThrottle }()
 
 	sleepMs := 40 + rand.Intn(30)
@@ -765,7 +826,7 @@ func (c *ResilientClient) GetSofa(endpoint string) ([]byte, error) {
 	}
 
 	start := time.Now()
-	req, err := fhttp.NewRequest(fhttp.MethodGet, reqURL, nil)
+	req, err := fhttp.NewRequestWithContext(ctx, fhttp.MethodGet, reqURL, nil)
 	if err != nil {
 		log.Printf("[SOFA] Błąd tworzenia requesta do %s: %v", reqURL, err)
 		return nil, err
@@ -810,19 +871,22 @@ func (c *ResilientClient) GetSofa(endpoint string) ([]byte, error) {
 
 	if resp.StatusCode != fhttp.StatusOK {
 		log.Printf("[SOFA] Niepoprawny status %d z %s (body len: %d)", resp.StatusCode, reqURL, len(body))
-		return nil, fmt.Errorf("SofaScore HTTP %d: %s", resp.StatusCode, string(body))
+		return nil, &prefetchHTTPError{provider: "SofaScore", status: resp.StatusCode, retryAfter: parseRetryAfter(resp.Header.Get("Retry-After"), time.Now())}
 	}
 
 	return body, nil
 }
 
 func SearchSofaTeamID(teamSlug string) (string, error) {
+	return searchSofaTeamID(GetSharedSofaClient(), teamSlug)
+}
+
+func searchSofaTeamID(client *ResilientClient, teamSlug string) (string, error) {
 	log.Printf("[SOFA-SEARCH] Rozpoczynam wyszukiwanie ID drużyny dla sluga: %s", teamSlug)
 	if strings.TrimSpace(teamSlug) == "" {
 		return "", fmt.Errorf("pusty slug")
 	}
 
-	client := GetSharedSofaClient()
 	queryName := strings.ReplaceAll(canonicalTeamCore(teamSlug), "-", " ")
 	q := url.QueryEscape(queryName)
 
@@ -875,12 +939,16 @@ func SearchSofaTeamID(teamSlug string) (string, error) {
 }
 
 func FetchSuperbetMatchData(matchID string) (string, error) {
+	return fetchSuperbetMatchData(context.Background(), matchID)
+}
+
+func fetchSuperbetMatchData(ctx context.Context, matchID string) (string, error) {
 	log.Printf("[SUPERBET] Pobieranie oferty dla meczu match_id=%s", matchID)
 	start := time.Now()
 	client := GetSharedSofaClient()
 	urlStr := fmt.Sprintf("https://production-superbet-bmb.freetls.fastly.net/betbuilder/v2/getBetbuilderMarketsForMatch?match_id=%s&lang=pl-PL&target=SB_PL", matchID)
 
-	req, err := http.NewRequest("GET", urlStr, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", urlStr, nil)
 	if err != nil {
 		log.Printf("[SUPERBET] Błąd tworzenia requesta: %v", err)
 		return "", err
@@ -894,6 +962,9 @@ func FetchSuperbetMatchData(matchID string) (string, error) {
 		return "", err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", &prefetchHTTPError{provider: "Superbet", status: resp.StatusCode, retryAfter: parseRetryAfter(resp.Header.Get("Retry-After"), time.Now())}
+	}
 
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -905,162 +976,22 @@ func FetchSuperbetMatchData(matchID string) (string, error) {
 }
 
 func FetchSTSSnapshotData(fixtureID string) (string, error) {
-	log.Printf("[STS] Inicjalizacja połączenia WebSocket dla fixtureID=%s", fixtureID)
-	channel := fmt.Sprintf("f_f%s_pl", fixtureID)
-	wsURL := "wss://www.sts.pl/sbk/api/sbk"
-	header := http.Header{}
-	header.Set("Origin", "https://www.sts.pl")
-	header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-
-	dialer := websocket.Dialer{HandshakeTimeout: 7 * time.Second}
-	start := time.Now()
-	conn, _, err := dialer.Dial(wsURL, header)
-	if err != nil {
-		log.Printf("[STS] Błąd handshake WebSocket: %v", err)
-		return "", fmt.Errorf("błąd połączenia z WS STS: %w", err)
+	if fixtureID == "" {
+		return "", fmt.Errorf("brak ID meczu STS")
 	}
-	defer conn.Close()
-	log.Printf("[STS] Połączono z WS STS w %v, subskrypcja kanału: %s", time.Since(start), channel)
-
-	sub := map[string]any{
-		"t": 1,
-		"u": []map[string]any{
-			{"s": "i_pl", "n": 0},
-			{"s": channel, "n": 0},
-		},
-	}
-	if err := conn.WriteJSON(sub); err != nil {
-		log.Printf("[STS] Błąd wysyłania ramki subskrypcji: %v", err)
-		return "", err
-	}
-
-	deadline := time.Now().Add(10 * time.Second)
-	msgCounter := 0
-	for time.Now().Before(deadline) {
-		_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
-		_, msg, err := conn.ReadMessage()
-		if err != nil {
-			_ = conn.WriteJSON(map[string]any{"t": 0})
-			continue
-		}
-		msgCounter++
-		raw := string(msg)
-		if strings.Contains(raw, `"P":`) || strings.Contains(raw, fmt.Sprintf("f%s", fixtureID)) {
-			log.Printf("[STS] Odebrano właściwy snapshot po %d wiadomościach w %v", msgCounter, time.Since(start))
-			return raw, nil
-		}
-	}
-	log.Printf("[STS] Przekroczono limit czasu oczekiwania na dane dla fixtureID=%s", fixtureID)
-	return "", fmt.Errorf("timeout oczekiwania na ofertę STS")
+	raw, err := offering.FetchSTSSnapshot(context.Background(), offering.STSWebSocket, fixtureID)
+	return string(raw), err
 }
-
-func encodeVarint(val uint64) []byte {
-	var res []byte
-	for val > 127 {
-		res = append(res, byte((val&0x7F)|0x80))
-		val >>= 7
-	}
-	res = append(res, byte(val&0x7F))
-	return res
-}
-
 func FetchBetclicStreamData(matchIDStr string) ([]byte, error) {
-	log.Printf("[BETCLIC] Pobieranie gRPC Web strumienia dla meczu ID: %s", matchIDStr)
 	matchID, err := strconv.ParseUint(matchIDStr, 10, 64)
-	if err != nil {
-		log.Printf("[BETCLIC] Niepoprawne ID numeryczne: %s - %v", matchIDStr, err)
-		return nil, fmt.Errorf("niepoprawne numeryczne ID Betclic: %w", err)
+	if err != nil || matchID == 0 {
+		return nil, fmt.Errorf("niepoprawne numeryczne ID Betclic: %s", matchIDStr)
 	}
-
-	var body []byte
-	body = append(body, encodeVarint(1<<3)...)
-	body = append(body, encodeVarint(matchID)...)
-	body = append(body, encodeVarint((2<<3)|2)...)
-	body = append(body, encodeVarint(2)...)
-	body = append(body, []byte("pl")...)
-	cat := "ca_ftb_prp"
-	body = append(body, encodeVarint((3<<3)|2)...)
-	body = append(body, encodeVarint(uint64(len(cat)))...)
-	body = append(body, []byte(cat)...)
-
-	hdr := make([]byte, 5)
-	hdr[0] = 0
-	binary.BigEndian.PutUint32(hdr[1:], uint32(len(body)))
-	payload := append(hdr, body...)
-
-	start := time.Now()
-	req, err := http.NewRequest("POST", "https://offering.begmedia.com/web/offering.access.api/offering.access.api.MatchService/GetMatchWithNotification", bytes.NewReader(payload))
-	if err != nil {
-		log.Printf("[BETCLIC] Błąd tworzenia żądania POST: %v", err)
-		return nil, err
-	}
-
-	req.Header.Set("Accept", "*/*")
-	req.Header.Set("Accept-Language", "pl-PL")
-	req.Header.Set("Appversion", "10.4.0-0")
-	req.Header.Set("Content-Type", "application/grpc-web+proto")
-	req.Header.Set("Origin", "https://www.betclic.pl")
-	req.Header.Set("Referer", "https://www.betclic.pl/")
-	req.Header.Set("Sec-Fetch-Dest", "empty")
-	req.Header.Set("Sec-Fetch-Mode", "cors")
-	req.Header.Set("Sec-Fetch-Site", "cross-site")
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-	req.Header.Set("X-Bg-Ref-Brand", "BETCLIC")
-	req.Header.Set("X-Bg-Ref-Platform", "DESKTOP")
-	req.Header.Set("X-Bg-Ref-Regulator-Zone", "PL")
-	req.Header.Set("X-Bg-Regulation", "PL")
-	req.Header.Set("X-Grpc-Web", "1")
-
-	client := &http.Client{Timeout: 0}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("[BETCLIC] Błąd połączenia sieciowego: %v", err)
-		return nil, fmt.Errorf("Betclic sieć błąd: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		log.Printf("[BETCLIC] Zły status HTTP: %d", resp.StatusCode)
-		return nil, fmt.Errorf("Betclic HTTP status: %d (%s)", resp.StatusCode, resp.Status)
-	}
-
-	var fullBuffer bytes.Buffer
-	buf := make([]byte, 32*1024)
-
-	type readResult struct {
-		n   int
-		err error
-	}
-	ch := make(chan readResult, 1)
-	idleTimeout := 2500 * time.Millisecond
-
-	for {
-		go func() {
-			n, err := resp.Body.Read(buf)
-			ch <- readResult{n, err}
-		}()
-
-		select {
-		case res := <-ch:
-			if res.n > 0 {
-				fullBuffer.Write(buf[:res.n])
-			}
-			if res.err != nil {
-				goto FinishStream
-			}
-		case <-time.After(idleTimeout):
-			goto FinishStream
-		}
-	}
-
-FinishStream:
-	if fullBuffer.Len() == 0 {
-		log.Printf("[BETCLIC] Pusty bufor odpowiedzi!")
-		return nil, fmt.Errorf("nie odebrano żadnych danych ze strumienia Betclic")
-	}
-
-	log.Printf("[BETCLIC] Pomyślnie odebrano strumień: %d bajtów w czasie %v", fullBuffer.Len(), time.Since(start))
-	return fullBuffer.Bytes(), nil
+	body := offering.ProtoUint(1, matchID)
+	body = append(body, offering.ProtoString(2, "pl")...)
+	body = append(body, offering.ProtoString(3, "ca_ftb_prp")...)
+	return offering.FetchBetclicRPC(context.Background(), GetSharedSofaClient().httpClient,
+		offering.BetclicMatchService+"GetMatchWithNotification", body)
 }
 
 // ==========================================
@@ -1068,8 +999,11 @@ FinishStream:
 // ==========================================
 
 func FetchSofaTeamSquad(teamID string) ([]SofaPlayerDetails, string, error) {
+	return fetchSofaTeamSquad(GetSharedSofaClient(), teamID)
+}
+
+func fetchSofaTeamSquad(client *ResilientClient, teamID string) ([]SofaPlayerDetails, string, error) {
 	log.Printf("[SOFA-SQUAD] Pobieranie kadry dla drużyny ID: %s", teamID)
-	client := GetSharedSofaClient()
 
 	playerMap := make(map[int]SofaPlayerDetails)
 	teamDisplayName := teamID
@@ -1161,6 +1095,10 @@ func isShotInsideBox(x, y float64) bool {
 }
 
 func FetchSofaPlayerCompleteHistory(playerID int, matchLimit int, allowedTournamentIDs string) (*PlayerStatHistory, error) {
+	return fetchSofaPlayerCompleteHistory(GetSharedSofaClient(), playerID, matchLimit, allowedTournamentIDs)
+}
+
+func fetchSofaPlayerCompleteHistory(client *ResilientClient, playerID int, matchLimit int, allowedTournamentIDs string) (*PlayerStatHistory, error) {
 	// Sprawdzenie pamięci podręcznej (Cache 6h)
 	cacheKey := fmt.Sprintf("v%d_%d_%d_%s", playerCacheVersion, playerID, matchLimit, allowedTournamentIDs)
 	if cached, ok := getPlayerCache(cacheKey); ok {
@@ -1169,7 +1107,6 @@ func FetchSofaPlayerCompleteHistory(playerID int, matchLimit int, allowedTournam
 	}
 
 	log.Printf("[SOFA-PLAYER] Brak w cache. Pobieranie historii z sieci dla playerID=%d (limit: %d)", playerID, matchLimit)
-	client := GetSharedSofaClient()
 
 	endpoint := fmt.Sprintf("/player/%d/events/last/0", playerID)
 	body, err := client.GetSofa(endpoint)
@@ -1410,6 +1347,9 @@ func FetchSofaPlayerCompleteHistory(playerID int, matchLimit int, allowedTournam
 
 	wg.Wait()
 	close(resultsChan)
+	if client.ctx != nil && client.ctx.Err() != nil {
+		return nil, client.ctx.Err()
+	}
 
 	var collected []matchStatResult
 	for r := range resultsChan {
@@ -2580,7 +2520,14 @@ func CalculateValueBets(
 // ==========================================
 
 type App struct {
-	ctx context.Context
+	ctx                context.Context
+	prefetchMu         sync.Mutex
+	prefetchCancel     context.CancelFunc
+	prefetchGeneration int
+	prefetchDay        string
+	prefetchLimit      int
+	prefetchExcluded   map[string]bool
+	prefetchProgress   PrefetchProgress
 }
 
 func NewApp() *App {
@@ -2707,6 +2654,18 @@ func (a *App) DetectTeamsFromURL(rawURL string) TeamDetectionResult {
 	log.Printf("[DETECT] Wykrywanie zespołów z adresu URL: %s", rawURL)
 	_, slug, provider := extractIDAndSlug(rawURL)
 	homeSlug, awaySlug := parseTeamsFromSlug(slug, provider)
+	return a.detectTeamsBySlugs(homeSlug, awaySlug)
+}
+
+// DetectCalendarTeams uses the names supplied by the calendar rather than
+// trying to infer team boundaries from a bookmaker's URL.
+func (a *App) DetectCalendarTeams(home, away string) TeamDetectionResult {
+	return a.detectTeamsBySlugs(calendarTeamSlug(home), calendarTeamSlug(away))
+}
+
+func (a *App) detectTeamsBySlugs(homeSlug, awaySlug string) TeamDetectionResult {
+	foregroundAnalyses.Add(1)
+	defer foregroundAnalyses.Add(-1)
 
 	cache := loadTeamCache()
 	homeID := findTeamIDInCache(homeSlug, cache)
@@ -2735,6 +2694,8 @@ func (a *App) DetectTeamsFromURL(rawURL string) TeamDetectionResult {
 }
 
 func (a *App) GetAvailableTournaments(homeID, awayID string) ([]LeagueOption, error) {
+	foregroundAnalyses.Add(1)
+	defer foregroundAnalyses.Add(-1)
 	log.Printf("[TOURNAMENTS] Pobieranie lig dla homeID=%s", homeID)
 	client := GetSharedSofaClient()
 	body, err := client.GetSofa(fmt.Sprintf("/team/%s/standings/seasons", homeID))
@@ -2766,6 +2727,8 @@ func (a *App) GetAvailableTournaments(homeID, awayID string) ([]LeagueOption, er
 }
 
 func (a *App) AnalyzeThreeBookmakers(sbInput, betclicInput, stsInput, homeInput, awayInput string, matchLimit int, tournamentIDs string) ([]AnalyzedBet, error) {
+	foregroundAnalyses.Add(1)
+	defer foregroundAnalyses.Add(-1)
 	startGlobal := time.Now()
 	log.Printf("[ANALYZE-START] Rozpoczęcie kompleksowej analizy 3 bukmacherów:")
 	log.Printf("  • Superbet: '%s'", sbInput)
@@ -2946,5 +2909,608 @@ func (a *App) AnalyzeThreeBookmakers(sbInput, betclicInput, stsInput, homeInput,
 	})
 
 	log.Printf("[ANALYZE-COMPLETE] Analiza zakończona pomyślnie w %v. Zwrócono %d przetworzonych typów.", time.Since(startGlobal), len(results))
+	a.StartSuperbetPrefetch(matchLimit, sbInput)
 	return results, nil
+}
+
+type SuperbetCalendarEvent struct {
+	ID          string `json:"id"`
+	Home        string `json:"home"`
+	Away        string `json:"away"`
+	Competition string `json:"competition"`
+	Country     string `json:"country"`
+	StartTime   string `json:"startTime"`
+	URL         string `json:"url"`
+	Live        bool   `json:"live"`
+	BetBuilder  bool   `json:"betBuilder"`
+}
+
+type SuperbetCalendar struct {
+	Date      string                  `json:"date"`
+	Events    []SuperbetCalendarEvent `json:"events"`
+	Warnings  []string                `json:"warnings"`
+	FetchedAt string                  `json:"fetchedAt,omitempty"`
+}
+
+type superbetEventsResponse struct {
+	Events []struct {
+		ID      int `json:"event_id"`
+		Fixture struct {
+			Name         string `json:"event_name"`
+			Date         string `json:"utc_date"`
+			SportID      int    `json:"sport_id"`
+			TournamentID int    `json:"tournament_id"`
+			CategoryID   int    `json:"category_id"`
+		} `json:"fixture"`
+	} `json:"events"`
+}
+
+type superbetNamedItem struct {
+	ID    string            `json:"id"`
+	Names map[string]string `json:"localNames"`
+}
+
+func superbetCalendarDay(date string) (time.Time, time.Time, error) {
+	zone, err := time.LoadLocation("Europe/Warsaw")
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	start, err := time.ParseInLocation("2006-01-02", date, zone)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("niepoprawna data kalendarza: %s", date)
+	}
+	return start, start.AddDate(0, 0, 1), nil
+}
+
+func getSuperbetCalendarJSON(ctx context.Context, client *http.Client, endpoint string, result any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0")
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("Superbet HTTP %d", resp.StatusCode)
+	}
+	return json.NewDecoder(io.LimitReader(resp.Body, 32<<20)).Decode(result)
+}
+
+var calendarSlugPattern = regexp.MustCompile(`[^a-z0-9]+`)
+
+func calendarTeamSlug(name string) string {
+	return strings.Trim(calendarSlugPattern.ReplaceAllString(removeDiacritics(strings.ToLower(name)), "-"), "-")
+}
+
+func loadSuperbetCalendar(client *http.Client, date, offerBase, builderBase string) (*SuperbetCalendar, error) {
+	return loadSuperbetCalendarContext(context.Background(), client, date, offerBase, builderBase)
+}
+
+func loadSuperbetCalendarContext(parent context.Context, client *http.Client, date, offerBase, builderBase string) (*SuperbetCalendar, error) {
+	start, end, err := superbetCalendarDay(date)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(parent, 25*time.Second)
+	defer cancel()
+	var prematch, live superbetEventsResponse
+	var metadata struct {
+		Error bool `json:"error"`
+		Data  struct {
+			Tournaments []superbetNamedItem `json:"tournaments"`
+			Categories  []superbetNamedItem `json:"categories"`
+		} `json:"data"`
+	}
+	var builder struct {
+		Events []string `json:"events"`
+	}
+	errors := make([]error, 4)
+	var wg sync.WaitGroup
+	for i, index := range []string{"active-prematch", "active-live"} {
+		wg.Add(1)
+		go func(i int, index string) {
+			defer wg.Done()
+			query := url.Values{
+				"startDate": {start.UTC().Format(time.RFC3339)},
+				"endDate":   {end.UTC().Format(time.RFC3339)},
+				"index":     {index}, "sports": {"5"},
+			}
+			result := &prematch
+			if i == 1 {
+				result = &live
+			}
+			errors[i] = getSuperbetCalendarJSON(ctx, client, offerBase+"/v3/pl-PL/events?"+query.Encode(), result)
+		}(i, index)
+	}
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		errors[2] = getSuperbetCalendarJSON(ctx, client, offerBase+"/v2/pl-PL/struct", &metadata)
+		if errors[2] == nil && metadata.Error {
+			errors[2] = fmt.Errorf("błąd katalogu rozgrywek")
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		errors[3] = getSuperbetCalendarJSON(ctx, client, builderBase+"/betbuilder/v2/getBetbuilderEvents?target=SB_PL", &builder)
+	}()
+	wg.Wait()
+	if errors[0] != nil && errors[1] != nil {
+		return nil, fmt.Errorf("nie udało się pobrać kalendarza Superbeta: %w", errors[0])
+	}
+	result := &SuperbetCalendar{Date: date, Events: []SuperbetCalendarEvent{}, Warnings: []string{}}
+	labels := []string{"Nie pobrano meczów przed rozpoczęciem", "Nie pobrano meczów na żywo", "Nie pobrano nazw rozgrywek", "Nie sprawdzono dostępności BetBuildera"}
+	for i, err := range errors {
+		if err != nil {
+			result.Warnings = append(result.Warnings, labels[i]+": "+err.Error())
+		}
+	}
+	names := make(map[string]string)
+	countries := make(map[string]string)
+	for _, item := range metadata.Data.Tournaments {
+		names[item.ID] = item.Names["pl-PL"]
+	}
+	for _, item := range metadata.Data.Categories {
+		countries[item.ID] = item.Names["pl-PL"]
+	}
+	builders := make(map[string]bool)
+	for _, id := range builder.Events {
+		builders[id] = true
+	}
+	byID := make(map[string]SuperbetCalendarEvent)
+	for i, response := range []superbetEventsResponse{prematch, live} {
+		if errors[i] != nil {
+			continue
+		}
+		for _, event := range response.Events {
+			fixture := event.Fixture
+			when, err := time.Parse(time.RFC3339, fixture.Date)
+			if err != nil || when.Before(start) || !when.Before(end) || fixture.SportID != 5 || event.ID <= 0 {
+				continue
+			}
+			teams := strings.SplitN(fixture.Name, "·", 2)
+			if len(teams) != 2 || strings.TrimSpace(teams[0]) == "" || strings.TrimSpace(teams[1]) == "" {
+				continue
+			}
+			home, away := strings.TrimSpace(teams[0]), strings.TrimSpace(teams[1])
+			id := strconv.Itoa(event.ID)
+			competition := names[strconv.Itoa(fixture.TournamentID)]
+			if competition == "" {
+				competition = "Pozostałe rozgrywki"
+			}
+			byID[id] = SuperbetCalendarEvent{
+				ID: id, Home: home, Away: away, Competition: competition,
+				Country:   countries[strconv.Itoa(fixture.CategoryID)],
+				StartTime: when.In(start.Location()).Format(time.RFC3339),
+				URL:       "https://superbet.pl/kursy/pilka-nozna/" + calendarTeamSlug(home) + "-vs-" + calendarTeamSlug(away) + "-" + id + "?mdt=o",
+				Live:      i == 1, BetBuilder: builders[id],
+			}
+		}
+	}
+	for _, event := range byID {
+		result.Events = append(result.Events, event)
+	}
+	sort.Slice(result.Events, func(i, j int) bool {
+		left, _ := time.Parse(time.RFC3339, result.Events[i].StartTime)
+		right, _ := time.Parse(time.RFC3339, result.Events[j].StartTime)
+		if !left.Equal(right) {
+			return left.Before(right)
+		}
+		return result.Events[i].ID < result.Events[j].ID
+	})
+	return result, nil
+}
+
+func (a *App) GetSuperbetCalendar(date string) (*SuperbetCalendar, error) {
+	return a.getBookmakerCalendar(a.calendarContext(), "SUPERBET", date, false)
+}
+
+type PrefetchProgress struct {
+	Running      bool   `json:"running"`
+	Day          string `json:"day"`
+	Completed    int    `json:"completed"`
+	Total        int    `json:"total"`
+	Cached       int    `json:"cached"`
+	Skipped      int    `json:"skipped"`
+	Failed       int    `json:"failed"`
+	CurrentMatch string `json:"currentMatch"`
+	PlayersDone  int    `json:"playersDone"`
+	PlayersTotal int    `json:"playersTotal"`
+	Message      string `json:"message"`
+}
+
+type prefetchPacer struct {
+	mu       sync.Mutex
+	interval time.Duration
+	next     time.Time
+}
+
+var backgroundSofaPacer = prefetchPacer{interval: 1500 * time.Millisecond}
+var backgroundSuperbetPacer = prefetchPacer{interval: 2 * time.Second}
+
+func sleepWithContext(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return ctx.Err()
+	}
+}
+
+func (p *prefetchPacer) wait(ctx context.Context) error {
+	for {
+		if err := waitForPrefetch(ctx); err != nil {
+			return err
+		}
+		p.mu.Lock()
+		delay := time.Until(p.next)
+		if delay <= 0 {
+			p.next = time.Now().Add(p.interval)
+			p.mu.Unlock()
+			return ctx.Err()
+		}
+		p.mu.Unlock()
+		if err := sleepWithContext(ctx, delay); err != nil {
+			return err
+		}
+	}
+}
+
+func (p *prefetchPacer) cooldown(delay time.Duration) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	until := time.Now().Add(delay)
+	if until.After(p.next) {
+		p.next = until
+	}
+	log.Printf("[PREFETCH] Przerwa po błędzie: %s", delay)
+}
+
+type prefetchHTTPError struct {
+	provider   string
+	status     int
+	retryAfter time.Duration
+}
+
+func (e *prefetchHTTPError) Error() string { return fmt.Sprintf("%s HTTP %d", e.provider, e.status) }
+
+func parseRetryAfter(value string, now time.Time) time.Duration {
+	if seconds, err := strconv.Atoi(strings.TrimSpace(value)); err == nil && seconds > 0 {
+		return time.Duration(seconds) * time.Second
+	}
+	if date, err := http.ParseTime(value); err == nil && date.After(now) {
+		return date.Sub(now)
+	}
+	return 0
+}
+
+func prefetchErrorDelay(err error) time.Duration {
+	delay := 5 * time.Second
+	var response *prefetchHTTPError
+	if errors.As(err, &response) {
+		if response.status == 429 || response.status == 403 {
+			delay = time.Minute
+		} else if response.status >= 500 {
+			delay = 10 * time.Second
+		}
+		if response.retryAfter > delay {
+			delay = response.retryAfter
+		}
+	}
+	return delay
+}
+
+func retryablePrefetchError(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var response *prefetchHTTPError
+	if errors.As(err, &response) {
+		return response.status == 429 || response.status >= 500
+	}
+	message := strings.ToLower(err.Error())
+	for _, marker := range []string{"goaway", "timeout", "connection reset", "unexpected eof", "connection refused"} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return errors.Is(err, io.EOF)
+}
+
+func fetchSuperbetPrefetchData(ctx context.Context, id string) (string, error) {
+	for attempt := 0; ; attempt++ {
+		if err := backgroundSuperbetPacer.wait(ctx); err != nil {
+			return "", err
+		}
+		raw, err := fetchSuperbetMatchData(ctx, id)
+		if err == nil || ctx.Err() != nil {
+			return raw, err
+		}
+		backgroundSuperbetPacer.cooldown(prefetchErrorDelay(err))
+		if attempt >= 1 || !retryablePrefetchError(err) {
+			return "", err
+		}
+		log.Printf("[PREFETCH] Ponowna próba oferty Superbeta dla ID=%s: %v", id, err)
+	}
+}
+
+func waitForPrefetch(ctx context.Context) error {
+	for foregroundAnalyses.Load() > 0 {
+		timer := time.NewTimer(100 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return ctx.Err()
+}
+
+func (a *App) GetPrefetchProgress() PrefetchProgress {
+	a.prefetchMu.Lock()
+	defer a.prefetchMu.Unlock()
+	return a.prefetchProgress
+}
+
+func (a *App) setPrefetchProgress(generation int, update func(*PrefetchProgress)) {
+	a.prefetchMu.Lock()
+	defer a.prefetchMu.Unlock()
+	if a.prefetchGeneration == generation {
+		update(&a.prefetchProgress)
+	}
+}
+
+func (a *App) StopSuperbetPrefetch() {
+	a.prefetchMu.Lock()
+	defer a.prefetchMu.Unlock()
+	if a.prefetchCancel != nil {
+		a.prefetchCancel()
+	}
+	a.prefetchGeneration++
+	a.prefetchDay = ""
+	a.prefetchProgress.Running = false
+	a.prefetchProgress.Message = "Pobieranie w tle zatrzymane"
+	log.Printf("[PREFETCH] Pobieranie w tle zatrzymane")
+}
+
+func (a *App) shutdown(ctx context.Context) { a.StopSuperbetPrefetch() }
+
+func (a *App) StartSuperbetPrefetch(matchLimit int, currentURL string) {
+	if matchLimit <= 0 {
+		matchLimit = 10
+	}
+	if matchLimit > 30 {
+		matchLimit = 30
+	}
+	zone, err := time.LoadLocation("Europe/Warsaw")
+	if err != nil {
+		log.Printf("[PREFETCH] Błąd strefy czasowej: %v", err)
+		return
+	}
+	today := time.Now().In(zone).Format("2006-01-02")
+	currentID := ""
+	if strings.TrimSpace(currentURL) != "" {
+		currentID, _, _ = extractIDAndSlug(currentURL)
+	}
+	a.prefetchMu.Lock()
+	if a.prefetchDay == today && a.prefetchLimit == matchLimit {
+		if currentID != "" {
+			a.prefetchExcluded[currentID] = true
+		}
+		a.prefetchMu.Unlock()
+		return
+	}
+	if a.prefetchCancel != nil {
+		a.prefetchCancel()
+	}
+	parent := a.ctx
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parent)
+	a.prefetchCancel = cancel
+	a.prefetchGeneration++
+	generation := a.prefetchGeneration
+	a.prefetchDay, a.prefetchLimit = today, matchLimit
+	a.prefetchExcluded = map[string]bool{}
+	if currentID != "" {
+		a.prefetchExcluded[currentID] = true
+	}
+	a.prefetchProgress = PrefetchProgress{Running: true, Day: today, Message: "Pobieranie kalendarza na dziś"}
+	a.prefetchMu.Unlock()
+	log.Printf("[PREFETCH] Start: dziś %s, potem jutro; próbka %d meczów", today, matchLimit)
+	go a.runSuperbetPrefetch(ctx, generation, today, matchLimit)
+}
+
+func (a *App) runSuperbetPrefetch(ctx context.Context, generation int, today string, matchLimit int) {
+	shared := GetSharedSofaClient()
+	client := &ResilientClient{httpClient: shared.httpClient, tlsClient: shared.tlsClient, ctx: ctx, background: true}
+	a.runSuperbetPrefetchQueue(ctx, generation, today,
+		func(ctx context.Context, date string) (*SuperbetCalendar, error) {
+			return a.getBookmakerCalendar(ctx, "SUPERBET", date, false)
+		},
+		func(ctx context.Context, event SuperbetCalendarEvent) (string, error) {
+			return a.prefetchSuperbetMatch(ctx, client, generation, event, matchLimit)
+		})
+}
+
+func (a *App) runSuperbetPrefetchQueue(ctx context.Context, generation int, today string,
+	loadCalendar func(context.Context, string) (*SuperbetCalendar, error),
+	processMatch func(context.Context, SuperbetCalendarEvent) (string, error)) {
+	defer a.setPrefetchProgress(generation, func(p *PrefetchProgress) {
+		p.Running = false
+		p.CurrentMatch = ""
+		if ctx.Err() != nil {
+			p.Message = "Pobieranie w tle zatrzymane"
+		} else {
+			p.Message = "Zakończono pobieranie na dziś i jutro"
+		}
+		log.Printf("[PREFETCH] Koniec: %d/%d; gotowe=%d, pominięte=%d, błędy=%d", p.Completed, p.Total, p.Cached, p.Skipped, p.Failed)
+	})
+	start, _, err := superbetCalendarDay(today)
+	if err != nil {
+		log.Printf("[PREFETCH] %v", err)
+		return
+	}
+	seen := make(map[string]bool)
+	for day := 0; day < 2; day++ {
+		if waitForPrefetch(ctx) != nil {
+			return
+		}
+		date := start.AddDate(0, 0, day).Format("2006-01-02")
+		a.setPrefetchProgress(generation, func(p *PrefetchProgress) { p.Day = date; p.Message = "Pobieranie kalendarza " + date })
+		log.Printf("[PREFETCH] Pobieranie kalendarza: %s", date)
+		calendar, err := loadCalendar(ctx, date)
+		if err != nil {
+			log.Printf("[PREFETCH] Błąd kalendarza %s: %v", date, err)
+			a.setPrefetchProgress(generation, func(p *PrefetchProgress) { p.Failed++ })
+			if ctx.Err() != nil {
+				return
+			}
+			continue
+		}
+		for _, warning := range calendar.Warnings {
+			log.Printf("[PREFETCH] %s", warning)
+		}
+		var queue []SuperbetCalendarEvent
+		for _, event := range calendar.Events {
+			if !seen[event.ID] {
+				seen[event.ID] = true
+				queue = append(queue, event)
+			}
+		}
+		a.setPrefetchProgress(generation, func(p *PrefetchProgress) { p.Total += len(queue) })
+		log.Printf("[PREFETCH] %s: %d meczów w kolejce", date, len(queue))
+		for _, event := range queue {
+			if waitForPrefetch(ctx) != nil {
+				return
+			}
+			a.prefetchMu.Lock()
+			excluded := a.prefetchExcluded[event.ID]
+			a.prefetchMu.Unlock()
+			name := event.Home + " – " + event.Away
+			a.setPrefetchProgress(generation, func(p *PrefetchProgress) {
+				p.CurrentMatch = name
+				p.PlayersDone = 0
+				p.PlayersTotal = 0
+				p.Message = "Pobieranie danych meczu"
+			})
+			log.Printf("[PREFETCH] Mecz %s (%s), ID=%s", name, date, event.ID)
+			outcome := "skipped"
+			if excluded {
+				log.Printf("[PREFETCH] Pomijam aktualnie analizowany mecz: %s", name)
+			} else if !event.BetBuilder && len(calendar.Warnings) == 0 {
+				log.Printf("[PREFETCH] Pomijam mecz bez BetBuildera: %s", name)
+			} else {
+				outcome, err = processMatch(ctx, event)
+				if ctx.Err() != nil {
+					return
+				}
+				if err != nil {
+					outcome = "failed"
+					log.Printf("[PREFETCH] Błąd %s: %v", name, err)
+				}
+			}
+			a.setPrefetchProgress(generation, func(p *PrefetchProgress) {
+				p.Completed++
+				switch outcome {
+				case "cached":
+					p.Cached++
+				case "failed":
+					p.Failed++
+				default:
+					p.Skipped++
+				}
+				log.Printf("[PREFETCH] Postęp %d/%d: %s (%s)", p.Completed, p.Total, name, outcome)
+			})
+		}
+	}
+}
+
+func (a *App) prefetchSuperbetMatch(ctx context.Context, client *ResilientClient, generation int, event SuperbetCalendarEvent, matchLimit int) (string, error) {
+	raw, err := fetchSuperbetPrefetchData(ctx, event.ID)
+	if err != nil {
+		return "failed", err
+	}
+	props, err := ParseSuperbetProps(raw)
+	if err != nil {
+		return "failed", err
+	}
+	if len(props) == 0 {
+		log.Printf("[PREFETCH] Brak rynków zawodników dla %s – %s", event.Home, event.Away)
+		return "skipped", nil
+	}
+	log.Printf("[PREFETCH] %d rynków zawodników; przygotowuję historie", len(props))
+	cache := loadTeamCache()
+	players := make(map[int]SofaPlayerDetails)
+	for _, team := range []string{event.Home, event.Away} {
+		if waitForPrefetch(ctx) != nil {
+			return "failed", ctx.Err()
+		}
+		id := findTeamIDInCache(team, cache)
+		if id == "" {
+			id, err = searchSofaTeamID(client, team)
+			if err != nil {
+				return "failed", err
+			}
+		}
+		squad, _, err := fetchSofaTeamSquad(client, id)
+		if err != nil {
+			return "failed", err
+		}
+		lookup := make(map[int]string)
+		aliases := make(map[string]int)
+		for _, player := range squad {
+			regSofaAliases(aliases, player.Name, player.ShortName, player.Slug, player.ID)
+			lookup[player.ID] = player.Name
+		}
+		stringAliases := lookupMapInt(aliases)
+		for _, prop := range props {
+			matched := matchPlayerStrict(prop.PlayerName, stringAliases)
+			if matched == "" {
+				continue
+			}
+			playerID, _ := strconv.Atoi(matched)
+			players[playerID] = SofaPlayerDetails{ID: playerID, Name: lookup[playerID]}
+		}
+	}
+	if len(players) == 0 {
+		log.Printf("[PREFETCH] Brak dopasowanych zawodników: %s – %s", event.Home, event.Away)
+		return "skipped", nil
+	}
+	ids := make([]int, 0, len(players))
+	for id := range players {
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
+	a.setPrefetchProgress(generation, func(p *PrefetchProgress) { p.PlayersTotal = len(ids); p.Message = "Pobieranie historii zawodników" })
+	loaded := 0
+	for i, id := range ids {
+		if waitForPrefetch(ctx) != nil {
+			return "failed", ctx.Err()
+		}
+		log.Printf("[PREFETCH] Zawodnik %d/%d: %s (ID=%d)", i+1, len(ids), players[id].Name, id)
+		history, err := fetchSofaPlayerCompleteHistory(client, id, matchLimit, "ALL")
+		if ctx.Err() != nil {
+			return "failed", ctx.Err()
+		}
+		if err != nil {
+			log.Printf("[PREFETCH] Błąd historii %s: %v", players[id].Name, err)
+		} else if history != nil && history.Matches > 0 {
+			loaded++
+			log.Printf("[PREFETCH] Cache gotowy: %s, %d meczów", players[id].Name, history.Matches)
+		}
+		a.setPrefetchProgress(generation, func(p *PrefetchProgress) { p.PlayersDone = i + 1 })
+	}
+	if loaded != len(ids) {
+		return "failed", fmt.Errorf("pobrano historie %d/%d zawodników", loaded, len(ids))
+	}
+	return "cached", nil
 }

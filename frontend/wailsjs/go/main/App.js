@@ -10,6 +10,10 @@ export function DeleteMatchHistory(arg1) {
   return window['go']['main']['App']['DeleteMatchHistory'](arg1);
 }
 
+export function DetectCalendarTeams(arg1, arg2) {
+  return window['go']['main']['App']['DetectCalendarTeams'](arg1, arg2);
+}
+
 export function DetectTeamsFromURL(arg1) {
   return window['go']['main']['App']['DetectTeamsFromURL'](arg1);
 }
@@ -18,12 +22,32 @@ export function GetAvailableTournaments(arg1, arg2) {
   return window['go']['main']['App']['GetAvailableTournaments'](arg1, arg2);
 }
 
+export function GetBetclicCalendar(arg1) {
+  return window['go']['main']['App']['GetBetclicCalendar'](arg1);
+}
+
+export function GetPrefetchProgress() {
+  return window['go']['main']['App']['GetPrefetchProgress']();
+}
+
+export function GetSTSCalendar(arg1) {
+  return window['go']['main']['App']['GetSTSCalendar'](arg1);
+}
+
+export function GetSuperbetCalendar(arg1) {
+  return window['go']['main']['App']['GetSuperbetCalendar'](arg1);
+}
+
 export function LoadMatchHistory() {
   return window['go']['main']['App']['LoadMatchHistory']();
 }
 
 export function LoadMyBets() {
   return window['go']['main']['App']['LoadMyBets']();
+}
+
+export function RefreshBookmakerCalendar(arg1, arg2) {
+  return window['go']['main']['App']['RefreshBookmakerCalendar'](arg1, arg2);
 }
 
 export function SaveMatchHistory(arg1) {
@@ -36,4 +60,12 @@ export function SaveMyBets(arg1) {
 
 export function SaveTeamSofaID(arg1, arg2) {
   return window['go']['main']['App']['SaveTeamSofaID'](arg1, arg2);
+}
+
+export function StartSuperbetPrefetch(arg1, arg2) {
+  return window['go']['main']['App']['StartSuperbetPrefetch'](arg1, arg2);
+}
+
+export function StopSuperbetPrefetch() {
+  return window['go']['main']['App']['StopSuperbetPrefetch']();
 }
