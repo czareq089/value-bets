@@ -71,10 +71,10 @@
 
         .main-container { flex: 1; display: flex; flex-direction: column; padding: 14px 18px; overflow-y: auto; min-width: 800px; }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-        .prefetch-strip { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; color: var(--text-muted); font-size: 10px; }
-        .prefetch-strip[hidden] { display: none; }
-        .prefetch-strip progress { width: 130px; height: 4px; accent-color: var(--accent); flex-shrink: 0; }
-        .prefetch-strip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .analysis-strip { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; color: var(--text-muted); font-size: 10px; }
+        .analysis-strip[hidden] { display: none; }
+        .analysis-strip progress { width: 130px; height: 4px; accent-color: var(--accent); flex-shrink: 0; }
+        .analysis-strip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .title-box h1 { font-size: 20px; font-weight: 800; color: var(--accent); }
         .panel { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
 
@@ -311,10 +311,14 @@
         </div>
     </div>
 
-    <div id="prefetchStrip" class="prefetch-strip" hidden>
-        <progress id="prefetchBar" max="100" value="0" aria-label="Postęp pobierania w tle"></progress>
-        <span id="prefetchLabel" role="status"></span>
+    <div id="analysisStrip" class="analysis-strip" hidden>
+        <progress id="analysisBar" max="100" value="0" aria-label="Postęp analizy na VPS"></progress>
+        <span id="analysisLabel" role="status"></span>
     </div>
+    <details id="analysisWarnings" hidden style="margin-bottom:12px;color:var(--text-muted);font-size:12px;">
+        <summary>Ostrzeżenia źródeł i dostępności statystyk</summary>
+        <pre id="analysisWarningText" style="white-space:pre-wrap;margin-top:8px;font:inherit;"></pre>
+    </details>
 
     <div class="panel">
         <div class="inputs-grid">
@@ -617,7 +621,7 @@
     const CALENDAR_METHODS = { SUPERBET: 'GetSuperbetCalendar', STS: 'GetSTSCalendar', BETCLIC: 'GetBetclicCalendar' };
     const CALENDAR_INPUTS = { SUPERBET: 'sbInput', STS: 'stsInput', BETCLIC: 'betclicInput' };
     const CALENDAR_LABELS = { SUPERBET: 'Superbet', STS: 'STS', BETCLIC: 'Betclic' };
-    let prefetchPolling = false;
+    let analysisPolling = false;
 
     const MARKET_LABELS = {
         SHOTS_TOTAL: "Strzały",
@@ -643,8 +647,8 @@
         const datePart = type => dateParts.find(part => part.type === type).value;
         document.getElementById('calendarDate').value = `${datePart('year')}-${datePart('month')}-${datePart('day')}`;
         loadSuperbetCalendar();
-        refreshPrefetchProgress();
-        setInterval(refreshPrefetchProgress, 1500);
+        refreshAnalysisProgress();
+        setInterval(refreshAnalysisProgress, 1500);
         renderTableHeaders();
         updateDropdownLabels();
 
@@ -858,28 +862,32 @@
         }
     }
 
-    async function refreshPrefetchProgress() {
-        if (prefetchPolling || !window.go?.main?.App?.GetPrefetchProgress) return;
-        prefetchPolling = true;
+    async function refreshAnalysisProgress() {
+        if (analysisPolling || !window.go?.main?.App?.GetAnalysisProgress) return;
+        analysisPolling = true;
         try {
-            const state = await window.go.main.App.GetPrefetchProgress();
-            const strip = document.getElementById('prefetchStrip');
-            const bar = document.getElementById('prefetchBar');
-            const label = document.getElementById('prefetchLabel');
-            strip.hidden = !state.running && !state.message;
-            if (state.running && !state.total) bar.removeAttribute('value');
-            else bar.value = state.total ? Math.min(100, state.completed / state.total * 100) : 0;
-            const date = state.day ? state.day.slice(5).split('-').reverse().join('.') : '';
-            const counts = state.total ? ` · ${state.completed}/${state.total} meczów` : '';
-            const players = state.running && state.playersTotal ? ` · zawodnicy ${state.playersDone}/${state.playersTotal}` : '';
-            const details = state.running && state.currentMatch ? ` · ${state.currentMatch}` : ` · ${state.message || ''}`;
-            const errors = state.failed ? ` · błędy: ${state.failed}` : '';
-            label.textContent = `W tle${date ? ' · ' + date : ''}${counts}${players}${details}${errors}`;
-            strip.title = state.message || '';
+            const state = await window.go.main.App.GetAnalysisProgress();
+            const running = state.status === 'queued' || state.status === 'running';
+            const strip = document.getElementById('analysisStrip');
+            const bar = document.getElementById('analysisBar');
+            const label = document.getElementById('analysisLabel');
+            const warningBox = document.getElementById('analysisWarnings');
+            strip.hidden = !state.message;
+            if (state.status === 'completed') bar.value = 100;
+            else if (state.stage === 'statistics' && state.playersTotal) bar.value = Math.min(100, state.playersDone / state.playersTotal * 100);
+            else if (running) bar.removeAttribute('value');
+            else bar.value = 0;
+            const players = state.stage === 'statistics' && state.playersTotal ? ' · zawodnicy ' + state.playersDone + '/' + state.playersTotal : '';
+            const warnings = state.warnings || [];
+            label.textContent = 'VPS · ' + (state.message || '') + players + (warnings.length ? ' · ostrzeżenia: ' + warnings.length : '');
+            strip.title = state.id ? 'Zlecenie: ' + state.id : '';
+            warningBox.hidden = warnings.length === 0;
+            const details = document.getElementById('analysisWarningText');
+            details.textContent = warnings.join('\n');
         } catch (error) {
-            console.error('Błąd odczytu postępu pobierania w tle:', error);
+            console.error('Błąd odczytu postępu analizy:', error);
         } finally {
-            prefetchPolling = false;
+            analysisPolling = false;
         }
     }
 
@@ -1343,8 +1351,8 @@
         btn.style.opacity = "0.7";
         btn.innerHTML = `⏳ Analizowanie...`;
         tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 40px; color: var(--accent);">
-            <div style="font-size:16px; font-weight:700; margin-bottom:8px;">Pobieranie kursów bukmacherskich, składów i statystyk...</div>
-            <div style="font-size:12px; color:var(--text-muted);">Auto-detekcja ID w SofaScore, pobieranie strumieni Betclic gRPC, STS WebSocket oraz SofaScore Shotmap & Incidents...</div>
+            <div style="font-size:16px; font-weight:700; margin-bottom:8px;">VPS pobiera kursy, składy i statystyki...</div>
+            <div style="font-size:12px; color:var(--text-muted);">Postęp analizy i ewentualne ostrzeżenia pojawią się nad formularzem.</div>
         </td></tr>`;
 
         try {
@@ -1397,8 +1405,9 @@
             }
         } catch (e) {
             alert("Błąd analizy: " + e);
-            tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--danger);">Wystąpił błąd podczas analizy. Sprawdź terminal.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--danger);">Nie udało się zakończyć analizy. Szczegóły znajdują się w komunikacie i ostrzeżeniach nad formularzem.</td></tr>`;
         } finally {
+            await refreshAnalysisProgress();
             btn.disabled = false;
             btn.style.opacity = "1";
             btn.innerHTML = `Analizuj`;

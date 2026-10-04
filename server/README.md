@@ -6,15 +6,23 @@ aplikacji. Kliknięcie meczu uzupełnia linki z kalendarzy VPS. Adres jest stał
 `serverBaseURL` w kodzie desktopu; aplikacja nie wymaga ustawień, tokena ani
 uruchamiania tunelu SSH. API działa bez uwierzytelniania.
 
-Statystyki, kursy do analizy i sama analiza pozostają na tym etapie lokalne.
+Kursy, statystyki SofaScore, rozpoznawanie drużyn, rozgrywki i obliczenia analizy
+pojedynczego meczu wykonuje teraz VPS. Wails jest cienkim klientem: przekazuje
+zlecenie, odczytuje postęp co 1,5 sekundy i wyświetla wynik oraz ostrzeżenia.
+Lokalnie pozostają wyłącznie interfejs, historia wybranych meczów i „MyBets”.
+Automatyczny skaner wydarzeń z najbliższych 24 godzin jest kolejnym etapem;
+analiza ręczna nie uruchamia już starego lokalnego pobierania w tle.
 
 Kod desktopu jest w głównym `value_bets.go`, frontend w `frontend/index.html`,
-a istniejące testy w `value_bets_test.go`. Nie ma osobnych pakietów aplikacji
+a zachowane testy kolektorów i statystyk w `server/value_bets_test.go`.
+Testy starej lokalnej kolejki usunięto wraz z tą kolejką. Nie ma osobnych pakietów aplikacji
 w `internal/` ani narzędzi w `cmd/`. Desktop budujesz przez `wails build`
 z głównego katalogu. Pliki `frontend/wailsjs/` generuje Wails; frontend korzysta
 bezpośrednio z `window.go`.
 
-Lokalne zakłady, historia i cache są zachowane w `data/`, poza Gitem.
+Lokalne zakłady, historia i wcześniejsze cache są zachowane w `data/`, poza Gitem.
+Nowy klient nie używa lokalnego cache statystyk ani mapowań SofaScore; serwer
+zapisuje własne cache w katalogu wskazanym przez `-data`.
 W `build/` pozostają ikony i konfiguracja Wails; wygenerowane binarki są pomijane.
 Cały kod backendu jest w `server/value_bets.go`, z własnymi `server/go.mod`
 i `server/go.sum`. Na VPS trafiają wyłącznie te trzy źródłowe pliki oraz binarka.
@@ -47,7 +55,8 @@ Workflow:
 2. Przesyła trzy pliki `server/` do
    `/home/ubuntu/value-bets/releases/<commit>-<run>-<attempt>/`.
 3. Buduje program **na VPS**, dla jego natywnej architektury, z `CGO_ENABLED=0`.
-4. Instaluje jednostkę `value-bets.service`, podmienia binarkę i restartuje usługę.
+4. Instaluje jednostkę `value-bets.service`, aktualizuje trzy źródła w
+   `/home/ubuntu/value-bets`, podmienia binarkę i restartuje usługę.
 
 Nieudana kompilacja kończy wdrożenie przed podmianą programu i konfiguracji
 usługi. Wdrożenia są serializowane. `data/`, archiwum i cache pozostają na VPS
@@ -69,6 +78,17 @@ cd /home/ubuntu/value-bets
 go build -o value_bets value_bets.go
 ./value_bets -listen 0.0.0.0:8090 -data /home/ubuntu/value-bets/data
 ```
+
+Komunikat `ustaw VALUE_BETS_API_TOKEN` oznacza starszy plik źródłowy. Aktualny
+backend nie odczytuje tej zmiennej. Przed ręcznym uruchomieniem podmień wszystkie
+trzy pliki z `server/`; z PowerShella w głównym katalogu lokalnego projektu:
+
+```powershell
+scp .\server\value_bets.go .\server\go.mod .\server\go.sum ubuntu@130.61.39.101:/home/ubuntu/value-bets/
+```
+
+Po udanym wdrożeniu Actions możesz zarządzać procesem przez `systemctl`.
+Uruchamianie drugiego procesu `go run` na tym samym porcie spowoduje konflikt.
 
 Dostęp przychodzący do **TCP 8090** musi być dopuszczony w firewallu VPS
 oraz w regułach sieci dostawcy. Jeśli korzystasz z aktywnego UFW:
@@ -119,10 +139,55 @@ API jest dostępne pod `http://130.61.39.101:8090`, bez tokena:
 | GET | `/api/v1/health` | Wersja API, terminy i błędy kolektorów |
 | GET | `/api/v1/calendars?bookmaker=STS&date=2026-10-05` | Kalendarz wybranego dnia z cache |
 | POST | `/api/v1/calendars/refresh` | Ręczne odświeżenie z body `{"bookmaker":"STS","date":"2026-10-05"}` |
+| POST | `/api/v1/analyses` | Zlecenie analizy; HTTP 202 z identyfikatorem zadania |
+| GET | `/api/v1/analyses/{id}` | Postęp, ostrzeżenia, błąd albo zakończony wynik |
+| POST | `/api/v1/teams/detect` | Rozpoznawanie ID z `url` lub nazw `home`, `away` |
+| POST | `/api/v1/teams/mapping` | Ręczne mapowanie `slug` → `sofaId` na VPS |
+| GET | `/api/v1/tournaments?homeId=123&awayId=456` | Lista rozgrywek drużyny gospodarzy |
 
 Nazwy bukmacherów: `STS`, `BETCLIC`, `SUPERBET`. Odpowiedź kalendarza zachowuje
 dotychczasowy format desktopu: `date`, `events`, `warnings`, `fetchedAt`.
 Odświeżenie odpowiada po pobraniu, a nie przez osobne zadania do odpytywania.
+
+Przykładowe body zlecenia analizy (puste linki innych bukmacherów są dozwolone):
+
+```json
+{
+  "superbetUrl": "https://superbet.pl/kursy/druzyna-a-vs-druzyna-b-12345",
+  "betclicUrl": "",
+  "stsUrl": "",
+  "homeId": "123",
+  "awayId": "456",
+  "matchLimit": 10,
+  "tournamentIds": "ALL"
+}
+```
+
+Używaj rzeczywistego linku skopiowanego z kalendarza. Serwer sprawdza domenę
+i ID meczu. Limit próby wynosi 1–30 meczów. Puste ID drużyn uruchamiają detekcję.
+`tournamentIds` przyjmuje `ALL` albo listę dodatnich ID oddzielonych przecinkami.
+
+Jedna analiza jest wykonywana naraz; cztery następne mogą czekać w kolejce.
+Zlecenie ma limit 20 minut od przyjęcia. Etapy: `queued`, `teams`, `odds`,
+`statistics`, `calculation`, `completed` lub `failed`. Statusy zadania to
+`queued`, `running`, `completed`, `failed`. Postęp zawodników dotyczy próby
+statystyk; pozostałe etapy mają wskaźnik oczekiwania, bez pozornej procentowej dokładności.
+
+Kursy są pobierane na nowo przy każdym zleceniu. Statystyki zawodników mają
+cache 6 godzin, osobny dla zawodnika, wielkości próby i wybranych rozgrywek.
+Niepełne historie i historie bez meczów nie są zapisywane do cache. Ostrzeżenia
+wskazują źródła niedostępne, brak składów i brakujące odpowiedzi statystyk.
+Błąd jednego bukmachera pozwala analizować pozostałe źródła; brak jakichkolwiek
+rynków lub historii kończy zadanie błędem. Niepotwierdzone składy pozostają
+niepotwierdzone w wyniku. Obliczenia Poissona, hitrate i EV zachowują dotychczasowy model.
+
+Rozłączenie lub zamknięcie Wails nie przerywa przyjętego zadania na VPS.
+Przy krótkich przerwach klient ponawia odczyt do czterech nieudanych prób;
+ID zadania pozostaje w komunikacie. Wynik można odczytać przez GET po tym ID.
+Zakończone zadania są zapisane na dysku i dostępne także po restarcie serwera.
+Zadania przerwane restartem wymagają ponownego zlecenia i zwracają taki komunikat.
+Serwer przechowuje w pamięci ograniczoną liczbę zleceń (około 64); archiwum i pliki
+wyników nie są automatycznie kasowane.
 
 ## Czytelne archiwum
 
@@ -130,11 +195,22 @@ Odświeżenie odpowiada po pobraniu, a nie przez osobne zadania do odpytywania.
 data/
   bookmaker_calendar_cache.json
   calendar_schedule.json
+  sofa_team_cache.json
+  sofa_player_stats_cache.json
+  analysis-jobs/
+    <id-zlecenia>.json
   archive/
     2026-10-04/
       sts/
       betclic/
       superbet/
+      mecze/
+        arsenal-vs-chelsea__<id-zlecenia>/
+          superbet/
+          betclic/
+          sts/
+          sofascore/
+          analiza/
 ```
 
 Każdy odczyt odpowiedzi zapisuje surowe bajty przed parsowaniem oraz towarzyszący
@@ -158,8 +234,27 @@ archiwum nie uznaje automatycznie niepełnej oferty za kompletną.
 Archiwizowane są również ramki kontrolne/trailery, otrzymane fragmenty przerwanych
 ramek i błędy pobierania. Błąd zapisu archiwum przerywa dane pobranie; poprzedni
 cache pozostaje dostępny. Odczyt cache nie tworzy kopii tej samej odpowiedzi.
-Na tym etapie archiwizujemy kalendarze i ich odpowiedzi źródłowe; kursy i statystyki
-dołączą po przeniesieniu ich kolektorów.
+Analiza ma własny katalog opisany nazwami drużyn i ID zlecenia. W nim zapisujemy:
+
+- surowe odpowiedzi kursów, wszystkie otrzymane ramki STS i Betclic oraz odczytane
+  rynki zawodników (nazwy rynków, linie, kursy i dostępne ID selekcji);
+- każdą otrzymaną odpowiedź SofaScore: wyszukiwanie, kadry, listy wydarzeń,
+  statystyki zawodnika, zmienników, incydenty, mapy strzałów i składy;
+- czytelne historie zawodników, z nazwą zawodnika i drużyny w nazwie pliku,
+  pierwotnym `dataFetchedAt`, `fromCache`, flagą `incomplete`, identyfikatorami
+  historycznych meczów i pełnymi datami UTC;
+- parametry zlecenia, dokładne wejście do obliczeń (kursy, historie, składy)
+  i wynik `poisson-v1`, również gdy wynik jest pusty lub zadanie kończy się błędem.
+
+Na przykład po rozpakowaniu plik
+`sofascore_zawodnik-bukayo-saka-druzyna-arsenal-proba-10_historia-zawodnika-statystyki-proba-10-meczow_<czas>_<licznik>.json.gz`
+zawiera profil statystyk Saki. Parametry i wynik w katalogu `analiza/` pozwalają
+powiązać dane użyte w obliczeniach, ostrzeżenia i czas zlecenia. Czasy pobrań
+różnych źródeł są osobne; dane z cache nie są oznaczane jako świeżo pobrane.
+Surowe odpowiedzi cache nie są kopiowane, ale profil użyty w każdej analizie
+jest zapisywany jako osobna migawka. Nazwy długich składników są skracane;
+pełne informacje pozostają w treści JSON. Błąd archiwizacji uniemożliwia
+oznaczenie analizy jako poprawnie zakończonej.
 
 Odczyt pojedynczego JSON na Ubuntu:
 
@@ -173,8 +268,16 @@ oprócz logów systemd. Logi i archiwa nie mają jeszcze polityki rotacji.
 ## Sprawdzenie ręczne
 
 Kod nie został uruchomiony, skompilowany ani przetestowany przez agenta.
-Po uruchomieniu sprawdź w Wails trzy kalendarze, zmianę dnia, uzupełnianie linków
-po kliknięciu i ręczne odświeżenie. Po restarcie backendu cache i terminy powinny
-pozostać zapisane. W `/api/v1/health` sprawdzisz błędy źródeł; w archiwum odczytasz
-otrzymane dane. Dostępność endpointów bukmacherów z adresu VPS trzeba potwierdzić
-tym ręcznym uruchomieniem.
+Podmień wszystkie trzy pliki backendu i przebuduj go na VPS, a lokalnie przebuduj
+Wails (`wails build`), aby odświeżyć także powiązania metod. Możesz użyć istniejącego
+workflow przez commit i push na `split`.
+
+Ręcznie wybierz jeden mecz, sprawdź uzupełnienie linków i uruchom analizę.
+Powinny pojawić się etapy pracy VPS, liczniki zawodników, wynik i ewentualne
+ostrzeżenia. Powtórz analizę: kursy powinny pobrać się ponownie, statystyki
+z kompletnego cache mają zachować pierwotny czas pobrania. Następnie odczytaj
+JSON-y kursów, profilu zawodnika, wejścia do obliczeń i wyniku. Po restarcie
+backendu sprawdź cache kalendarzy oraz odczyt zakończonego zadania przez jego ID.
+Szczegóły błędów są w `journalctl -u value-bets -f` i odpowiedziach zlecenia.
+Dostępność SofaScore i endpointów bukmacherów z adresu VPS pozostaje do
+potwierdzenia przez to ręczne uruchomienie.

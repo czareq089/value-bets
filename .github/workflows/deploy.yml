@@ -75,7 +75,7 @@ jobs:
             trap 'rm -f "$unit_file"' EXIT
             cat > "$unit_file" <<'UNIT'
             [Unit]
-            Description=Value Bets calendar server
+            Description=Value Bets calendars and match analysis server
             Wants=network-online.target
             After=network-online.target
 
@@ -98,6 +98,11 @@ jobs:
             sudo -n systemctl daemon-reload
             sudo -n systemctl enable value-bets.service
 
+            # Keep manual builds in the main server directory on the same source
+            # revision as the deployed binary, including its module dependencies.
+            install -m 0644 "$RELEASE_DIR/value_bets.go" /home/ubuntu/value-bets/value_bets.go
+            install -m 0644 "$RELEASE_DIR/go.mod" /home/ubuntu/value-bets/go.mod
+            install -m 0644 "$RELEASE_DIR/go.sum" /home/ubuntu/value-bets/go.sum
             install -m 0755 "$RELEASE_DIR/value_bets" /home/ubuntu/value-bets/value_bets.new
             mv -f /home/ubuntu/value-bets/value_bets.new /home/ubuntu/value-bets/value_bets
             sudo -n systemctl restart value-bets.service

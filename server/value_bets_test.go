@@ -1,4 +1,4 @@
-// Existing desktop and collector tests consolidated into one file. Not run by the agent.
+// Existing collector and statistics regression checks moved to the server. Not run by the agent.
 package main
 
 import (
@@ -19,172 +19,8 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// Analiza, statystyki, kolejka pobierania i kalendarz Superbet.
-func TestPrefetchTodayThenTomorrow(t *testing.T) {
-	a := &App{prefetchGeneration: 1, prefetchExcluded: map[string]bool{"1": true}, prefetchProgress: PrefetchProgress{Running: true}}
-	var timeline []string
-	makeEvent := func(id string, builder bool) SuperbetCalendarEvent {
-		return SuperbetCalendarEvent{ID: id, Home: "A", Away: "B", BetBuilder: builder}
-	}
-	a.runSuperbetPrefetchQueue(context.Background(), 1, "2026-10-24",
-		func(ctx context.Context, date string) (*SuperbetCalendar, error) {
-			timeline = append(timeline, "day:"+date)
-			if date == "2026-10-24" {
-				return &SuperbetCalendar{Events: []SuperbetCalendarEvent{makeEvent("1", true), makeEvent("2", true), makeEvent("3", false)}}, nil
-			}
-			return &SuperbetCalendar{Events: []SuperbetCalendarEvent{makeEvent("2", true), makeEvent("4", true)}}, nil
-		},
-		func(ctx context.Context, event SuperbetCalendarEvent) (string, error) {
-			timeline = append(timeline, "match:"+event.ID)
-			return "cached", nil
-		})
-	if got := strings.Join(timeline, ","); got != "day:2026-10-24,match:2,day:2026-10-25,match:4" {
-		t.Fatalf("wrong queue order: %s", got)
-	}
-	p := a.GetPrefetchProgress()
-	if p.Running || p.Completed != 4 || p.Total != 4 || p.Cached != 2 || p.Skipped != 2 || p.Failed != 0 {
-		t.Fatalf("wrong progress: %+v", p)
-	}
-}
-
-func TestPrefetchContinuesAfterMatchFailure(t *testing.T) {
-	a := &App{prefetchGeneration: 1, prefetchExcluded: map[string]bool{}, prefetchProgress: PrefetchProgress{Running: true}}
-	a.runSuperbetPrefetchQueue(context.Background(), 1, "2026-10-04",
-		func(ctx context.Context, date string) (*SuperbetCalendar, error) {
-			return &SuperbetCalendar{Events: []SuperbetCalendarEvent{{ID: date, BetBuilder: true}}}, nil
-		},
-		func(ctx context.Context, event SuperbetCalendarEvent) (string, error) {
-			if event.ID == "2026-10-04" {
-				return "failed", fmt.Errorf("offline")
-			}
-			return "cached", nil
-		})
-	p := a.GetPrefetchProgress()
-	if p.Completed != 2 || p.Cached != 1 || p.Failed != 1 || p.Running {
-		t.Fatalf("failed queue: %+v", p)
-	}
-}
-
-func TestPrefetchCancellationAndStaleProgress(t *testing.T) {
-	a := &App{prefetchGeneration: 2, prefetchProgress: PrefetchProgress{Message: "new worker"}}
-	a.setPrefetchProgress(1, func(p *PrefetchProgress) { p.Message = "old worker" })
-	if a.GetPrefetchProgress().Message != "new worker" {
-		t.Fatal("old worker changed new progress")
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	a.runSuperbetPrefetchQueue(ctx, 2, "2026-10-04",
-		func(context.Context, string) (*SuperbetCalendar, error) {
-			t.Fatal("cancelled queue loaded calendar")
-			return nil, nil
-		},
-		func(context.Context, SuperbetCalendarEvent) (string, error) {
-			t.Fatal("cancelled queue loaded match")
-			return "", nil
-		})
-	if a.GetPrefetchProgress().Running {
-		t.Fatal("cancelled queue still running")
-	}
-}
-
-func TestPrefetchYieldsToForeground(t *testing.T) {
-	foregroundAnalyses.Add(1)
-	defer foregroundAnalyses.Add(-1)
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-	defer cancel()
-	if err := waitForPrefetch(ctx); err != context.DeadlineExceeded {
-		t.Fatalf("background did not yield: %v", err)
-	}
-}
-
-func TestCancelledPrefetchDoesNotSaveHistory(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	client := &ResilientClient{ctx: ctx, background: true}
-	if _, err := client.GetSofa("/event/1/shotmap"); err != context.Canceled {
-		t.Fatalf("cancelled request: %v", err)
-	}
-}
-
-func TestPrefetchDoesNotRestartOnNextAnalysis(t *testing.T) {
-	zone, _ := time.LoadLocation("Europe/Warsaw")
-	a := &App{prefetchGeneration: 7, prefetchDay: time.Now().In(zone).Format("2006-01-02"), prefetchLimit: 10,
-		prefetchExcluded: map[string]bool{"1": true}, prefetchProgress: PrefetchProgress{Running: true, Completed: 5}}
-	a.StartSuperbetPrefetch(10, "https://superbet.pl/kursy/pilka-nozna/a-vs-b-2")
-	if a.prefetchGeneration != 7 || a.GetPrefetchProgress().Completed != 5 || !a.prefetchExcluded["2"] {
-		t.Fatalf("next analysis restarted the worker: %+v", a.GetPrefetchProgress())
-	}
-}
-
-func TestStopPrefetchCancelsWorker(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	a := &App{prefetchCancel: cancel, prefetchGeneration: 2, prefetchDay: "2026-10-04", prefetchProgress: PrefetchProgress{Running: true}}
-	a.StopSuperbetPrefetch()
-	if ctx.Err() != context.Canceled || a.GetPrefetchProgress().Running || a.prefetchDay != "" || a.prefetchGeneration != 3 {
-		t.Fatal("worker was not stopped and invalidated")
-	}
-}
-
-func TestPrefetchPacerSpacing(t *testing.T) {
-	p := prefetchPacer{interval: 30 * time.Millisecond}
-	ctx := context.Background()
-	if err := p.wait(ctx); err != nil {
-		t.Fatal(err)
-	}
-	first := time.Now()
-	if err := p.wait(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if elapsed := time.Since(first); elapsed < 25*time.Millisecond {
-		t.Fatalf("requests too close: %v", elapsed)
-	}
-}
-
-func TestPrefetchPacerCooldownAndCancellation(t *testing.T) {
-	p := prefetchPacer{interval: time.Millisecond}
-	p.cooldown(time.Minute)
-	deadline := p.next
-	p.cooldown(time.Second)
-	if p.next.Before(deadline) {
-		t.Fatal("shorter pause shortened an existing cooldown")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
-	defer cancel()
-	if err := p.wait(ctx); err != context.DeadlineExceeded {
-		t.Fatalf("cooldown ignores cancellation: %v", err)
-	}
-}
-
-func TestPrefetchErrorHandling(t *testing.T) {
-	for _, tt := range []struct {
-		err   error
-		delay time.Duration
-		retry bool
-	}{
-		{fmt.Errorf("http2: server sent GOAWAY; graceful shutdown"), 5 * time.Second, true},
-		{&prefetchHTTPError{status: 429}, time.Minute, true},
-		{&prefetchHTTPError{status: 429, retryAfter: 2 * time.Minute}, 2 * time.Minute, true},
-		{&prefetchHTTPError{status: 503}, 10 * time.Second, true},
-		{&prefetchHTTPError{status: 403}, time.Minute, false},
-		{&prefetchHTTPError{status: 404}, 5 * time.Second, false},
-		{context.Canceled, 5 * time.Second, false},
-	} {
-		if delay := prefetchErrorDelay(tt.err); delay != tt.delay {
-			t.Errorf("%v: delay %v, want %v", tt.err, delay, tt.delay)
-		}
-		if retry := retryablePrefetchError(tt.err); retry != tt.retry {
-			t.Errorf("%v: retry %v, want %v", tt.err, retry, tt.retry)
-		}
-	}
-	now := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
-	for value, want := range map[string]time.Duration{"120": 2 * time.Minute, now.Add(time.Minute).Format(http.TimeFormat): time.Minute, "invalid": 0, "-1": 0} {
-		if got := parseRetryAfter(value, now); got != want {
-			t.Errorf("Retry-After %q: %v, want %v", value, got, want)
-		}
-	}
-}
-
 func TestPlayerShotsExcludesOwnGoalAgainstWolverhampton(t *testing.T) {
+	setupArchiveForTest(t)
 	// Mavropanos, event 16391640: four shots and one goal; the API also
 	// includes his own goal as shotType=goal, goalType=own.
 	const fixture = `{"shotmap":[
@@ -223,6 +59,7 @@ func TestPlayerShotsExcludesOwnGoalAgainstWolverhampton(t *testing.T) {
 }
 
 func TestPlayerShotsFiltersSubstituteAndUnrelatedPlayers(t *testing.T) {
+	setupArchiveForTest(t)
 	const fixture = `{"shotmap":[
 		{"player":{"id":1},"shotType":"goal","goalType":"own"},
 		{"player":{"id":2},"shotType":"goal","goalType":"own"},
@@ -244,6 +81,7 @@ func TestPlayerShotsFiltersSubstituteAndUnrelatedPlayers(t *testing.T) {
 }
 
 func TestExcludeBlockedShotsFromOnTarget(t *testing.T) {
+	setupArchiveForTest(t)
 	tests := []struct {
 		name       string
 		stats      SofaPlayerStats
@@ -310,6 +148,7 @@ func TestExcludeBlockedShotsFromOnTarget(t *testing.T) {
 }
 
 func TestSuperbetCalendarDayWarsaw(t *testing.T) {
+	setupArchiveForTest(t)
 	for _, tt := range []struct {
 		date  string
 		hours time.Duration
@@ -335,6 +174,7 @@ func TestSuperbetCalendarDayWarsaw(t *testing.T) {
 }
 
 func TestSuperbetCalendarLoadsMatchesAndMetadata(t *testing.T) {
+	setupArchiveForTest(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v3/pl-PL/events":
@@ -362,7 +202,7 @@ func TestSuperbetCalendarLoadsMatchesAndMetadata(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	result, err := loadSuperbetCalendar(server.Client(), "2026-10-04", server.URL, server.URL)
+	result, err := loadSuperbetCalendarContext(archiveTestContext(t), server.Client(), "2026-10-04", server.URL, server.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -384,6 +224,7 @@ func TestSuperbetCalendarLoadsMatchesAndMetadata(t *testing.T) {
 }
 
 func TestSuperbetCalendarPartialFailure(t *testing.T) {
+	setupArchiveForTest(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v3/pl-PL/events" && r.URL.Query().Get("index") == "active-prematch" {
 			fmt.Fprint(w, `{"events":[{"event_id":12,"fixture":{"event_name":"A·B","utc_date":"2026-10-04T18:00:00Z","sport_id":5}}]}`)
@@ -392,11 +233,11 @@ func TestSuperbetCalendarPartialFailure(t *testing.T) {
 		http.Error(w, "unavailable", http.StatusServiceUnavailable)
 	}))
 	defer server.Close()
-	result, err := loadSuperbetCalendar(server.Client(), "2026-10-04", server.URL, server.URL)
+	result, err := loadSuperbetCalendarContext(archiveTestContext(t), server.Client(), "2026-10-04", server.URL, server.URL)
 	if err != nil || len(result.Events) != 1 || len(result.Warnings) != 3 {
 		t.Fatalf("partial failure: result=%+v error=%v", result, err)
 	}
-	result, err = loadSuperbetCalendar(server.Client(), "2026-10-05", server.URL+"/missing", server.URL)
+	result, err = loadSuperbetCalendarContext(archiveTestContext(t), server.Client(), "2026-10-05", server.URL+"/missing", server.URL)
 	if err == nil || result != nil || !strings.Contains(err.Error(), "kalendarza") {
 		t.Fatalf("total failure reported as success: result=%+v error=%v", result, err)
 	}
@@ -404,6 +245,7 @@ func TestSuperbetCalendarPartialFailure(t *testing.T) {
 
 // Linki wydarzeń zgodne z analizą.
 func TestBookmakerCalendarURLsWorkWithExistingAnalysis(t *testing.T) {
+	setupArchiveForTest(t)
 	for _, tt := range []struct {
 		url      string
 		provider string
@@ -411,7 +253,8 @@ func TestBookmakerCalendarURLsWorkWithExistingAnalysis(t *testing.T) {
 		{"https://www.sts.pl/kursy/pilka-nozna/f123", "STS"},
 		{"https://www.betclic.pl/pilka-nozna-s1/example-m123", "BETCLIC"},
 	} {
-		result := desktopCalendar("2026-10-04", []CalendarEvent{{ID: "123", Home: "Bayern München", Away: "Łódź", URL: tt.url}}, []string{"warning"})
+		result := &Calendar{Date: "2026-10-04", Events: []CalendarEvent{{ID: "123", Home: "Bayern München", Away: "Łódź", URL: tt.url}}, Warnings: []string{"warning"}}
+		normalizeCalendarLinks(result)
 		if len(result.Events) != 1 || len(result.Warnings) != 1 {
 			t.Fatalf("missing data: %+v", result)
 		}
@@ -432,6 +275,7 @@ func frame(flags byte, body []byte) []byte {
 }
 
 func TestBetclicRPCPreservesRequestAndReadsFragmentedFrames(t *testing.T) {
+	setupArchiveForTest(t)
 	body := append(ProtoUint(1, 123), ProtoString(2, "pl")...)
 	data := frame(0, []byte{8, 123})
 	trailers := frame(0x80, []byte("grpc-status: 0\r\n"))
@@ -452,13 +296,14 @@ func TestBetclicRPCPreservesRequestAndReadsFragmentedFrames(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	got, err := FetchBetclicRPC(context.Background(), server.Client(), server.URL+"/GetMatchesBySportWithNotifications", body)
+	got, err := FetchBetclicRPC(archiveTestContext(t), server.Client(), server.URL+"/GetMatchesBySportWithNotifications", body)
 	if err != nil || !bytes.Equal(got, data) {
 		t.Fatalf("snapshot=%x error=%v", got, err)
 	}
 }
 
 func TestBetclicSnapshotRejectsGRPCErrorsAndTruncation(t *testing.T) {
+	setupArchiveForTest(t)
 	for _, tt := range []struct {
 		name      string
 		raw       []byte
@@ -471,7 +316,7 @@ func TestBetclicSnapshotRejectsGRPCErrorsAndTruncation(t *testing.T) {
 		{"empty", nil, "EOF"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := readBetclicSnapshot(context.Background(), io.NopCloser(bytes.NewReader(tt.raw)), time.Second)
+			got, err := readBetclicSnapshot(archiveTestContext(t), io.NopCloser(bytes.NewReader(tt.raw)), time.Second)
 			if err == nil || got != nil || !strings.Contains(err.Error(), tt.errorText) {
 				t.Fatalf("got=%x error=%v", got, err)
 			}
@@ -480,6 +325,7 @@ func TestBetclicSnapshotRejectsGRPCErrorsAndTruncation(t *testing.T) {
 }
 
 func TestBetclicSnapshotIdleAndCancellation(t *testing.T) {
+	setupArchiveForTest(t)
 	for _, partial := range []bool{false, true} {
 		t.Run(fmt.Sprintf("partial=%v", partial), func(t *testing.T) {
 			reader, writer := io.Pipe()
@@ -491,7 +337,7 @@ func TestBetclicSnapshotIdleAndCancellation(t *testing.T) {
 					_, _ = writer.Write([]byte{0, 0})
 				}
 			}()
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			ctx, cancel := context.WithTimeout(archiveTestContext(t), time.Second)
 			defer cancel()
 			got, err := readBetclicSnapshot(ctx, reader, 40*time.Millisecond)
 			if partial {
@@ -505,7 +351,7 @@ func TestBetclicSnapshotIdleAndCancellation(t *testing.T) {
 	}
 	reader, writer := io.Pipe()
 	defer writer.Close()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(archiveTestContext(t))
 	cancel()
 	if _, err := readBetclicSnapshot(ctx, reader, time.Second); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
@@ -513,6 +359,7 @@ func TestBetclicSnapshotIdleAndCancellation(t *testing.T) {
 }
 
 func TestSTSSnapshotSelectsRequestedChannel(t *testing.T) {
+	setupArchiveForTest(t)
 	for _, fixtureID := range []string{"", "123"} {
 		t.Run("fixture="+fixtureID, func(t *testing.T) {
 			upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return r.Header.Get("Origin") == "https://www.sts.pl" }}
@@ -546,7 +393,7 @@ func TestSTSSnapshotSelectsRequestedChannel(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			got, err := FetchSTSSnapshot(context.Background(), "ws"+strings.TrimPrefix(server.URL, "http"), fixtureID)
+			got, err := FetchSTSSnapshot(archiveTestContext(t), "ws"+strings.TrimPrefix(server.URL, "http"), fixtureID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -565,6 +412,7 @@ func TestSTSSnapshotSelectsRequestedChannel(t *testing.T) {
 }
 
 func TestSTSCalendarFiltersAndSortsDST(t *testing.T) {
+	setupArchiveForTest(t)
 	raw := []byte(`{"s":"i_pl","f":1}
 {"B":{"S":{"1":{"C":{"1":{"n":"Anglia","T":{"17":{"n":"Premier League","FX":{
 "f1":{"ft":"m","H":{"n":" A "},"A":{"n":"B"},"a":{"1m22":1},"t":"2026-10-25T00:30:00Z","Bb":true},
@@ -624,6 +472,7 @@ func calendarFrame(total uint64, matches ...[]byte) []byte {
 }
 
 func TestBetclicCalendarParsesOnlyMatchListAndPreservesIDs(t *testing.T) {
+	setupArchiveForTest(t)
 	const id = uint64(1237846040018944)
 	raw := calendarFrame(2, calendarMatch(id, "2026-10-04T18:45:00.0000000Z", true), calendarMatch(id+1, "2026-10-05T12:00:00Z", false))
 	page, err := parseBetclicCalendarPage(raw)
@@ -655,6 +504,7 @@ func TestBetclicCalendarParsesOnlyMatchListAndPreservesIDs(t *testing.T) {
 }
 
 func TestBetclicCalendarPaginatesAndFiltersWarsawDay(t *testing.T) {
+	setupArchiveForTest(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		request, _ := io.ReadAll(r.Body)
 		if len(request) < 5 {
@@ -686,7 +536,7 @@ func TestBetclicCalendarPaginatesAndFiltersWarsawDay(t *testing.T) {
 		_, _ = w.Write(calendarFrame(5, matches...))
 	}))
 	defer server.Close()
-	result, err := FetchBetclicCalendar(context.Background(), server.Client(), server.URL, "2026-10-04")
+	result, err := FetchBetclicCalendar(archiveTestContext(t), server.Client(), server.URL, "2026-10-04")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -699,6 +549,7 @@ func TestBetclicCalendarPaginatesAndFiltersWarsawDay(t *testing.T) {
 }
 
 func TestBetclicCalendarReportsChangingOfferAndPageFailure(t *testing.T) {
+	setupArchiveForTest(t)
 	for _, failure := range []bool{false, true} {
 		t.Run(fmt.Sprint(failure), func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -716,7 +567,7 @@ func TestBetclicCalendarReportsChangingOfferAndPageFailure(t *testing.T) {
 				_, _ = w.Write(calendarFrame(1, calendarMatch(1, "2026-10-04T12:00:00Z", true)))
 			}))
 			defer server.Close()
-			result, err := FetchBetclicCalendar(context.Background(), server.Client(), server.URL, "2026-10-04")
+			result, err := FetchBetclicCalendar(archiveTestContext(t), server.Client(), server.URL, "2026-10-04")
 			if failure {
 				if err == nil || result != nil {
 					t.Fatalf("page failure treated as success: %+v %v", result, err)
@@ -729,4 +580,16 @@ func TestBetclicCalendarReportsChangingOfferAndPageFailure(t *testing.T) {
 	if !bytes.Equal(BetclicCalendarRequest(40), []byte{10, 8, 'f', 'o', 'o', 't', 'b', 'a', 'l', 'l', 18, 2, 'p', 'l', 32, 40}) {
 		t.Fatal("live-verified request encoding changed")
 	}
+}
+
+// Existing regression checks moved with the collectors. They are not run by the agent.
+func setupArchiveForTest(t *testing.T) {
+	t.Helper()
+	previous := archiveRoot
+	archiveRoot = t.TempDir()
+	t.Cleanup(func() { archiveRoot = previous })
+}
+func archiveTestContext(t *testing.T) context.Context {
+	t.Helper()
+	return context.WithValue(context.Background(), archiveContextKey{}, archiveInfo{Bookmaker: "TEST", Scope: t.Name()})
 }

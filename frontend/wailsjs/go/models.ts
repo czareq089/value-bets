@@ -102,6 +102,91 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class AnalysisRequest {
+	    superbetUrl: string;
+	    betclicUrl: string;
+	    stsUrl: string;
+	    homeId: string;
+	    awayId: string;
+	    matchLimit: number;
+	    tournamentIds: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AnalysisRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.superbetUrl = source["superbetUrl"];
+	        this.betclicUrl = source["betclicUrl"];
+	        this.stsUrl = source["stsUrl"];
+	        this.homeId = source["homeId"];
+	        this.awayId = source["awayId"];
+	        this.matchLimit = source["matchLimit"];
+	        this.tournamentIds = source["tournamentIds"];
+	    }
+	}
+	export class AnalysisJob {
+	    id: string;
+	    match: string;
+	    status: string;
+	    stage: string;
+	    message: string;
+	    playersDone: number;
+	    playersTotal: number;
+	    // Go type: time
+	    createdAt: any;
+	    // Go type: time
+	    startedAt?: any;
+	    // Go type: time
+	    finishedAt?: any;
+	    request: AnalysisRequest;
+	    warnings: string[];
+	    result?: AnalyzedBet[];
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AnalysisJob(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.match = source["match"];
+	        this.status = source["status"];
+	        this.stage = source["stage"];
+	        this.message = source["message"];
+	        this.playersDone = source["playersDone"];
+	        this.playersTotal = source["playersTotal"];
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.startedAt = this.convertValues(source["startedAt"], null);
+	        this.finishedAt = this.convertValues(source["finishedAt"], null);
+	        this.request = this.convertValues(source["request"], AnalysisRequest);
+	        this.warnings = source["warnings"];
+	        this.result = this.convertValues(source["result"], AnalyzedBet);
+	        this.error = source["error"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
 	export class LeagueOption {
 	    id: number;
 	    name: string;
@@ -223,52 +308,6 @@ export namespace main {
 		    }
 		    return a;
 		}
-	}
-	export class PrefetchProgress {
-	    running: boolean;
-	    day: string;
-	    completed: number;
-	    total: number;
-	    cached: number;
-	    skipped: number;
-	    failed: number;
-	    currentMatch: string;
-	    playersDone: number;
-	    playersTotal: number;
-	    message: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new PrefetchProgress(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.running = source["running"];
-	        this.day = source["day"];
-	        this.completed = source["completed"];
-	        this.total = source["total"];
-	        this.cached = source["cached"];
-	        this.skipped = source["skipped"];
-	        this.failed = source["failed"];
-	        this.currentMatch = source["currentMatch"];
-	        this.playersDone = source["playersDone"];
-	        this.playersTotal = source["playersTotal"];
-	        this.message = source["message"];
-	    }
-	}
-	export class ServerConnection {
-	    baseUrl: string;
-	    token: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new ServerConnection(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.baseUrl = source["baseUrl"];
-	        this.token = source["token"];
-	    }
 	}
 	
 	export class SuperbetCalendarEvent {
