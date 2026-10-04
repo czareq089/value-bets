@@ -256,6 +256,20 @@ export namespace main {
 	        this.message = source["message"];
 	    }
 	}
+	export class ServerConnection {
+	    baseUrl: string;
+	    token: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ServerConnection(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.baseUrl = source["baseUrl"];
+	        this.token = source["token"];
+	    }
+	}
 	
 	export class SuperbetCalendarEvent {
 	    id: string;

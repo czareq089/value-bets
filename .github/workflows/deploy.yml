@@ -1,0 +1,104 @@
+name: Deploy Value Bets to VPS
+
+# GitHub receives commits through push; a local commit alone has no Actions event.
+on:
+  push:
+    branches: [split]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: value-bets-vps
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    if: github.ref == 'refs/heads/split'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RELEASE_DIR: /home/ubuntu/value-bets/releases/${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Checkout committed source
+        uses: actions/checkout@v4
+
+      - name: Require VPS connection secrets
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          test -n "$VPS_HOST" || { echo "Missing VPS_HOST secret"; exit 1; }
+          test -n "$VPS_USER" || { echo "Missing VPS_USER secret"; exit 1; }
+          test -n "$VPS_SSH_KEY" || { echo "Missing VPS_SSH_KEY secret"; exit 1; }
+
+      - name: Prepare source directory on VPS
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: RELEASE_DIR
+          script: |
+            set -eu
+            mkdir -p "$RELEASE_DIR"
+
+      - name: Upload server source to VPS
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: "server/value_bets.go,server/go.mod,server/go.sum"
+          target: ${{ env.RELEASE_DIR }}
+          strip_components: 1
+
+      - name: Build on VPS and restart service
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: RELEASE_DIR
+          command_timeout: 20m
+          script: |
+            set -eu
+            export PATH="/usr/local/go/bin:/home/ubuntu/go/bin:$PATH"
+            cd "$RELEASE_DIR"
+            go version
+            CGO_ENABLED=0 go build -trimpath -o value_bets value_bets.go
+
+            # Nothing is replaced before the build above has succeeded.
+            unit_file="$(mktemp)"
+            trap 'rm -f "$unit_file"' EXIT
+            cat > "$unit_file" <<'UNIT'
+            [Unit]
+            Description=Value Bets calendar server
+            Wants=network-online.target
+            After=network-online.target
+
+            [Service]
+            Type=simple
+            User=ubuntu
+            WorkingDirectory=/home/ubuntu/value-bets
+            ExecStart=/home/ubuntu/value-bets/value_bets -listen 0.0.0.0:8090 -data /home/ubuntu/value-bets/data
+            Restart=on-failure
+            RestartSec=5
+            TimeoutStopSec=25
+            UMask=0027
+            NoNewPrivileges=true
+            PrivateTmp=true
+
+            [Install]
+            WantedBy=multi-user.target
+            UNIT
+            sudo -n install -o root -g root -m 0644 "$unit_file" /etc/systemd/system/value-bets.service
+            sudo -n systemctl daemon-reload
+            sudo -n systemctl enable value-bets.service
+
+            install -m 0755 "$RELEASE_DIR/value_bets" /home/ubuntu/value-bets/value_bets.new
+            mv -f /home/ubuntu/value-bets/value_bets.new /home/ubuntu/value-bets/value_bets
+            sudo -n systemctl restart value-bets.service
+            sudo -n systemctl is-active --quiet value-bets.service

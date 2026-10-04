@@ -6,6 +6,10 @@ export function AnalyzeThreeBookmakers(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
   return window['go']['main']['App']['AnalyzeThreeBookmakers'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
 }
 
+export function CheckServerConnection() {
+  return window['go']['main']['App']['CheckServerConnection']();
+}
+
 export function DeleteMatchHistory(arg1) {
   return window['go']['main']['App']['DeleteMatchHistory'](arg1);
 }
@@ -34,6 +38,10 @@ export function GetSTSCalendar(arg1) {
   return window['go']['main']['App']['GetSTSCalendar'](arg1);
 }
 
+export function GetServerConnection() {
+  return window['go']['main']['App']['GetServerConnection']();
+}
+
 export function GetSuperbetCalendar(arg1) {
   return window['go']['main']['App']['GetSuperbetCalendar'](arg1);
 }
@@ -56,6 +64,10 @@ export function SaveMatchHistory(arg1) {
 
 export function SaveMyBets(arg1) {
   return window['go']['main']['App']['SaveMyBets'](arg1);
+}
+
+export function SaveServerConnection(arg1, arg2) {
+  return window['go']['main']['App']['SaveServerConnection'](arg1, arg2);
 }
 
 export function SaveTeamSofaID(arg1, arg2) {

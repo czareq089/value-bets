@@ -1,8 +1,10 @@
+// All desktop Go code is kept in this file; the VPS server is server/value_bets.go.
 package main
 
 import (
 	"bytes"
 	"context"
+	"embed"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -30,12 +32,43 @@ import (
 	fhttp "github.com/bogdanfinn/fhttp"
 	tls_client "github.com/bogdanfinn/tls-client"
 	"github.com/bogdanfinn/tls-client/profiles"
+	"github.com/gorilla/websocket"
+	"github.com/wailsapp/wails/v2"
+	"github.com/wailsapp/wails/v2/pkg/options"
+	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"golang.org/x/text/runes"
 	"golang.org/x/text/transform"
 	"golang.org/x/text/unicode/norm"
-	"value-bets-3.0/internal/offering"
 )
 
+// Uruchomienie aplikacji Wails.
+//
+//go:embed all:frontend
+var assets embed.FS
+
+func main() {
+	app := NewApp()
+
+	err := wails.Run(&options.App{
+		Title:  "ValueBets 3.0",
+		Width:  1920,
+		Height: 1080,
+		AssetServer: &assetserver.Options{
+			Assets: assets,
+		},
+		OnStartup:  app.startup,
+		OnShutdown: app.shutdown,
+		Bind: []interface{}{
+			app,
+		},
+	})
+
+	if err != nil {
+		println("Error:", err.Error())
+	}
+}
+
+// Dane, pobieranie kursów, statystyki i analiza.
 // ==========================================
 // 1. STAŁE I STRUKTURY DANYCH
 // ==========================================
@@ -475,13 +508,17 @@ func savePlayerCache(key string, hist *PlayerStatHistory) {
 
 func getCacheFilePath(filename string) string {
 	if exePath, err := os.Executable(); err == nil {
-		dir := filepath.Dir(exePath)
+		dir := filepath.Join(filepath.Dir(exePath), "data")
 		candidate := filepath.Join(dir, filename)
 		if _, err := os.Stat(candidate); err == nil {
 			return candidate
 		}
 	}
-	return filename
+	path := filepath.Join("data", filename)
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		log.Printf("[CACHE] Nie można utworzyć katalogu danych: %v", err)
+	}
+	return path
 }
 
 func loadTeamCache() map[string]string {
@@ -979,7 +1016,7 @@ func FetchSTSSnapshotData(fixtureID string) (string, error) {
 	if fixtureID == "" {
 		return "", fmt.Errorf("brak ID meczu STS")
 	}
-	raw, err := offering.FetchSTSSnapshot(context.Background(), offering.STSWebSocket, fixtureID)
+	raw, err := FetchSTSSnapshot(context.Background(), STSWebSocket, fixtureID)
 	return string(raw), err
 }
 func FetchBetclicStreamData(matchIDStr string) ([]byte, error) {
@@ -987,11 +1024,11 @@ func FetchBetclicStreamData(matchIDStr string) ([]byte, error) {
 	if err != nil || matchID == 0 {
 		return nil, fmt.Errorf("niepoprawne numeryczne ID Betclic: %s", matchIDStr)
 	}
-	body := offering.ProtoUint(1, matchID)
-	body = append(body, offering.ProtoString(2, "pl")...)
-	body = append(body, offering.ProtoString(3, "ca_ftb_prp")...)
-	return offering.FetchBetclicRPC(context.Background(), GetSharedSofaClient().httpClient,
-		offering.BetclicMatchService+"GetMatchWithNotification", body)
+	body := ProtoUint(1, matchID)
+	body = append(body, ProtoString(2, "pl")...)
+	body = append(body, ProtoString(3, "ca_ftb_prp")...)
+	return FetchBetclicRPC(context.Background(), GetSharedSofaClient().httpClient,
+		BetclicMatchService+"GetMatchWithNotification", body)
 }
 
 // ==========================================
@@ -3513,4 +3550,1229 @@ func (a *App) prefetchSuperbetMatch(ctx context.Context, client *ResilientClient
 		return "failed", fmt.Errorf("pobrano historie %d/%d zawodników", loaded, len(ids))
 	}
 	return "cached", nil
+}
+
+// Kalendarze z VPS.
+// On split, calendar collection and durable cache live on the VPS.
+func (a *App) GetSTSCalendar(date string) (*SuperbetCalendar, error) {
+	return a.getBookmakerCalendar(a.calendarContext(), "STS", date, false)
+}
+
+func (a *App) calendarContext() context.Context {
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return ctx
+}
+
+func parseSTSDesktopCalendar(raw []byte, date string) (*SuperbetCalendar, error) {
+	events, err := ParseSTSCalendar(raw, date)
+	if err != nil {
+		return nil, err
+	}
+	return desktopCalendar(date, events, []string{}), nil
+}
+
+func (a *App) GetBetclicCalendar(date string) (*SuperbetCalendar, error) {
+	return a.getBookmakerCalendar(a.calendarContext(), "BETCLIC", date, false)
+}
+
+func (a *App) RefreshBookmakerCalendar(bookmaker, date string) (*SuperbetCalendar, error) {
+	return a.getBookmakerCalendar(a.calendarContext(), strings.ToUpper(strings.TrimSpace(bookmaker)), date, true)
+}
+
+func (a *App) getBookmakerCalendar(ctx context.Context, bookmaker, date string, force bool) (*SuperbetCalendar, error) {
+	if _, _, err := superbetCalendarDay(date); err != nil {
+		return nil, err
+	}
+	if bookmaker != "STS" && bookmaker != "BETCLIC" && bookmaker != "SUPERBET" {
+		return nil, fmt.Errorf("nieobsługiwany bukmacher kalendarza: %s", bookmaker)
+	}
+	var calendar SuperbetCalendar
+	query := url.Values{"bookmaker": {bookmaker}, "date": {date}}
+	method, path := http.MethodGet, "/api/v1/calendars?"+query.Encode()
+	var body []byte
+	if force {
+		method, path = http.MethodPost, "/api/v1/calendars/refresh"
+		body, _ = json.Marshal(map[string]string{"bookmaker": bookmaker, "date": date})
+	}
+	if err := a.serverRequest(ctx, method, path, body, &calendar); err != nil {
+		return nil, err
+	}
+	return &calendar, nil
+}
+
+// The desktop connects to the user's VPS automatically, without configuration.
+const serverBaseURL = "http://130.61.39.101:8090"
+
+var calendarAPIClient = &http.Client{
+	Timeout:       180 * time.Second,
+	CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
+}
+
+func (a *App) serverRequest(ctx context.Context, method, path string, body []byte, target any) error {
+	req, err := http.NewRequestWithContext(ctx, method, serverBaseURL+path, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "application/json")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := calendarAPIClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("połączenie z API: %w", err)
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, (32<<20)+1))
+	if err != nil {
+		return err
+	}
+	if len(raw) > 32<<20 {
+		return fmt.Errorf("odpowiedź API przekracza 32 MB")
+	}
+	if resp.StatusCode != http.StatusOK {
+		var failure struct {
+			Error string `json:"error"`
+		}
+		_ = json.Unmarshal(raw, &failure)
+		if failure.Error == "" {
+			failure.Error = resp.Status
+		}
+		return fmt.Errorf("API HTTP %d: %s", resp.StatusCode, failure.Error)
+	}
+	if err := json.Unmarshal(raw, target); err != nil {
+		return fmt.Errorf("niepoprawna odpowiedź API: %w", err)
+	}
+	return nil
+}
+
+func desktopCalendar(date string, events []CalendarEvent, warnings []string) *SuperbetCalendar {
+	result := &SuperbetCalendar{Date: date, Events: []SuperbetCalendarEvent{}, Warnings: warnings}
+	for _, event := range events {
+		slug := calendarTeamSlug(event.Home) + "-vs-" + calendarTeamSlug(event.Away)
+		if strings.Contains(event.URL, "www.sts.pl") {
+			event.URL = "https://www.sts.pl/kursy/pilka-nozna/" + slug + "/f" + event.ID
+		}
+		if strings.Contains(event.URL, "www.betclic.pl") {
+			event.URL = "https://www.betclic.pl/pilka-nozna-s1/" + slug + "-m" + event.ID
+		}
+		result.Events = append(result.Events, SuperbetCalendarEvent{
+			ID: event.ID, Home: event.Home, Away: event.Away,
+			Competition: event.Competition, Country: event.Country,
+			StartTime: event.StartTime, URL: event.URL, Live: event.Live, BetBuilder: event.BetBuilder,
+		})
+	}
+	return result
+}
+
+// Transport Betclic (gRPC-Web).
+const BetclicMatchService = "https://offering.begmedia.com/web/offering.access.api/offering.access.api.MatchService/"
+
+const maxGRPCFrame = 32 << 20
+
+// ProtoUint and ProtoString build the same protobuf fields used by the desktop client.
+func ProtoUint(field, value uint64) []byte {
+	return appendVarint(appendVarint(nil, field<<3), value)
+}
+
+func ProtoString(field uint64, value string) []byte {
+	b := appendVarint(nil, field<<3|2)
+	b = appendVarint(b, uint64(len(value)))
+	return append(b, value...)
+}
+
+func appendVarint(b []byte, value uint64) []byte {
+	for value >= 128 {
+		b = append(b, byte(value)|0x80)
+		value >>= 7
+	}
+	return append(b, byte(value))
+}
+
+// FetchBetclicRPC reuses the desktop gRPC-Web request headers for any MatchService
+// method. body is the protobuf message without the five-byte gRPC-Web envelope.
+// Notification streams are read one complete frame at a time. A short idle period
+// after complete data frames ends the snapshot, but never accepts a partial frame.
+func FetchBetclicRPC(parent context.Context, client *http.Client, endpoint string, body []byte) (snapshot []byte, err error) {
+	parent = betclicTrace(parent, "rpc")
+	started := time.Now()
+	betclicDebugf(parent, "RPC_START endpoint=%q client_timeout=%s rpc_timeout=25s request_bytes=%d protobuf_hex=%s", endpoint, client.Timeout, len(body), betclicPreview(body))
+	defer func() {
+		betclicDebugf(parent, "RPC_END duration=%s snapshot_bytes=%d error=%v", time.Since(started), len(snapshot), err)
+	}()
+	ctx, cancel := context.WithTimeout(parent, 25*time.Second)
+	defer cancel()
+	header := make([]byte, 5)
+	binary.BigEndian.PutUint32(header[1:], uint32(len(body)))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(append(header, body...)))
+	if err != nil {
+		return nil, err
+	}
+	for key, value := range map[string]string{
+		"Accept": "*/*", "Accept-Language": "pl-PL", "Appversion": "10.5.0-1",
+		"Content-Type": "application/grpc-web+proto", "Origin": "https://www.betclic.pl",
+		"Referer": "https://www.betclic.pl/", "Sec-Fetch-Dest": "empty",
+		"Sec-Fetch-Mode": "cors", "Sec-Fetch-Site": "cross-site",
+		"User-Agent":     "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+		"X-Bg-Ref-Brand": "BETCLIC", "X-Bg-Ref-Platform": "DESKTOP",
+		"X-Bg-Ref-Regulator-Zone": "PL", "X-Bg-Regulation": "PL", "X-Grpc-Web": "1",
+	} {
+		req.Header.Set(key, value)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("Betclic połączenie: %w", err)
+	}
+	defer resp.Body.Close()
+	betclicDebugf(ctx, "HTTP_RESPONSE elapsed=%s status=%d protocol=%q content_type=%q content_length=%d grpc_status=%q grpc_message=%q", time.Since(started), resp.StatusCode, resp.Proto, resp.Header.Get("Content-Type"), resp.ContentLength, resp.Header.Get("Grpc-Status"), resp.Header.Get("Grpc-Message"))
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Betclic HTTP %d", resp.StatusCode)
+	}
+	if err := grpcStatusError(resp.Header); err != nil {
+		return nil, err
+	}
+	if contentType := resp.Header.Get("Content-Type"); !strings.HasPrefix(contentType, "application/grpc-web") || strings.Contains(contentType, "grpc-web-text") {
+		return nil, fmt.Errorf("Betclic nieobsługiwany Content-Type: %q", contentType)
+	}
+	return readBetclicSnapshot(ctx, resp.Body, 2500*time.Millisecond)
+}
+
+func grpcStatusError(headers http.Header) error {
+	status := headers.Get("Grpc-Status")
+	if status == "" || status == "0" {
+		return nil
+	}
+	message := headers.Get("Grpc-Message")
+	if decoded, err := url.PathUnescape(message); err == nil {
+		message = decoded
+	}
+	return fmt.Errorf("Betclic gRPC status %s: %s", status, message)
+}
+
+func readBetclicSnapshot(ctx context.Context, reader io.ReadCloser, idle time.Duration) ([]byte, error) {
+	type result struct {
+		frame []byte
+		err   error
+	}
+	frames := make(chan result, 1)
+	var inFrame atomic.Bool
+	readerCtx, stop := context.WithCancel(ctx)
+	defer stop()
+	defer reader.Close() // interrupts a pending read on timeout or cancellation
+	go func() {
+		for {
+			header := make([]byte, 5)
+			_, err := io.ReadFull(reader, header[:1])
+			if err == nil {
+				inFrame.Store(true)
+				_, err = io.ReadFull(reader, header[1:])
+				if err == io.EOF {
+					err = io.ErrUnexpectedEOF
+				}
+			}
+			var frame []byte
+			if err == nil {
+				size := binary.BigEndian.Uint32(header[1:])
+				betclicDebugf(ctx, "FRAME_HEADER flags=0x%02x payload_bytes=%d", header[0], size)
+				if size > maxGRPCFrame {
+					err = fmt.Errorf("zbyt duża ramka gRPC: %d", size)
+				} else {
+					frame = make([]byte, 5+int(size))
+					copy(frame, header)
+					_, err = io.ReadFull(reader, frame[5:])
+					if err == io.EOF {
+						err = io.ErrUnexpectedEOF
+					}
+				}
+			}
+			inFrame.Store(false)
+			select {
+			case frames <- result{frame, err}:
+			case <-readerCtx.Done():
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	var snapshot []byte
+	for {
+		// No short idle deadline before the first frame.
+		var timer *time.Timer
+		var timeout <-chan time.Time
+		if len(snapshot) > 0 {
+			timer = time.NewTimer(idle)
+			timeout = timer.C
+		}
+		select {
+		case <-ctx.Done():
+			betclicDebugf(ctx, "STREAM_CONTEXT_END received_bytes=%d in_frame=%t error=%v", len(snapshot), inFrame.Load(), ctx.Err())
+			if timer != nil {
+				timer.Stop()
+			}
+			return nil, ctx.Err()
+		case <-timeout:
+			betclicDebugf(ctx, "STREAM_IDLE idle=%s received_bytes=%d in_frame=%t", idle, len(snapshot), inFrame.Load())
+			if inFrame.Load() {
+				return nil, fmt.Errorf("Betclic przerwana ramka gRPC: %w", io.ErrUnexpectedEOF)
+			}
+			return snapshot, nil
+		case next := <-frames:
+			if timer != nil {
+				timer.Stop()
+			}
+			if next.err != nil {
+				betclicDebugf(ctx, "STREAM_READ_END received_bytes=%d error=%v", len(snapshot), next.err)
+				if next.err == io.EOF && len(snapshot) > 0 {
+					return snapshot, nil
+				}
+				return nil, fmt.Errorf("Betclic odczyt strumienia: %w", next.err)
+			}
+			flags := next.frame[0]
+			betclicDebugf(ctx, "FRAME_COMPLETE flags=0x%02x frame_bytes=%d received_bytes=%d", flags, len(next.frame), len(snapshot))
+			if flags == 0x80 {
+				trailers := http.Header{}
+				for _, line := range strings.Split(string(next.frame[5:]), "\r\n") {
+					if key, value, ok := strings.Cut(line, ":"); ok {
+						trailers.Set(strings.TrimSpace(key), strings.TrimSpace(value))
+					}
+				}
+				if err := grpcStatusError(trailers); err != nil {
+					betclicDebugf(ctx, "GRPC_TRAILERS status=%q message=%q", trailers.Get("Grpc-Status"), trailers.Get("Grpc-Message"))
+					return nil, err
+				}
+				betclicDebugf(ctx, "GRPC_TRAILERS status=%q message=%q", trailers.Get("Grpc-Status"), trailers.Get("Grpc-Message"))
+				if len(snapshot) == 0 {
+					return nil, fmt.Errorf("Betclic nie zwrócił danych")
+				}
+				return snapshot, nil
+			}
+			if flags != 0 {
+				return nil, fmt.Errorf("Betclic nieobsługiwane flagi ramki: %d", flags)
+			}
+			if len(snapshot)+len(next.frame) > maxGRPCFrame {
+				return nil, fmt.Errorf("Betclic snapshot przekracza limit rozmiaru")
+			}
+			snapshot = append(snapshot, next.frame...)
+		}
+	}
+}
+
+// Diagnostyka Betclic.
+type betclicTraceKey struct{}
+
+var betclicDebug struct {
+	once   sync.Once
+	logger *log.Logger
+	path   string
+	seq    atomic.Uint64
+	dumpMu sync.Mutex
+}
+
+func initBetclicDebug() {
+	betclicDebug.once.Do(func() {
+		// Use the working directory so desktop and CLI diagnostics are easy to find.
+		dir, err := os.Getwd()
+		if err != nil {
+			dir = "."
+		}
+		betclicDebug.path = filepath.Join(dir, "data", "logs", "betclic-debug.log")
+		betclicDebug.logger = log.New(os.Stderr, "[Betclic] ", log.Ldate|log.Ltime|log.Lmicroseconds)
+		if err := os.MkdirAll(filepath.Dir(betclicDebug.path), 0755); err != nil {
+			betclicDebug.logger.Printf("Nie można utworzyć katalogu logów: %v", err)
+			return
+		}
+		file, err := os.OpenFile(betclicDebug.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+		if err != nil {
+			betclicDebug.logger.Printf("Nie można otworzyć logu %q: %v", betclicDebug.path, err)
+			return
+		}
+		// Kept open for the process lifetime; log.Logger serializes concurrent writes.
+		betclicDebug.logger.SetOutput(io.MultiWriter(os.Stderr, file))
+		betclicDebug.logger.Printf("SESSION pid=%d log=%q", os.Getpid(), betclicDebug.path)
+	})
+}
+
+// BetclicDebugLogPath returns the diagnostic file location, including for GUI errors.
+func BetclicDebugLogPath() string {
+	initBetclicDebug()
+	return betclicDebug.path
+}
+
+func betclicTrace(ctx context.Context, stage string) context.Context {
+	initBetclicDebug()
+	parent, _ := ctx.Value(betclicTraceKey{}).(string)
+	id := fmt.Sprintf("%s-%d", stage, betclicDebug.seq.Add(1))
+	if parent != "" {
+		id = parent + "/" + id
+	}
+	return context.WithValue(ctx, betclicTraceKey{}, id)
+}
+
+func betclicDebugf(ctx context.Context, format string, args ...any) {
+	initBetclicDebug()
+	trace, _ := ctx.Value(betclicTraceKey{}).(string)
+	betclicDebug.logger.Printf("trace=%q %s", trace, fmt.Sprintf(format, args...))
+}
+
+func betclicPreview(raw []byte) string {
+	const limit = 256
+	if len(raw) > limit {
+		return fmt.Sprintf("%x... (%d bytes total)", raw[:limit], len(raw))
+	}
+	return fmt.Sprintf("%x", raw)
+}
+
+func betclicProtoSummary(fields []protoField) string {
+	var summary []string
+	for i, field := range fields {
+		if i == 30 {
+			summary = append(summary, "...")
+			break
+		}
+		if field.Wire == 0 {
+			summary = append(summary, fmt.Sprintf("%d:varint=%d", field.Number, field.Uint))
+		} else {
+			summary = append(summary, fmt.Sprintf("%d:wire=%d,len=%d", field.Number, field.Wire, len(field.Bytes)))
+		}
+	}
+	return strings.Join(summary, " ")
+}
+
+func betclicSaveParserFailure(ctx context.Context, raw []byte) {
+	betclicSaveSnapshot(ctx, "betclic-last-parser-error.bin", raw)
+}
+
+func betclicSaveSnapshot(ctx context.Context, filename string, raw []byte) {
+	initBetclicDebug()
+	// Fixed diagnostic filenames keep only the latest response of each kind.
+	path := filepath.Join(filepath.Dir(betclicDebug.path), filename)
+	betclicDebug.dumpMu.Lock()
+	err := os.WriteFile(path, raw, 0600)
+	betclicDebug.dumpMu.Unlock()
+	betclicDebugf(ctx, "SNAPSHOT_DUMP path=%q bytes=%d error=%v", path, len(raw), err)
+}
+
+// Parsowanie katalogu Betclic.
+type Calendar struct {
+	Date      string          `json:"date"`
+	Events    []CalendarEvent `json:"events"`
+	Warnings  []string        `json:"warnings"`
+	FetchedAt string          `json:"fetchedAt,omitempty"`
+}
+
+type betclicPage struct {
+	Offset int
+	Events []CalendarEvent
+	Total  int
+	IDs    []string
+}
+
+// The request and field numbers below were checked against live responses from
+// GetMatchesBySportWithNotifications: sport_code=football, language=pl, offset=4.
+// The service returns 40 matches per page by default. Never treat the first page
+// as the complete calendar; field 5 of the response holds the total count.
+func BetclicCalendarRequest(offset int) []byte {
+	body := append(ProtoString(1, "football"), ProtoString(2, "pl")...)
+	if offset > 0 {
+		body = append(body, ProtoUint(4, uint64(offset))...)
+	}
+	return body
+}
+
+func FetchBetclicCalendar(parent context.Context, client *http.Client, endpoint, date string) (*Calendar, error) {
+	if _, _, err := calendarDay(date); err != nil {
+		return nil, err
+	}
+	full, err := FetchBetclicFullCalendar(parent, client, endpoint)
+	if err != nil {
+		return nil, err
+	}
+	return FilterCalendar(full, date)
+}
+
+// FetchBetclicFullCalendar keeps every date from the paginated source snapshot.
+func FetchBetclicFullCalendar(parent context.Context, client *http.Client, endpoint string) (calendar *Calendar, err error) {
+	parent = betclicTrace(parent, "calendar")
+	started := time.Now()
+	betclicDebugf(parent, "CALENDAR_START scope=full_catalog timeout=2m")
+	defer func() {
+		if calendar != nil {
+			betclicDebugf(parent, "CALENDAR_END duration=%s events=%d warnings=%q error=%v", time.Since(started), len(calendar.Events), calendar.Warnings, err)
+		} else {
+			betclicDebugf(parent, "CALENDAR_END duration=%s error=%v", time.Since(started), err)
+		}
+	}()
+	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
+	defer cancel()
+	loadPage := func(offset int) (betclicPage, error) {
+		pageCtx := betclicTrace(ctx, fmt.Sprintf("page-offset-%d", offset))
+		betclicDebugf(pageCtx, "PAGE_START offset=%d", offset)
+		raw, err := FetchBetclicRPC(pageCtx, client, endpoint, BetclicCalendarRequest(offset))
+		if err != nil {
+			betclicDebugf(pageCtx, "PAGE_FETCH_ERROR offset=%d error=%v", offset, err)
+			return betclicPage{}, err
+		}
+		betclicDebugf(pageCtx, "PAGE_SNAPSHOT bytes=%d preview_hex=%s", len(raw), betclicPreview(raw))
+		page, err := parseBetclicCalendarPageWithContext(pageCtx, raw)
+		if err != nil {
+			betclicDebugf(pageCtx, "PAGE_PARSE_ERROR offset=%d error=%v", offset, err)
+			betclicSaveParserFailure(pageCtx, raw)
+			return betclicPage{}, fmt.Errorf("Betclic parser strony od %d: %w", offset, err)
+		}
+		page.Offset = offset
+		betclicDebugf(pageCtx, "PAGE_END offset=%d ids=%d football_matches=%d total=%d", offset, len(page.IDs), len(page.Events), page.Total)
+		if len(page.IDs) == 0 && offset < page.Total {
+			betclicDebugf(pageCtx, "PAGE_EMPTY_BEFORE_TOTAL offset=%d declared_total=%d", offset, page.Total)
+			betclicSaveSnapshot(pageCtx, "betclic-last-empty-page.bin", raw)
+		}
+		if len(page.Events) > 0 {
+			betclicDebugf(pageCtx, "PAGE_DATES first=%s last=%s", page.Events[0].StartTime, page.Events[len(page.Events)-1].StartTime)
+		}
+		return page, nil
+	}
+	first, err := loadPage(0)
+	if err != nil {
+		return nil, err
+	}
+	if first.Total > 5120 {
+		return nil, fmt.Errorf("Betclic oferta przekracza limit 5120 meczów: %d", first.Total)
+	}
+	if first.Total > len(first.IDs) && len(first.IDs) == 0 {
+		return nil, fmt.Errorf("Betclic pusta pierwsza strona niepełnej oferty")
+	}
+	pages := []betclicPage{first}
+	pageSize := len(first.IDs)
+	betclicDebugf(ctx, "PAGINATION page_size=%d total=%d parallel_readers=2", pageSize, first.Total)
+	// Two readers bound source load and keep a calendar scan below the timeout.
+	for offset := pageSize; pageSize > 0 && offset < first.Total; offset += 2 * pageSize {
+		var results [2]betclicPage
+		var errs [2]error
+		count := 1
+		if offset+pageSize < first.Total {
+			count = 2
+		}
+		var wg sync.WaitGroup
+		for i := 0; i < count; i++ {
+			wg.Add(1)
+			go func(i int) { defer wg.Done(); results[i], errs[i] = loadPage(offset + i*pageSize) }(i)
+		}
+		wg.Wait()
+		for i := 0; i < count; i++ {
+			if errs[i] != nil {
+				return nil, fmt.Errorf("Betclic strona od %d: %w", offset+i*pageSize, errs[i])
+			}
+			pages = append(pages, results[i])
+		}
+	}
+	byID := map[string]CalendarEvent{}
+	allIDs := map[string]int{}
+	records, duplicates := 0, 0
+	var emptyOffsets []int
+	changed := false
+	for _, page := range pages {
+		if page.Total != first.Total {
+			changed = true
+		}
+		if len(page.IDs) == 0 {
+			emptyOffsets = append(emptyOffsets, page.Offset)
+		}
+		records += len(page.IDs)
+		for _, id := range page.IDs {
+			if firstOffset, exists := allIDs[id]; exists {
+				duplicates++
+				betclicDebugf(ctx, "DUPLICATE_ID id=%s first_offset=%d repeated_offset=%d", id, firstOffset, page.Offset)
+			} else {
+				allIDs[id] = page.Offset
+			}
+		}
+		for _, event := range page.Events {
+			byID[event.ID] = event
+		}
+	}
+	result := &Calendar{Events: []CalendarEvent{}, Warnings: []string{}}
+	betclicDebugf(ctx, "CATALOG pages=%d records=%d duplicates=%d unique_ids=%d football_matches=%d without_two_teams=%d declared_total=%d total_changed=%t empty_offsets=%v", len(pages), records, duplicates, len(allIDs), len(byID), len(allIDs)-len(byID), first.Total, changed, emptyOffsets)
+	if changed || len(allIDs) != first.Total {
+		warning := fmt.Sprintf("Betclic zwrócił %d rekordów (%d unikalnych ID, %d powtórzeń), a początkowo deklarował %d wydarzeń.", records, len(allIDs), duplicates, first.Total)
+		if len(emptyOffsets) > 0 {
+			warning += fmt.Sprintf(" Puste strony od pozycji: %v.", emptyOffsets)
+		}
+		if changed {
+			warning += " Licznik wydarzeń zmieniał się podczas pobierania."
+		}
+		warning += " Nie można potwierdzić kompletności kalendarza."
+		result.Warnings = append(result.Warnings, warning)
+	}
+	for _, event := range byID {
+		result.Events = append(result.Events, event)
+	}
+	sort.Slice(result.Events, func(i, j int) bool {
+		left, _ := time.Parse(time.RFC3339, result.Events[i].StartTime)
+		right, _ := time.Parse(time.RFC3339, result.Events[j].StartTime)
+		if !left.Equal(right) {
+			return left.Before(right)
+		}
+		return result.Events[i].ID < result.Events[j].ID
+	})
+	return result, nil
+}
+
+// Only known message levels are decoded: frame -> response[1] -> matches[3].
+// No recursive string guessing, and no IDs from recommendations or markets.
+func parseBetclicCalendarPage(raw []byte) (betclicPage, error) {
+	return parseBetclicCalendarPageWithContext(context.Background(), raw)
+}
+
+func parseBetclicCalendarPageWithContext(ctx context.Context, raw []byte) (betclicPage, error) {
+	frameIndex := 0
+	for len(raw) > 0 {
+		frameIndex++
+		if len(raw) < 5 {
+			return betclicPage{}, fmt.Errorf("Betclic niepełny nagłówek ramki")
+		}
+		size := int(binary.BigEndian.Uint32(raw[1:5]))
+		if size > len(raw)-5 || raw[0] != 0 {
+			return betclicPage{}, fmt.Errorf("Betclic niepoprawna ramka kalendarza")
+		}
+		fields, err := decodeProtoFields(raw[5 : 5+size])
+		if err != nil {
+			return betclicPage{}, fmt.Errorf("ramka %d, pola główne: %w", frameIndex, err)
+		}
+		betclicDebugf(ctx, "PROTO_ROOT frame=%d fields=%s", frameIndex, betclicProtoSummary(fields))
+		raw = raw[5+size:]
+		for _, root := range fields {
+			if root.Number != 1 || root.Wire != 2 {
+				continue
+			}
+			response, err := decodeProtoFields(root.Bytes)
+			if err != nil {
+				return betclicPage{}, fmt.Errorf("ramka %d, odpowiedź: %w", frameIndex, err)
+			}
+			betclicDebugf(ctx, "PROTO_RESPONSE frame=%d sport=%q field4=%q fields=%s", frameIndex, protoText(response, 1), protoText(response, 4), betclicProtoSummary(response))
+			// Empty tail pages omit the sport label but retain the market code.
+			if protoText(response, 1) == "" {
+				betclicDebugf(ctx, "PROTO_SKIP_RESPONSE reason=empty_field_1 frame=%d", frameIndex)
+				continue
+			}
+			page := betclicPage{Events: []CalendarEvent{}, Total: int(protoNumber(response, 5))}
+			for _, record := range response {
+				if record.Number != 3 || record.Wire != 2 {
+					continue
+				}
+				match, err := decodeProtoFields(record.Bytes)
+				if err != nil {
+					return betclicPage{}, fmt.Errorf("rekord meczu %d: %w", len(page.IDs)+1, err)
+				}
+				id := protoNumber(match, 1)
+				when, err := time.Parse(time.RFC3339, protoText(match, 3))
+				if err != nil || id == 0 {
+					betclicDebugf(ctx, "PROTO_INVALID_MATCH id=%d start=%q fields=%s date_error=%v", id, protoText(match, 3), betclicProtoSummary(match), err)
+					return betclicPage{}, fmt.Errorf("Betclic niepoprawne ID lub termin meczu: id=%d start=%q", id, protoText(match, 3))
+				}
+				page.IDs = append(page.IDs, strconv.FormatUint(id, 10))
+				teams := []string{}
+				competition, country := "", ""
+				for _, field := range match {
+					if field.Wire != 2 {
+						continue
+					}
+					if field.Number == 12 {
+						team, err := decodeProtoFields(field.Bytes)
+						if err != nil {
+							return betclicPage{}, fmt.Errorf("mecz %d, drużyna: %w", id, err)
+						}
+						teams = append(teams, strings.TrimSpace(protoText(team, 3)))
+					}
+					if field.Number == 8 {
+						league, err := decodeProtoFields(field.Bytes)
+						if err != nil {
+							return betclicPage{}, fmt.Errorf("mecz %d, liga: %w", id, err)
+						}
+						competition, country = protoText(league, 2), protoText(league, 5)
+					}
+				}
+				// Outrights do not have two contestants; they are not football matches.
+				if len(teams) != 2 {
+					betclicDebugf(ctx, "PROTO_SKIP_MATCH id=%d reason=contestant_count contestants=%d", id, len(teams))
+					continue
+				}
+				if teams[0] == "" || teams[1] == "" {
+					return betclicPage{}, fmt.Errorf("Betclic brak nazwy drużyny: id=%d teams=%q", id, teams)
+				}
+				matchID := strconv.FormatUint(id, 10)
+				page.Events = append(page.Events, CalendarEvent{ID: matchID, Home: teams[0], Away: teams[1],
+					Competition: competition, Country: country, StartTime: when.UTC().Format(time.RFC3339),
+					Live: protoNumber(match, 4) == 1,
+					URL:  "https://www.betclic.pl/pilka-nozna-s1/" + url.PathEscape(teams[0]+"-"+teams[1]) + "-m" + matchID,
+				})
+			}
+			return page, nil
+		}
+	}
+	return betclicPage{}, fmt.Errorf("Betclic brak początkowego snapshotu kalendarza")
+}
+
+type protoField struct {
+	Number int
+	Wire   byte
+	Uint   uint64
+	Bytes  []byte
+}
+
+func decodeProtoFields(raw []byte) ([]protoField, error) {
+	fields := []protoField{}
+	for len(raw) > 0 {
+		tag, n := binary.Uvarint(raw)
+		if n <= 0 || tag>>3 == 0 || tag>>3 > 0x1fffffff {
+			return nil, fmt.Errorf("Betclic niepoprawny tag Protobuf")
+		}
+		raw = raw[n:]
+		field := protoField{Number: int(tag >> 3), Wire: byte(tag & 7)}
+		switch field.Wire {
+		case 0:
+			value, n := binary.Uvarint(raw)
+			if n <= 0 {
+				return nil, fmt.Errorf("Betclic niepełny varint")
+			}
+			field.Uint = value
+			raw = raw[n:]
+		case 1, 5:
+			size := 8
+			if field.Wire == 5 {
+				size = 4
+			}
+			if len(raw) < size {
+				return nil, fmt.Errorf("Betclic niepełne pole fixed")
+			}
+			field.Bytes = raw[:size]
+			raw = raw[size:]
+		case 2:
+			size, n := binary.Uvarint(raw)
+			if n <= 0 || size > uint64(len(raw)-n) {
+				return nil, fmt.Errorf("Betclic niepełne pole bytes")
+			}
+			raw = raw[n:]
+			field.Bytes = raw[:int(size)]
+			raw = raw[int(size):]
+		default:
+			return nil, fmt.Errorf("Betclic nieobsługiwany wire type %d", field.Wire)
+		}
+		fields = append(fields, field)
+	}
+	return fields, nil
+}
+
+func protoText(fields []protoField, number int) string {
+	for _, field := range fields {
+		if field.Number == number && field.Wire == 2 {
+			return string(field.Bytes)
+		}
+	}
+	return ""
+}
+
+func protoNumber(fields []protoField, number int) uint64 {
+	for _, field := range fields {
+		if field.Number == number && field.Wire == 0 {
+			return field.Uint
+		}
+	}
+	return 0
+}
+
+// Cache kalendarzy i filtrowanie dni.
+const CalendarCacheTTL = 2 * time.Hour
+const calendarCacheVersion = 1
+
+type calendarCacheEntry struct {
+	FetchedAt time.Time `json:"fetchedAt"`
+	Calendar  *Calendar `json:"calendar"`
+}
+
+type calendarFlight struct {
+	done     chan struct{}
+	calendar *Calendar
+	err      error
+}
+
+// CalendarCache persists complete source responses and shares concurrent fetches.
+// STS/Betclic keys cover every offered date; Superbet keys cover complete days.
+type CalendarCache struct {
+	path     string
+	once     sync.Once
+	mu       sync.Mutex
+	entries  map[string]calendarCacheEntry
+	inflight map[string]*calendarFlight
+}
+
+func NewCalendarCache(path string) *CalendarCache {
+	if absolute, err := filepath.Abs(path); err == nil {
+		path = absolute
+	}
+	return &CalendarCache{path: path, entries: map[string]calendarCacheEntry{}, inflight: map[string]*calendarFlight{}}
+}
+
+var defaultCalendarCache = NewCalendarCache(filepath.Join("data", "bookmaker_calendar_cache.json"))
+
+func DefaultCalendarCache() *CalendarCache { return defaultCalendarCache }
+
+func cloneCalendar(source *Calendar) *Calendar {
+	result := *source
+	result.Events = append([]CalendarEvent{}, source.Events...)
+	result.Warnings = append([]string{}, source.Warnings...)
+	return &result
+}
+
+func (cache *CalendarCache) readDisk() {
+	file, err := os.Open(cache.path)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("[CALENDAR-CACHE] READ_ERROR path=%q error=%v", cache.path, err)
+		}
+		return
+	}
+	defer file.Close()
+	var disk struct {
+		Version int                           `json:"version"`
+		Entries map[string]calendarCacheEntry `json:"entries"`
+	}
+	if err := json.NewDecoder(io.LimitReader(file, 64<<20)).Decode(&disk); err != nil {
+		log.Printf("[CALENDAR-CACHE] READ_ERROR path=%q error=%v", cache.path, err)
+		return
+	}
+	if disk.Version != calendarCacheVersion {
+		log.Printf("[CALENDAR-CACHE] VERSION_MISS path=%q version=%d", cache.path, disk.Version)
+		return
+	}
+	now := time.Now()
+	for key, entry := range disk.Entries {
+		if entry.Calendar != nil && !entry.FetchedAt.IsZero() && !entry.FetchedAt.After(now) && now.Sub(entry.FetchedAt) < CalendarCacheTTL {
+			entry.Calendar.FetchedAt = entry.FetchedAt.Format(time.RFC3339Nano)
+			cache.entries[key] = entry
+		}
+	}
+	log.Printf("[CALENDAR-CACHE] DISK_LOADED path=%q fresh_entries=%d", cache.path, len(cache.entries))
+}
+
+// Caller cancellation stops waiting without aborting a fetch shared by others.
+// Errors never replace the last successfully downloaded calendar.
+func (cache *CalendarCache) Get(ctx context.Context, key string, force bool, load func(context.Context) (*Calendar, error)) (*Calendar, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	cache.once.Do(cache.readDisk)
+	cache.mu.Lock()
+	flight := cache.inflight[key]
+	if flight == nil {
+		if entry, exists := cache.entries[key]; exists && !force && time.Since(entry.FetchedAt) >= 0 && time.Since(entry.FetchedAt) < CalendarCacheTTL {
+			result := cloneCalendar(entry.Calendar)
+			cache.mu.Unlock()
+			log.Printf("[CALENDAR-CACHE] HIT key=%q events=%d fetched_at=%s", key, len(result.Events), result.FetchedAt)
+			return result, nil
+		}
+		flight = &calendarFlight{done: make(chan struct{})}
+		cache.inflight[key] = flight
+		log.Printf("[CALENDAR-CACHE] FETCH key=%q force=%t", key, force)
+		go cache.fetch(context.WithoutCancel(ctx), key, flight, load)
+	} else {
+		log.Printf("[CALENDAR-CACHE] JOIN key=%q", key)
+	}
+	cache.mu.Unlock()
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-flight.done:
+		if flight.err != nil {
+			return nil, flight.err
+		}
+		return cloneCalendar(flight.calendar), nil
+	}
+}
+
+func (cache *CalendarCache) fetch(parent context.Context, key string, flight *calendarFlight, load func(context.Context) (*Calendar, error)) {
+	ctx, cancel := context.WithTimeout(parent, 125*time.Second)
+	defer cancel()
+	calendar, err := load(ctx)
+	if err == nil && calendar == nil {
+		err = fmt.Errorf("pobieranie kalendarza nie zwróciło wyniku")
+	}
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	if err == nil {
+		now := time.Now()
+		calendar = cloneCalendar(calendar)
+		calendar.FetchedAt = now.Format(time.RFC3339Nano)
+		for oldKey, entry := range cache.entries {
+			if now.Sub(entry.FetchedAt) >= CalendarCacheTTL || entry.FetchedAt.After(now) {
+				delete(cache.entries, oldKey)
+			}
+		}
+		cache.entries[key] = calendarCacheEntry{FetchedAt: now, Calendar: calendar}
+		if diskErr := cache.writeDisk(); diskErr != nil {
+			log.Printf("[CALENDAR-CACHE] WRITE_ERROR path=%q error=%v", cache.path, diskErr)
+			calendar.Warnings = append(calendar.Warnings, "Nie zapisano kalendarza na dysku; cache działa do zamknięcia aplikacji: "+diskErr.Error())
+		}
+		log.Printf("[CALENDAR-CACHE] STORED key=%q events=%d path=%q", key, len(calendar.Events), cache.path)
+	} else {
+		log.Printf("[CALENDAR-CACHE] FETCH_ERROR key=%q error=%v", key, err)
+	}
+	flight.calendar, flight.err = calendar, err
+	delete(cache.inflight, key)
+	close(flight.done)
+}
+
+// Called with cache.mu held; an atomic replacement preserves the old file if
+// encoding or writing fails, and simultaneous bookmaker fetches cannot lose entries.
+func (cache *CalendarCache) writeDisk() error {
+	data, err := json.Marshal(struct {
+		Version int                           `json:"version"`
+		Entries map[string]calendarCacheEntry `json:"entries"`
+	}{calendarCacheVersion, cache.entries})
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(cache.path), 0755); err != nil {
+		return err
+	}
+	file, err := os.CreateTemp(filepath.Dir(cache.path), ".calendar-cache-*.tmp")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(file.Name())
+	if _, err := file.Write(data); err != nil {
+		file.Close()
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	return os.Rename(file.Name(), cache.path)
+}
+
+func calendarDay(date string) (time.Time, time.Time, error) {
+	zone, err := time.LoadLocation("Europe/Warsaw")
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	start, err := time.ParseInLocation("2006-01-02", date, zone)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("niepoprawna data kalendarza: %w", err)
+	}
+	return start, start.AddDate(0, 0, 1), nil
+}
+
+func FilterCalendar(source *Calendar, date string) (*Calendar, error) {
+	start, end, err := calendarDay(date)
+	if err != nil {
+		return nil, err
+	}
+	result := cloneCalendar(source)
+	result.Date = date
+	result.Events = []CalendarEvent{}
+	for _, event := range source.Events {
+		when, err := time.Parse(time.RFC3339, event.StartTime)
+		if err != nil || when.Before(start) || !when.Before(end) {
+			continue
+		}
+		event.StartTime = when.In(start.Location()).Format(time.RFC3339)
+		result.Events = append(result.Events, event)
+	}
+	return result, nil
+}
+
+func FetchCachedSTSCalendar(ctx context.Context, cache *CalendarCache, endpoint, date string, force bool) (*Calendar, error) {
+	if _, _, err := calendarDay(date); err != nil {
+		return nil, err
+	}
+	full, err := cache.Get(ctx, "sts:"+endpoint, force, func(ctx context.Context) (*Calendar, error) {
+		raw, err := FetchSTSSnapshot(ctx, endpoint, "")
+		if err != nil {
+			return nil, err
+		}
+		events, err := ParseSTSFullCalendar(raw)
+		if err != nil {
+			return nil, err
+		}
+		return &Calendar{Events: events, Warnings: []string{}}, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return FilterCalendar(full, date)
+}
+
+func FetchCachedBetclicCalendar(ctx context.Context, cache *CalendarCache, client *http.Client, endpoint, date string, force bool) (*Calendar, error) {
+	betclicDebugf(ctx, "CACHED_CALENDAR_REQUEST date=%q force=%t", date, force)
+	if _, _, err := calendarDay(date); err != nil {
+		return nil, err
+	}
+	full, err := cache.Get(ctx, "betclic:"+endpoint, force, func(ctx context.Context) (*Calendar, error) {
+		return FetchBetclicFullCalendar(ctx, client, endpoint)
+	})
+	if err != nil {
+		return nil, err
+	}
+	result, err := FilterCalendar(full, date)
+	if err == nil {
+		betclicDebugf(ctx, "DATE_FILTER_RESULT date=%q catalog_events=%d included=%d fetched_at=%q", date, len(full.Events), len(result.Events), full.FetchedAt)
+	}
+	return result, err
+}
+
+// Transport i parsowanie danych STS.
+const STSWebSocket = "wss://www.sts.pl/sbk/api/sbk"
+
+type CalendarEvent struct {
+	ID          string `json:"id"`
+	Home        string `json:"home"`
+	Away        string `json:"away"`
+	Competition string `json:"competition"`
+	Country     string `json:"country"`
+	StartTime   string `json:"startTime"`
+	URL         string `json:"url"`
+	Live        bool   `json:"live"`
+	BetBuilder  bool   `json:"betBuilder"`
+}
+
+// FetchSTSSnapshot subscribes to the existing STS endpoint. Empty fixtureID asks
+// for i_pl; otherwise only the selected fixture's market snapshot is accepted.
+func FetchSTSSnapshot(parent context.Context, endpoint, fixtureID string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(parent, 15*time.Second)
+	defer cancel()
+	channel := "i_pl"
+	subscriptions := []map[string]any{{"s": channel, "n": 0}}
+	if fixtureID != "" {
+		for _, c := range fixtureID {
+			if c < '0' || c > '9' {
+				return nil, fmt.Errorf("niepoprawne ID STS")
+			}
+		}
+		channel = "f_f" + fixtureID + "_pl"
+		subscriptions = append(subscriptions, map[string]any{"s": channel, "n": 0})
+	}
+	dialer := websocket.Dialer{HandshakeTimeout: 7 * time.Second}
+	header := http.Header{}
+	header.Set("Origin", "https://www.sts.pl")
+	header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+	conn, _, err := dialer.DialContext(ctx, endpoint, header)
+	if err != nil {
+		return nil, fmt.Errorf("STS WebSocket: %w", err)
+	}
+	defer conn.Close()
+	conn.SetReadLimit(32 << 20)
+	deadline, _ := ctx.Deadline()
+	if err := conn.SetReadDeadline(deadline); err != nil {
+		return nil, err
+	}
+	if err := conn.SetWriteDeadline(deadline); err != nil {
+		return nil, err
+	}
+	stopClose := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stopClose()
+	if err := conn.WriteJSON(map[string]any{"t": 1, "u": subscriptions}); err != nil {
+		return nil, err
+	}
+	// The only writer after subscribing sends the same heartbeat as the desktop.
+	heartbeatCtx, stopHeartbeat := context.WithCancel(ctx)
+	defer stopHeartbeat()
+	go func() {
+		ticker := time.NewTicker(3 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-heartbeatCtx.Done():
+				return
+			case <-ticker.C:
+				if conn.WriteJSON(map[string]any{"t": 0}) != nil {
+					return
+				}
+			}
+		}
+	}()
+	pendingChannel := ""
+	for {
+		_, msg, err := conn.ReadMessage()
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return nil, fmt.Errorf("STS odczyt snapshotu: %w", err)
+		}
+		// STS can send channel metadata and payload as two JSON values. Support
+		// both a combined message and a separate metadata message.
+		decoder := json.NewDecoder(bytes.NewReader(msg))
+		for {
+			var object map[string]json.RawMessage
+			if err := decoder.Decode(&object); err != nil {
+				break
+			}
+			if rawChannel, ok := object["s"]; ok {
+				_ = json.Unmarshal(rawChannel, &pendingChannel)
+				continue
+			}
+			if len(object) == 0 {
+				continue
+			}
+			matches := false
+			if fixtureID == "" {
+				matches = (pendingChannel == "" || pendingChannel == channel) && hasSTSCalendar(object)
+			} else {
+				matches = (pendingChannel == channel && object["P"] != nil) || (pendingChannel == "" && hasSTSFixtureMarkets(object["P"], fixtureID))
+			}
+			pendingChannel = ""
+			if matches {
+				return json.Marshal(object)
+			}
+		}
+	}
+}
+
+func hasSTSCalendar(object map[string]json.RawMessage) bool {
+	var b struct {
+		S map[string]json.RawMessage `json:"S"`
+	}
+	return json.Unmarshal(object["B"], &b) == nil && b.S["1"] != nil
+}
+
+func hasSTSFixtureMarkets(raw json.RawMessage, fixtureID string) bool {
+	var p map[string]struct {
+		Fixture string                     `json:"f"`
+		Markets map[string]json.RawMessage `json:"m"`
+	}
+	if json.Unmarshal(raw, &p) != nil {
+		return false
+	}
+	for key, bundle := range p {
+		if (key == "f"+fixtureID || bundle.Fixture == "f"+fixtureID) && len(bundle.Markets) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func ParseSTSCalendar(raw []byte, date string) ([]CalendarEvent, error) {
+	if date == "" {
+		return nil, fmt.Errorf("niepoprawna data kalendarza: pusta data")
+	}
+	return parseSTSCalendar(raw, date)
+}
+
+func ParseSTSFullCalendar(raw []byte) ([]CalendarEvent, error) {
+	return parseSTSCalendar(raw, "")
+}
+
+func parseSTSCalendar(raw []byte, date string) ([]CalendarEvent, error) {
+	zone, err := time.LoadLocation("Europe/Warsaw")
+	if err != nil {
+		return nil, err
+	}
+	var start, end time.Time
+	if date != "" {
+		start, err = time.ParseInLocation("2006-01-02", date, zone)
+		if err != nil {
+			return nil, fmt.Errorf("niepoprawna data kalendarza: %w", err)
+		}
+		end = start.AddDate(0, 0, 1)
+	}
+	type fixture struct {
+		Home struct {
+			Name string `json:"n"`
+		} `json:"H"`
+		Away struct {
+			Name string `json:"n"`
+		} `json:"A"`
+		Type    string `json:"ft"`
+		Start   string `json:"t"`
+		Builder bool   `json:"Bb"`
+	}
+	var snapshot struct {
+		B struct {
+			Sports map[string]struct {
+				Categories map[string]struct {
+					Name        string `json:"n"`
+					Tournaments map[string]struct {
+						Name     string             `json:"n"`
+						Fixtures map[string]fixture `json:"FX"`
+					} `json:"T"`
+				} `json:"C"`
+			} `json:"S"`
+		} `json:"B"`
+		Live map[string]json.RawMessage `json:"Y"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	found := false
+	for {
+		var object json.RawMessage
+		err := decoder.Decode(&object)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("STS niepoprawny snapshot: %w", err)
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(object, &fields); err != nil {
+			return nil, err
+		}
+		if hasSTSCalendar(fields) {
+			if err := json.Unmarshal(object, &snapshot); err != nil {
+				return nil, err
+			}
+			found = true
+		}
+	}
+	if !found {
+		return nil, fmt.Errorf("STS brak kalendarza piłki nożnej w snapshocie i_pl")
+	}
+	byID := make(map[string]CalendarEvent)
+	for _, category := range snapshot.B.Sports["1"].Categories {
+		for _, tournament := range category.Tournaments {
+			for key, fixture := range tournament.Fixtures {
+				id := strings.TrimPrefix(key, "f")
+				if id == key || id == "" {
+					continue
+				}
+				validID := true
+				for _, digit := range id {
+					if digit < '0' || digit > '9' {
+						validID = false
+					}
+				}
+				when, err := time.Parse(time.RFC3339, fixture.Start)
+				home, away := strings.TrimSpace(fixture.Home.Name), strings.TrimSpace(fixture.Away.Name)
+				if !validID || fixture.Type != "m" || err != nil || home == "" || away == "" {
+					continue
+				}
+				if date != "" && (when.Before(start) || !when.Before(end)) {
+					continue
+				}
+				byID[id] = CalendarEvent{ID: id, Home: home, Away: away,
+					Competition: strings.TrimSpace(tournament.Name), Country: strings.TrimSpace(category.Name),
+					StartTime: when.In(zone).Format(time.RFC3339), BetBuilder: fixture.Builder,
+					Live: snapshot.Live[key] != nil,
+					URL:  "https://www.sts.pl/kursy/pilka-nozna/" + key,
+				}
+			}
+		}
+	}
+	events := make([]CalendarEvent, 0, len(byID))
+	for _, event := range byID {
+		events = append(events, event)
+	}
+	sort.Slice(events, func(i, j int) bool {
+		left, _ := time.Parse(time.RFC3339, events[i].StartTime)
+		right, _ := time.Parse(time.RFC3339, events[j].StartTime)
+		if !left.Equal(right) {
+			return left.Before(right)
+		}
+		return events[i].ID < events[j].ID
+	})
+	return events, nil
 }

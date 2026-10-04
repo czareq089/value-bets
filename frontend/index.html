@@ -897,7 +897,9 @@
         const key = `${date}:${bookmaker}`;
         const cached = calendarCache.get(key);
         if (cached?.promise) return cached.promise;
-        if (!force && cached?.result && Date.now() - cached.fetchedAt < 2 * 60 * 60 * 1000) {
+        // The VPS owns source freshness. This short UI cache avoids duplicate API
+        // reads while allowing source snapshots refreshed by the scheduler to appear.
+        if (!force && cached?.result && Date.now() - cached.receivedAt < 60 * 1000) {
             return Promise.resolve(cached.result);
         }
         const entry = {};
@@ -915,6 +917,7 @@
             };
             // Use the source timestamp, not the time a disk cache hit reached the UI.
             entry.fetchedAt = Date.parse(result.fetchedAt) || Date.now();
+            entry.receivedAt = Date.now();
             entry.promise = null;
             return entry.result;
         }).catch(error => {
@@ -941,7 +944,7 @@
         calendarEvents = [];
         document.getElementById('calendarList').replaceChildren();
         document.getElementById('calendarWarnings').textContent = '';
-        status.textContent = 'Pobieranie kalendarza…';
+        status.textContent = 'Pobieranie kalendarza z VPS…';
         // Warm all sources concurrently; a click joins the same pending requests.
         BOOKMAKERS.filter(source => source !== bookmaker).forEach(source => {
             fetchBookmakerCalendar(source, date, force).catch(error => {

@@ -4,6 +4,8 @@ import {main} from '../models';
 
 export function AnalyzeThreeBookmakers(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:number,arg7:string):Promise<Array<main.AnalyzedBet>>;
 
+export function CheckServerConnection():Promise<string>;
+
 export function DeleteMatchHistory(arg1:number):Promise<Array<main.MatchHistoryEntry>>;
 
 export function DetectCalendarTeams(arg1:string,arg2:string):Promise<main.TeamDetectionResult>;
@@ -18,6 +20,8 @@ export function GetPrefetchProgress():Promise<main.PrefetchProgress>;
 
 export function GetSTSCalendar(arg1:string):Promise<main.SuperbetCalendar>;
 
+export function GetServerConnection():Promise<main.ServerConnection>;
+
 export function GetSuperbetCalendar(arg1:string):Promise<main.SuperbetCalendar>;
 
 export function LoadMatchHistory():Promise<Array<main.MatchHistoryEntry>>;
@@ -29,6 +33,8 @@ export function RefreshBookmakerCalendar(arg1:string,arg2:string):Promise<main.S
 export function SaveMatchHistory(arg1:main.MatchHistoryEntry):Promise<Array<main.MatchHistoryEntry>>;
 
 export function SaveMyBets(arg1:Array<main.MyBetItem>):Promise<boolean>;
+
+export function SaveServerConnection(arg1:string,arg2:string):Promise<void>;
 
 export function SaveTeamSofaID(arg1:string,arg2:string):Promise<boolean>;
 
