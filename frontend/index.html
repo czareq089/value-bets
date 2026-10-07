@@ -67,14 +67,19 @@
         .item-card .card-date { font-size: 10px; color: var(--text-muted); margin-bottom: 3px; }
         .item-card .card-title { font-weight: 700; color: #fff; margin-bottom: 4px; }
         .item-card .card-sub { font-size: 11px; color: var(--text-muted); }
+        .calendar-market-freshness { margin-top: 5px; font-size: 10px; line-height: 1.5; color: var(--text-muted); }
+        .calendar-card[data-market-state="available"] .calendar-market-details,
+        .calendar-card[data-market-state="available"] .calendar-market-freshness { color: var(--success); }
+        .calendar-card[data-market-state="unavailable"] .calendar-market-details,
+        .calendar-card[data-market-state="unavailable"] .calendar-market-freshness { color: var(--danger); }
         .card-del { position: absolute; right: 6px; top: 6px; color: var(--danger); border: none; background: transparent; cursor: pointer; font-weight: bold; }
 
         .main-container { flex: 1; display: flex; flex-direction: column; padding: 14px 18px; overflow-y: auto; min-width: 800px; }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-        .prefetch-strip { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; color: var(--text-muted); font-size: 10px; }
-        .prefetch-strip[hidden] { display: none; }
-        .prefetch-strip progress { width: 130px; height: 4px; accent-color: var(--accent); flex-shrink: 0; }
-        .prefetch-strip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .analysis-strip { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; color: var(--text-muted); font-size: 10px; }
+        .analysis-strip[hidden] { display: none; }
+        .analysis-strip progress { width: 130px; height: 4px; accent-color: var(--accent); flex-shrink: 0; }
+        .analysis-strip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .title-box h1 { font-size: 20px; font-weight: 800; color: var(--accent); }
         .panel { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
 
@@ -186,6 +191,36 @@
         .chart-header p { margin: 4px 0 0; color: var(--text-muted); font-size: 12px; }
         .chart-close { background: transparent; border: 1px solid var(--border); color: var(--text-muted); border-radius: 5px; cursor: pointer; font-size: 18px; line-height: 24px; width: 28px; height: 28px; }
         .chart-close:hover { color: #fff; border-color: var(--accent); }
+        .context-section { margin-top:16px; }
+        .context-section h3 { margin:0 0 8px; font-size:13px; color:#fff; }
+        .context-kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:8px; }
+        .context-kpi { padding:12px; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; }
+        .context-kpi small { display:block; color:var(--text-muted); font-size:10px; margin-bottom:4px; }
+        .context-kpi strong { display:block; color:#fff; font-size:21px; line-height:1.3; }
+        .context-kpi p { margin:4px 0 0; color:var(--text-muted); font-size:10px; }
+        .context-kpi.primary { border-color:var(--accent); }
+        .context-kpi.primary strong { color:var(--accent); }
+        .context-chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+        .context-chip { padding:3px 8px; border-radius:5px; border:1px solid var(--border); background:var(--bg-input); font-size:10px; color:var(--text-muted); }
+        .context-note { color:var(--text-muted); font-size:11px; margin:7px 0; line-height:1.5; }
+        .context-warning { border-left:3px solid #f59e0b; background:rgba(245,158,11,.06); padding:7px 10px; color:#fbbf24; font-size:11px; margin-top:8px; }
+        .context-table-wrap { overflow-x:auto; border:1px solid var(--border); border-radius:7px; margin-top:8px; }
+        .context-table { width:100%; border-collapse:collapse; font-size:11px; }
+        .context-table th,.context-table td { padding:8px 10px; text-align:left; border-bottom:1px solid var(--border); }
+        .context-table th { color:var(--text-muted); font-size:10px; background:var(--bg-input); white-space:nowrap; }
+        .context-table tr:last-child td { border-bottom:0; }
+        .context-table td:first-child { color:var(--text-muted); }
+        .context-table tr.flow-highlight td { background:rgba(59,130,246,.1); }
+        .context-form { display:inline-flex; gap:3px; }
+        .context-form span { display:inline-grid; place-items:center; width:21px; height:21px; border-radius:4px; font-size:10px; font-weight:700; }
+        .context-details { margin-top:10px; color:var(--text-muted); font-size:11px; }
+        .context-details summary { cursor:pointer; }
+        .context-details li { margin:5px 0; }
+        .flow-controls { display:flex; flex-wrap:wrap; gap:8px; margin:10px 0; }
+        .flow-controls select { min-width:160px; flex:1; max-width:100%; }
+        .flow-chart { display:block; width:100%; min-width:540px; height:auto; }
+        .flow-chart-wrap { overflow-x:auto; margin-top:10px; background:var(--bg-input); border:1px solid var(--border); border-radius:7px; }
+        .flow-legend { display:flex; flex-wrap:wrap; gap:12px; font-size:10px; margin-top:6px; color:var(--text-muted); }
 
         .chart-content-grid {
             display: grid;
@@ -243,6 +278,10 @@
             font-size: 9px; font-weight: 800; padding: 1px 4px; border-radius: 3px; margin-left: 5px;
             background: rgba(245,158,11,0.2); color: #fbbf24; border: 1px solid rgba(245,158,11,0.5);
         }
+        .badge-predicted {
+            font-size: 9px; font-weight: 800; padding: 1px 4px; border-radius: 3px; margin-left: 5px;
+            background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px dashed rgba(56,189,248,0.6);
+        }
 
         .risk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0; }
         .risk-card { background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
@@ -288,7 +327,7 @@
         <select class="filter-select" id="calendarLeague" onchange="renderSuperbetCalendar()" aria-label="Rozgrywki kalendarza">
             <option value="">Wszystkie rozgrywki</option>
         </select>
-        <label style="font-size:11px; color:var(--text-muted);"><input type="checkbox" id="calendarBuilderOnly" onchange="renderSuperbetCalendar()"> Tylko mecze z BetBuilderem</label>
+        <label style="font-size:11px; color:var(--text-muted);"><input type="checkbox" id="calendarMarketsOnly" checked onchange="changeCalendarMarketFilter()"> Tylko mecze z obsługiwanymi rynkami</label>
         <div id="calendarStatus" class="calendar-status" role="status"></div>
         <div id="calendarWarnings" class="calendar-status" style="color:var(--sb-color);"></div>
         <div id="calendarList" class="calendar-list"></div>
@@ -311,10 +350,14 @@
         </div>
     </div>
 
-    <div id="prefetchStrip" class="prefetch-strip" hidden>
-        <progress id="prefetchBar" max="100" value="0" aria-label="Postęp pobierania w tle"></progress>
-        <span id="prefetchLabel" role="status"></span>
+    <div id="analysisStrip" class="analysis-strip" hidden>
+        <progress id="analysisBar" max="100" value="0" aria-label="Postęp analizy na serwerze"></progress>
+        <span id="analysisLabel" role="status"></span>
     </div>
+    <details id="analysisWarnings" hidden style="margin-bottom:12px;color:var(--text-muted);font-size:12px;">
+        <summary>Ostrzeżenia źródeł i dostępności statystyk</summary>
+        <pre id="analysisWarningText" style="white-space:pre-wrap;margin-top:8px;font:inherit;"></pre>
+    </details>
 
     <div class="panel">
         <div class="inputs-grid">
@@ -443,7 +486,7 @@
 
         <label style="display:flex; align-items:center; gap:6px; background:var(--bg-card); border:1px solid var(--border); padding:0 10px; border-radius:6px; height:32px; font-size:12px; font-weight:700; cursor:pointer; user-select:none;">
             <input type="checkbox" id="startingXIToggle" onchange="renderFiltered()" style="accent-color:var(--success); cursor:pointer;">
-            🟢 Tylko Starting XI
+            Tylko XI (także przewidywana)
         </label>
 
         <label style="display:flex; align-items:center; gap:6px; background:var(--bg-card); border:1px solid var(--border); padding:0 10px; border-radius:6px; height:32px; font-size:12px; font-weight:700; cursor:pointer; user-select:none;">
@@ -496,6 +539,10 @@
             </div>
         </div>
         <div class="chart-summary" id="chartSummary"></div>
+        <details style="margin:0 0 14px; padding:10px; background:var(--bg-card); border:1px solid var(--border); border-radius:8px; font-size:12px; line-height:1.7;">
+            <summary style="cursor:pointer; font-weight:700;">Fair kurs i kontekst drużyn</summary>
+            <div id="chartModelDetails" style="margin-top:8px;"></div>
+        </details>
 
         <div class="chart-content-grid">
             <div>
@@ -505,6 +552,7 @@
                     <span class="legend-item"><span class="legend-swatch" style="background:var(--danger)"></span>nietrafiona próba</span>
                     <span class="legend-item"><span class="legend-swatch" style="background:var(--accent)"></span>linia zakładu</span>
                     <span class="legend-item"><span style="width:14px; height:2px; background:#10b981; display:inline-block;"></span>rozegrane minuty (oś prawa)</span>
+                    <span class="legend-item">rating SofaScore pod datą (tylko zawodnik)</span>
                 </div>
             </div>
 
@@ -614,10 +662,13 @@
     let calendarSelecting = false;
     let calendarSelection = 0;
     const calendarCache = new Map();
+    const calendarMarketCache = new Map();
+    const calendarMarketAttempted = new Set();
+    let calendarMarketWorkers = 0;
     const CALENDAR_METHODS = { SUPERBET: 'GetSuperbetCalendar', STS: 'GetSTSCalendar', BETCLIC: 'GetBetclicCalendar' };
     const CALENDAR_INPUTS = { SUPERBET: 'sbInput', STS: 'stsInput', BETCLIC: 'betclicInput' };
     const CALENDAR_LABELS = { SUPERBET: 'Superbet', STS: 'STS', BETCLIC: 'Betclic' };
-    let prefetchPolling = false;
+    let analysisPolling = false;
 
     const MARKET_LABELS = {
         SHOTS_TOTAL: "Strzały",
@@ -643,8 +694,9 @@
         const datePart = type => dateParts.find(part => part.type === type).value;
         document.getElementById('calendarDate').value = `${datePart('year')}-${datePart('month')}-${datePart('day')}`;
         loadSuperbetCalendar();
-        refreshPrefetchProgress();
-        setInterval(refreshPrefetchProgress, 1500);
+        refreshAnalysisProgress();
+        setInterval(refreshAnalysisProgress, 1500);
+        setInterval(refreshCalendarMarketFreshness, 30000);
         renderTableHeaders();
         updateDropdownLabels();
 
@@ -858,28 +910,32 @@
         }
     }
 
-    async function refreshPrefetchProgress() {
-        if (prefetchPolling || !window.go?.main?.App?.GetPrefetchProgress) return;
-        prefetchPolling = true;
+    async function refreshAnalysisProgress() {
+        if (analysisPolling || !window.go?.main?.App?.GetAnalysisProgress) return;
+        analysisPolling = true;
         try {
-            const state = await window.go.main.App.GetPrefetchProgress();
-            const strip = document.getElementById('prefetchStrip');
-            const bar = document.getElementById('prefetchBar');
-            const label = document.getElementById('prefetchLabel');
-            strip.hidden = !state.running && !state.message;
-            if (state.running && !state.total) bar.removeAttribute('value');
-            else bar.value = state.total ? Math.min(100, state.completed / state.total * 100) : 0;
-            const date = state.day ? state.day.slice(5).split('-').reverse().join('.') : '';
-            const counts = state.total ? ` · ${state.completed}/${state.total} meczów` : '';
-            const players = state.running && state.playersTotal ? ` · zawodnicy ${state.playersDone}/${state.playersTotal}` : '';
-            const details = state.running && state.currentMatch ? ` · ${state.currentMatch}` : ` · ${state.message || ''}`;
-            const errors = state.failed ? ` · błędy: ${state.failed}` : '';
-            label.textContent = `W tle${date ? ' · ' + date : ''}${counts}${players}${details}${errors}`;
-            strip.title = state.message || '';
+            const state = await window.go.main.App.GetAnalysisProgress();
+            const running = state.status === 'queued' || state.status === 'running';
+            const strip = document.getElementById('analysisStrip');
+            const bar = document.getElementById('analysisBar');
+            const label = document.getElementById('analysisLabel');
+            const warningBox = document.getElementById('analysisWarnings');
+            strip.hidden = !state.message;
+            if (state.status === 'completed') bar.value = 100;
+            else if (state.stage === 'statistics' && state.playersTotal) bar.value = Math.min(100, state.playersDone / state.playersTotal * 100);
+            else if (running) bar.removeAttribute('value');
+            else bar.value = 0;
+            const players = state.stage === 'statistics' && state.playersTotal ? ' · zawodnicy ' + state.playersDone + '/' + state.playersTotal : '';
+            const warnings = state.warnings || [];
+            label.textContent = 'Serwer · ' + (state.message || '') + players + (warnings.length ? ' · ostrzeżenia: ' + warnings.length : '');
+            strip.title = state.id ? 'Zlecenie: ' + state.id : '';
+            warningBox.hidden = warnings.length === 0;
+            const details = document.getElementById('analysisWarningText');
+            details.textContent = warnings.join('\n');
         } catch (error) {
-            console.error('Błąd odczytu postępu pobierania w tle:', error);
+            console.error('Błąd odczytu postępu analizy:', error);
         } finally {
-            prefetchPolling = false;
+            analysisPolling = false;
         }
     }
 
@@ -897,7 +953,9 @@
         const key = `${date}:${bookmaker}`;
         const cached = calendarCache.get(key);
         if (cached?.promise) return cached.promise;
-        if (!force && cached?.result && Date.now() - cached.fetchedAt < 2 * 60 * 60 * 1000) {
+        // The server owns source freshness. This short UI cache avoids duplicate API
+        // reads while allowing source snapshots refreshed by the scheduler to appear.
+        if (!force && cached?.result && Date.now() - cached.receivedAt < 60 * 1000) {
             return Promise.resolve(cached.result);
         }
         const entry = {};
@@ -915,6 +973,7 @@
             };
             // Use the source timestamp, not the time a disk cache hit reached the UI.
             entry.fetchedAt = Date.parse(result.fetchedAt) || Date.now();
+            entry.receivedAt = Date.now();
             entry.promise = null;
             return entry.result;
         }).catch(error => {
@@ -928,11 +987,9 @@
         const date = document.getElementById('calendarDate').value;
         if (!date) return;
         const bookmaker = document.getElementById('calendarBookmaker').value;
+        calendarMarketAttempted.clear();
         if (force) calendarCache.clear();
         cancelCalendarSelection();
-        const builderOnly = document.getElementById('calendarBuilderOnly');
-        builderOnly.disabled = bookmaker === 'BETCLIC';
-        if (builderOnly.disabled) builderOnly.checked = false;
         const request = ++calendarRequest;
         calendarSelectedID = null;
         const status = document.getElementById('calendarStatus');
@@ -941,7 +998,7 @@
         calendarEvents = [];
         document.getElementById('calendarList').replaceChildren();
         document.getElementById('calendarWarnings').textContent = '';
-        status.textContent = 'Pobieranie kalendarza…';
+        status.textContent = 'Pobieranie kalendarza z serwera…';
         // Warm all sources concurrently; a click joins the same pending requests.
         BOOKMAKERS.filter(source => source !== bookmaker).forEach(source => {
             fetchBookmakerCalendar(source, date, force).catch(error => {
@@ -970,24 +1027,119 @@
         }
     }
 
+    function calendarMarketState(event) {
+        const key = `${event.bookmaker}:${event.id}`;
+        const state = calendarMarketCache.get(key);
+        // Keep one coherent scan snapshot until the user reloads or toggles the
+        // filter; a long scan must not keep retrying its earliest results.
+        if (state && (state.status === 'checking' || Date.now() < state.expiresAt || calendarMarketAttempted.has(key))) return state;
+        return null;
+    }
+
+    function changeCalendarMarketFilter() {
+        calendarMarketAttempted.clear();
+        renderSuperbetCalendar();
+    }
+
+    function checkCalendarMarkets(events) {
+        // Only check the current calendar selection, with at most three requests
+        // in flight. The server coalesces requests and persists availability cache.
+        if (!document.getElementById('calendarMarketsOnly').checked) return;
+        while (calendarMarketWorkers < 3) {
+            const event = events.find(candidate => !calendarMarketState(candidate));
+            if (!event) break;
+            const key = `${event.bookmaker}:${event.id}`;
+            calendarMarketAttempted.add(key);
+            calendarMarketCache.set(key, { status: 'checking' });
+            calendarMarketWorkers++;
+            Promise.resolve().then(async () => {
+                if (!window.go?.main?.App?.CheckMatchMarkets) {
+                    throw new Error('Zbuduj ponownie klienta, aby sprawdzać dostępność rynków.');
+                }
+                const result = await window.go.main.App.CheckMatchMarkets(event.bookmaker, event.id, event.home, event.away);
+                if (!['available', 'unavailable', 'error'].includes(result.status)) {
+                    throw new Error('Serwer zwrócił nieznany status dostępności rynków.');
+                }
+                calendarMarketCache.set(key, {
+                    ...result,
+                    expiresAt: Date.parse(result.expiresAt) || Date.now() + 60 * 1000
+                });
+            }).catch(error => {
+                calendarMarketCache.set(key, {
+                    status: 'error', error: error?.message || String(error), expiresAt: Date.now() + 60 * 1000
+                });
+            }).finally(() => {
+                calendarMarketWorkers--;
+                // Keep the match-selection status visible while links/IDs load.
+                if (!calendarSelecting) renderSuperbetCalendar();
+            });
+        }
+    }
+
+    function updateCalendarMarketFreshness(card) {
+        const availability = calendarMarketCache.get(card.dataset.marketKey);
+        const label = card.querySelector('.calendar-market-freshness');
+        const hasResult = ['available', 'unavailable'].includes(availability?.status);
+        label.hidden = !hasResult;
+        card.dataset.marketState = 'unknown';
+        if (!hasResult) return;
+
+        const now = Date.now();
+        const checkedAt = Date.parse(availability.checkedAt);
+        const expiresAt = availability.expiresAt;
+        const fresh = Number.isFinite(expiresAt) && now < expiresAt;
+        if (fresh) card.dataset.marketState = availability.status;
+        let age = 'czas sprawdzenia nieznany';
+        if (Number.isFinite(checkedAt)) {
+            const minutes = Math.max(0, Math.floor((now - checkedAt) / 60000));
+            age = minutes === 0 ? 'sprawdzono przed chwilą'
+                : minutes < 60 ? `sprawdzono ${minutes} min temu`
+                : `sprawdzono ${Math.floor(minutes / 60)} godz. ${minutes % 60} min temu`;
+        }
+        const expiry = fresh
+            ? 'ważne do ' + new Intl.DateTimeFormat('pl-PL', {timeZone: 'Europe/Warsaw', hour: '2-digit', minute: '2-digit'}).format(new Date(expiresAt))
+            : 'wynik wygasł';
+        label.textContent = `${age} · ${expiry}`;
+        label.title = Number.isFinite(checkedAt)
+            ? 'Sprawdzono: ' + new Date(checkedAt).toLocaleString('pl-PL') : '';
+    }
+
+    function refreshCalendarMarketFreshness() {
+        // Update the displayed age only; this does not start a new market scan.
+        document.querySelectorAll('#calendarList .calendar-card').forEach(updateCalendarMarketFreshness);
+    }
+
     function renderSuperbetCalendar() {
         const normalize = text => String(text || '').toLowerCase().replace(/ł/g, 'l').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
         const search = normalize(document.getElementById('calendarSearch').value.trim());
         const league = document.getElementById('calendarLeague').value;
-        const builderOnly = document.getElementById('calendarBuilderOnly').checked;
-        const events = calendarEvents.filter(event => (!builderOnly || event.betBuilder) &&
+        const marketsOnly = document.getElementById('calendarMarketsOnly').checked;
+        const candidates = calendarEvents.filter(event =>
             (!league || JSON.stringify([event.country, event.competition]) === league) &&
             normalize(`${event.home} ${event.away} ${event.competition} ${event.country}`).includes(search));
+        checkCalendarMarkets(candidates);
+        const events = candidates.filter(event => !marketsOnly ||
+            (calendarMarketState(event)?.status === 'available' && calendarMarketState(event).markets?.length > 0));
         const list = document.getElementById('calendarList');
         list.replaceChildren();
         document.getElementById('calendarStatus').textContent = calendarEvents.length
             ? `${events.length} z ${calendarEvents.length} meczów · kliknij mecz, aby go wybrać`
             : 'Brak meczów w dostępnej ofercie na ten dzień.';
         if (!events.length && calendarEvents.length) document.getElementById('calendarStatus').textContent = 'Brak meczów pasujących do filtrów.';
+        if (marketsOnly && candidates.length) {
+            const checked = candidates.filter(event => ['available', 'unavailable'].includes(calendarMarketState(event)?.status)).length;
+            const failed = candidates.filter(event => calendarMarketState(event)?.status === 'error').length;
+            const pending = candidates.length - checked - failed;
+            document.getElementById('calendarStatus').textContent =
+                `${events.length} meczów z obsługiwanymi rynkami · sprawdzono ${checked}/${candidates.length}` +
+                (pending ? ` · do sprawdzenia: ${pending}` : '') +
+                (failed ? ` · błędy pobierania: ${failed} (możesz wyłączyć filtr, aby zobaczyć szczegóły)` : '');
+        }
         events.forEach(event => {
             const card = document.createElement('button');
             card.type = 'button';
             card.className = `item-card calendar-card${event.id === calendarSelectedID ? ' selected' : ''}`;
+            card.dataset.marketKey = `${event.bookmaker}:${event.id}`;
             card.disabled = calendarSelecting;
             const time = document.createElement('div');
             time.className = 'card-date';
@@ -1005,10 +1157,24 @@
             competition.className = 'card-sub';
             competition.textContent = [event.country, event.competition].filter(Boolean).join(' · ');
             const builder = document.createElement('div');
-            builder.className = 'card-sub';
-            builder.style.color = 'var(--sb-color)';
-            builder.textContent = event.bookmaker === 'BETCLIC' ? 'Rynki zawodników sprawdzimy podczas analizy' : (event.betBuilder ? 'BetBuilder dostępny' : '');
-            card.append(time, title, competition, builder);
+            builder.className = 'card-sub calendar-market-details';
+            const availability = calendarMarketState(event) || calendarMarketCache.get(card.dataset.marketKey);
+            if (availability?.checkedAt) builder.title = 'Sprawdzono: ' + new Date(availability.checkedAt).toLocaleString('pl-PL');
+            if (availability?.status === 'available') {
+                builder.textContent = 'Rynki: ' + (availability.markets || []).map(market => MARKET_LABELS[market] || market).join(', ');
+            } else if (availability?.status === 'unavailable') {
+                builder.textContent = 'Brak oferty na obsługiwane rynki zawodników';
+            } else if (availability?.status === 'error') {
+                builder.textContent = 'Nie udało się sprawdzić rynków: ' + availability.error;
+            } else {
+                builder.textContent = availability?.status === 'checking'
+                    ? 'Sprawdzanie oferty na obsługiwane rynki…'
+                    : 'Obsługiwane rynki: nie sprawdzono (włącz filtr rynków)';
+            }
+            const freshness = document.createElement('div');
+            freshness.className = 'calendar-market-freshness';
+            card.append(time, title, competition, builder, freshness);
+            updateCalendarMarketFreshness(card);
             card.onclick = () => selectSuperbetCalendarEvent(event);
             list.appendChild(card);
         });
@@ -1145,6 +1311,8 @@
                     if (!home.value.trim()) home.value = detected.homeId || '';
                     if (!away.value.trim()) away.value = detected.awayId || '';
                     currentMatchKey = home.value && away.value ? [home.value, away.value].sort().join('|') : null;
+                    if (detected.warnings?.length) teamError = 'SofaScore: ' + detected.warnings.join(' · ');
+                    else if (!home.value || !away.value) teamError = 'SofaScore: serwer nie rozpoznał obu drużyn.';
                 })()
             ]);
             if (selection !== calendarSelection) return;
@@ -1280,9 +1448,17 @@
 
             if (detected.homeId) document.getElementById('homeIdInput').value = detected.homeId;
             if (detected.awayId) document.getElementById('awayIdInput').value = detected.awayId;
+            if (detected.warnings?.length) {
+                document.getElementById('calendarStatus').textContent = 'SofaScore: ' + detected.warnings.join(' · ');
+            } else {
+                document.getElementById('calendarStatus').textContent = detected.homeId && detected.awayId ? 'SofaScore: rozpoznano obie drużyny.' : 'SofaScore: nie rozpoznano obu drużyn.';
+            }
 
             checkAndLoadTournaments();
-        } catch (e) {}
+        } catch (e) {
+            document.getElementById('calendarStatus').textContent = 'SofaScore: ' + (e?.message || e);
+            console.error('Detekcja SofaScore na serwerze:', e);
+        }
     }
 
     function syncMinOddsSliderRange() {
@@ -1340,19 +1516,19 @@
         btn.style.opacity = "0.7";
         btn.innerHTML = `⏳ Analizowanie...`;
         tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 40px; color: var(--accent);">
-            <div style="font-size:16px; font-weight:700; margin-bottom:8px;">Pobieranie kursów bukmacherskich, składów i statystyk...</div>
-            <div style="font-size:12px; color:var(--text-muted);">Auto-detekcja ID w SofaScore, pobieranie strumieni Betclic gRPC, STS WebSocket oraz SofaScore Shotmap & Incidents...</div>
+            <div style="font-size:16px; font-weight:700; margin-bottom:8px;">Serwer pobiera kursy, składy i statystyki...</div>
+            <div style="font-size:12px; color:var(--text-muted);">Postęp analizy i ewentualne ostrzeżenia pojawią się nad formularzem.</div>
         </td></tr>`;
 
         try {
             rawBets = await window.go.main.App.AnalyzeThreeBookmakers(sb, betclic, sts, home, away, limit, selectedTournaments);
 
-            if (!home && rawBets.length > 0) {
-                home = rawBets.find(b => b.teamSide === 'HOME')?.teamId || '';
+            if (rawBets.some(b => b.teamSide === 'HOME' && b.teamId)) {
+                home = rawBets.find(b => b.teamSide === 'HOME' && b.teamId).teamId;
                 document.getElementById('homeIdInput').value = home;
             }
-            if (!away && rawBets.length > 0) {
-                away = rawBets.find(b => b.teamSide === 'AWAY')?.teamId || '';
+            if (rawBets.some(b => b.teamSide === 'AWAY' && b.teamId)) {
+                away = rawBets.find(b => b.teamSide === 'AWAY' && b.teamId).teamId;
                 document.getElementById('awayIdInput').value = away;
             }
 
@@ -1394,8 +1570,9 @@
             }
         } catch (e) {
             alert("Błąd analizy: " + e);
-            tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--danger);">Wystąpił błąd podczas analizy. Sprawdź terminal.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--danger);">Nie udało się zakończyć analizy. Szczegóły znajdują się w komunikacie i ostrzeżeniach nad formularzem.</td></tr>`;
         } finally {
+            await refreshAnalysisProgress();
             btn.disabled = false;
             btn.style.opacity = "1";
             btn.innerHTML = `Analizuj`;
@@ -1484,6 +1661,9 @@
                     sampleOpponents: b.sampleOpponents || [],
                     sampleDates: b.sampleDates || [],
                     sampleShots: b.sampleShots || [],
+                    sampleRatings: b.sampleRatings || [],
+                    fairModel: b.fairModel,
+                    matchOverview: b.matchOverview,
                     statsSource: b.statsSource || '',
                     teamSide: b.teamSide || '',
                     teamId: b.teamId || '',
@@ -1544,9 +1724,7 @@
 
                 if (!matchTeam) return false;
 
-                if (onlyStartingXI && b.lineupStatus && b.lineupStatus !== "UNKNOWN") {
-                    if (!b.isStartingXI) return false;
-                }
+                if (onlyStartingXI && !['STARTER', 'PREDICTED_STARTER'].includes(b.lineupStatus)) return false;
 
                 if (bufferMode) {
                     const isVal = b.verdict === "VALUE";
@@ -1575,9 +1753,7 @@
 
             if (!matchTeam) return false;
 
-            if (onlyStartingXI && g.lineupStatus && g.lineupStatus !== "UNKNOWN") {
-                if (!g.isStartingXI) return false;
-            }
+            if (onlyStartingXI && !['STARTER', 'PREDICTED_STARTER'].includes(g.lineupStatus)) return false;
 
             if (bufferMode) {
                 const hasValueBook = Object.values(g.books).some(o => o.verdict === "VALUE");
@@ -1660,6 +1836,9 @@
         const positions = bet.samplePositions || [];
         const opponents = bet.sampleOpponents || [];
         const dates = bet.sampleDates || [];
+        const ratings = bet.sampleRatings || [];
+        const knownRatings = ratings.filter(r => Number.isFinite(r) && r > 0);
+        const averageRating = knownRatings.length ? knownRatings.reduce((sum, r) => sum + r, 0) / knownRatings.length : null;
         const marketLabel = bet.marketLabel || MARKET_LABELS[bet.marketType] || bet.marketType;
         const hitCount = values.filter(value => bet.isUnder ? value <= bet.line : value > bet.line).length;
         const average = values.reduce((sum, value) => sum + value, 0) / values.length;
@@ -1677,10 +1856,258 @@
             <span>Średnia: <b>${average.toFixed(2)}</b></span>
             <span>Hit rate: <b>${Math.round((hitCount / values.length) * 100)}% (${hitCount}/${values.length})</b></span>
             ${averageMinutes !== null ? `<span>Śr. minut: <b>${averageMinutes.toFixed(1)}</b></span>` : ''}
+            ${averageRating !== null ? `<span>Śr. rating: <b>${averageRating.toFixed(2)}</b> (${knownRatings.length}/${values.length})</span>` : ''}
+            ${bet.fairModel ? `<span>Fair: <b>${Number(bet.fairOdds).toFixed(2)}</b> · model ${(bet.fairModel.probability * 100).toFixed(1)}%</span>` : ''}
         `;
 
-        renderSampleChart(values, minutes, positions, opponents, dates, bet.line, bet.isUnder, marketLabel, superSubDeltas);
+        renderModelDetails(bet);
+        renderSampleChart(values, minutes, positions, opponents, dates, bet.line, bet.isUnder, marketLabel, superSubDeltas, ratings);
         renderShotmap(bet, selectedMatchIndexForShotmap);
+    }
+
+    function renderModelDetails(bet) {
+        const panel = document.getElementById('chartModelDetails');
+        if (panel.currentBet === bet) return;
+        panel.currentBet = bet;
+        panel.replaceChildren();
+        const model = bet.fairModel;
+        if (!model) {
+            panel.appendChild(contextNode('p', 'context-note', 'Zapisana analiza nie zawiera szczegółów nowego modelu.'));
+            return;
+        }
+        const kpis = contextNode('div', 'context-kpis');
+        contextKpi(kpis, 'KURS FAIR', contextNumber(bet.fairOdds), 'Wycena modelu', true);
+        contextKpi(kpis, 'PRAWDOPODOBIEŃSTWO', contextNumber(model.probability * 100, 1) + '%', 'Model, nie historyczny hit rate');
+        contextKpi(kpis, 'KURS BUKMACHERA', contextNumber(bet.bookmakerOdds), bet.bookmaker || 'Porównanie bukmacherów');
+        contextKpi(kpis, 'EV PO PODATKU', contextSigned(bet.evWithTax, 1) + '%', 'Według zapisanego fair kursu');
+        panel.appendChild(kpis);
+        const computation = contextSection(panel, 'Jak powstała wycena');
+        const steps = contextNode('div', 'context-kpis');
+        contextKpi(steps, '1 · ŚREDNIA Z PRÓBKI', contextNumber(model.baseMean), 'Po uwzględnieniu pozycji i home/away');
+        contextKpi(steps, '2 · KOREKTA MATCHUPU', '×' + contextNumber(model.matchupFactor, 3), 'Dane właściwe dla wybranego rynku');
+        contextKpi(steps, '3 · OCZEKIWANA LICZBA', contextNumber(model.expectedCount), model.distribution);
+        computation.appendChild(steps);
+        const chips = contextNode('div', 'context-chips');
+        for (const text of [`Próba: ${bet.matchesSample}`, `Efektywna: ${contextNumber(model.effectiveSample, 1)}`, `Kontekst: ${model.contextMatches}/${bet.matchesSample}`, `Pozycja: ${model.role || 'brak'}`, contextVenue(model.venue), model.distribution]) chips.appendChild(contextNode('span', 'context-chip', text));
+        computation.appendChild(chips);
+        const features = contextNode('div', 'context-chips');
+        const labels = { shots:'strzały drużyny', shotsAgainst:'strzały dopuszczane przez rywala', shotsOnTarget:'celne drużyny', shotsOnTargetAgainst:'celne dopuszczane', shotsOffTarget:'niecelne drużyny', shotsOffTargetAgainst:'niecelne dopuszczane', blockedScoringAttempt:'zablokowane drużyny', blockedScoringAttemptAgainst:'zablokowane dopuszczane', shotsFromInsideTheBox:'strzały w polu karnym', shotsFromInsideTheBoxAgainst:'dopuszczane w polu karnym', shotsFromOutsideTheBox:'strzały spoza pola', shotsFromOutsideTheBoxAgainst:'dopuszczane spoza pola', tackles:'odbiory', tacklesAgainst:'odbiory przeciw rywalowi', interceptions:'przechwyty', interceptionsAgainst:'przechwyty przeciw rywalowi', offsides:'spalone', offsidesAgainst:'spalone przeciw rywalowi', fouls:'faule rywala' };
+        for (const feature of model.features || []) {
+            const key = feature.replace(' / mecz', '');
+            features.appendChild(contextNode('span', 'context-chip', labels[key] ? labels[key] + '/mecz' : feature));
+        }
+        computation.appendChild(features);
+        if (model.effectiveSample < 5) computation.appendChild(contextNode('div', 'context-warning', 'Mała efektywna próbka — wycena ma wysoką niepewność.'));
+        contextNotes(computation, 'Założenia i ograniczenia modelu', [...(model.notes || []), `Wersja: ${model.version}.`, 'Hit rate opisuje historię. SuperSub zachowuje dotychczasowe działanie i nie przelicza zapisanego fair kursu.']);
+        const overview = bet.matchOverview;
+        if (!overview) return;
+        const teams = [model.teamId, model.opponentId].map(id => overview.teams && overview.teams[id]);
+        const comparison = contextSection(panel, 'Drużyna i rywal');
+        comparison.appendChild(contextNode('p', 'context-note', 'Podgląd sezonu. Tabela, forma, rating, posiadanie i xG nie zmieniają fair kursu.'));
+        const tableText = table => table ? `${table.position}. miejsce · ${table.points} pkt · ${table.matches} meczów` : '—';
+        const rows = [
+            ['Miejsce meczu', ...teams.map(t => t ? contextVenue(t.venue) : '—')],
+            ['Tabela ogólna', ...teams.map(t => tableText(t?.table))],
+            ['Tabela home/away', ...teams.map(t => tableText(t?.venueTable))],
+            ['Forma', ...teams.map(t => contextForm(t?.form))],
+            ['Forma home/away · najnowsze od lewej', ...teams.map(t => contextForm(t?.venueForm))],
+            ['Próba profilu sezonu', ...teams.map(t => t?.statsMatches ? `${t.statsMatches} meczów` : '—')]
+        ];
+        const metrics = { shots:'Strzały / mecz', shotsAgainst:'Strzały rywali / mecz', shotsOnTarget:'Celne / mecz', shotsOnTargetAgainst:'Celne rywali / mecz', expectedGoals:'xG / mecz', averageBallPossession:'Posiadanie %', avgRating:'Rating', tackles:'Odbiory / mecz', interceptions:'Przechwyty / mecz', fouls:'Faule / mecz' };
+        for (const [key, label] of Object.entries(metrics)) rows.push([label, ...teams.map(t => contextNumber(t?.metrics?.[key]))]);
+        comparison.appendChild(contextTable(['Dane', teams[0]?.name || 'Drużyna', teams[1]?.name || 'Rywal'], rows));
+        if (teams.some(t => t?.table && t.table.matches < 8)) comparison.appendChild(contextNode('div', 'context-warning', 'Początek sezonu: pozycja w tabeli opiera się na małej liczbie spotkań.'));
+        contextNotes(comparison, 'Dostępność danych', overview.notes || []);
+        renderTeamFlowPanel(panel, overview, model.teamId);
+    }
+
+    function contextNode(tag, className, text) {
+        const node = document.createElement(tag);
+        if (className) node.className = className;
+        if (text !== undefined) node.textContent = text;
+        return node;
+    }
+    function contextNumber(value, digits = 2) { return Number.isFinite(value) ? value.toFixed(digits) : '—'; }
+    function contextSigned(value, digits = 2) { return Number.isFinite(value) ? (value > 0 ? '+' : '') + value.toFixed(digits) : '—'; }
+    function contextVenue(venue) { return venue === 'HOME' ? 'U siebie' : venue === 'AWAY' ? 'Na wyjeździe' : 'Brak miejsca'; }
+    function contextKpi(parent, label, value, note, primary = false) {
+        const card = contextNode('div', 'context-kpi' + (primary ? ' primary' : ''));
+        card.append(contextNode('small', '', label), contextNode('strong', '', value), contextNode('p', '', note));
+        parent.appendChild(card);
+    }
+    function contextSection(parent, title) {
+        const section = contextNode('section', 'context-section');
+        section.appendChild(contextNode('h3', '', title));
+        parent.appendChild(section);
+        return section;
+    }
+    function contextTable(headers, rows) {
+        const wrap = contextNode('div', 'context-table-wrap');
+        const table = contextNode('table', 'context-table');
+        const head = contextNode('thead'); const heading = contextNode('tr');
+        headers.forEach(text => heading.appendChild(contextNode('th', '', text)));
+        head.appendChild(heading); table.appendChild(head);
+        const body = contextNode('tbody');
+        for (const cells of rows) {
+            const row = contextNode('tr');
+            cells.forEach(value => { const cell = contextNode('td'); if (value instanceof Node) cell.appendChild(value); else cell.textContent = value; row.appendChild(cell); });
+            body.appendChild(row);
+        }
+        table.appendChild(body); wrap.appendChild(table);
+        return wrap;
+    }
+    function contextNotes(parent, title, notes) {
+        if (!notes.length) return;
+        const details = contextNode('details', 'context-details');
+        details.appendChild(contextNode('summary', '', title));
+        const list = contextNode('ul');
+        [...new Set(notes)].forEach(note => list.appendChild(contextNode('li', '', note)));
+        details.appendChild(list); parent.appendChild(details);
+    }
+    function contextForm(form) {
+        if (!form?.length) return '—';
+        const badges = contextNode('span', 'context-form');
+        for (const result of form) {
+            const badge = contextNode('span', '', result);
+            badge.style.background = result === 'W' ? 'rgba(16,185,129,.2)' : result === 'L' ? 'rgba(239,68,68,.2)' : 'rgba(148,163,184,.15)';
+            badge.style.color = result === 'W' ? '#34d399' : result === 'L' ? '#f87171' : '#cbd5e1';
+            badges.appendChild(badge);
+        }
+        return badges;
+    }
+
+    const matchFlowPromises = new Map();
+    const flowMatchSelections = new Map();
+    const flowReactionLabels = { AFTER_SCORED:'Po zdobytej bramce', AFTER_CONCEDED:'Po straconej bramce', TOOK_LEAD:'Po objęciu prowadzenia', FELL_BEHIND:'Po utracie remisu', EQUALIZED:'Po wyrównaniu', LOST_LEAD:'Po utracie prowadzenia', OWN_RED_CARD:'Po własnej czerwonej kartce', OPP_RED_CARD:'Po czerwonej rywala', OWN_YELLOW_CARD:'Po własnej żółtej kartce', OPP_YELLOW_CARD:'Po żółtej rywala', OWN_SUBSTITUTION:'Po własnej zmianie', OPP_SUBSTITUTION:'Po zmianie rywala' };
+
+    function renderTeamFlowPanel(parent, overview, preferredID) {
+        const section = contextSection(parent, 'Przebieg meczu i reakcje');
+        section.appendChild(contextNode('p', 'context-note', 'Momentum opisuje przewagę w przebiegu gry. Dodatnie saldo dotyczy wybranej drużyny. To podgląd, który nie wpływa na fair kurs.'));
+        const controls = contextNode('div', 'flow-controls');
+        const teamSelect = contextNode('select', 'filter-select');
+        teamSelect.setAttribute('aria-label', 'Drużyna do analizy przebiegu');
+        for (const [id, team] of Object.entries(overview.teams || {})) {
+            const option = contextNode('option', '', team.name); option.value = id; teamSelect.appendChild(option);
+        }
+        if (overview.teams?.[preferredID]) teamSelect.value = preferredID;
+        controls.appendChild(teamSelect); section.appendChild(controls);
+        const content = contextNode('div'); section.appendChild(content);
+        const render = () => {
+            content.replaceChildren();
+            const id = teamSelect.value; const team = overview.teams?.[id]; const flow = team?.flow;
+            if (!flow) { content.appendChild(contextNode('p', 'context-note', 'Brak przebiegów w zapisanej analizie. Uruchom nową analizę po aktualizacji serwera.')); return; }
+            content.appendChild(contextNode('p', 'context-note', `${flow.available}/${flow.matches?.length || 0} przebiegów dostępnych · do ${flow.requested} ostatnich meczów w tych rozgrywkach.`));
+            const stateLabels = { LEADING:'Prowadzenie', DRAW:'Remis', TRAILING:'Strata' };
+            const stateRows = Object.entries(stateLabels).map(([key, label]) => {
+                const row = (flow.states || []).find(s => s.state === key);
+                return [label, row ? contextSigned(row.window.mean) : '—', row?.window.points ? `${(row.window.positive / row.window.points * 100).toFixed(0)}% punktów` : '—', row ? `${row.window.points} pkt · ${row.matches} meczów` : 'Brak próbki'];
+            });
+            content.appendChild(contextTable(['Stan wyniku', 'Saldo momentum', 'Przewaga drużyny', 'Próba wykresu'], stateRows));
+            if (flow.reactions?.length) {
+                content.appendChild(contextNode('h4', '', 'Reakcja · do 5 minut przed i po'));
+                content.appendChild(contextTable(['Po incydencie', 'Przed', 'Po', 'Zmiana salda', 'Próba'], flow.reactions.map(r => [flowReactionLabels[r.kind] || r.kind, contextSigned(r.before), contextSigned(r.after), contextSigned(r.delta), `${r.samples} okien · ${r.matches} meczów`])));
+            } else content.appendChild(contextNode('p', 'context-note', 'Brak niezależnych okien reakcji z poprawną osią wyniku i przynajmniej 3 punktami po każdej stronie incydentu.'));
+            contextNotes(content, 'Zakres i brakujące dane', [...(flow.notes || []), ...(flow.matches || []).filter(m => !m.available).map(m => `${m.homeName} – ${m.awayName}: ${m.reason || 'brak wykresu'}`)]);
+            const matches = (flow.matches || []).filter(m => m.available && m.revision);
+            if (!matches.length) return;
+            const picker = contextNode('div', 'flow-controls');
+            const matchSelect = contextNode('select', 'filter-select');
+            matchSelect.setAttribute('aria-label', 'Historyczny mecz do podglądu');
+            for (const m of matches) {
+                const date = new Date(m.startedAt).toLocaleDateString('pl-PL');
+                const option = contextNode('option', '', `${date} · ${m.homeName} ${m.homeScore ?? '—'}:${m.awayScore ?? '—'} ${m.awayName}`);
+                option.value = m.eventId; matchSelect.appendChild(option);
+            }
+            if (matches.some(m => m.eventId === flowMatchSelections.get(id))) matchSelect.value = flowMatchSelections.get(id);
+            picker.appendChild(matchSelect); content.appendChild(picker);
+            const chart = contextNode('div'); content.appendChild(chart);
+            let loadToken = 0;
+            const load = async () => {
+                const token = ++loadToken;
+                const ref = matches.find(m => m.eventId === matchSelect.value);
+                flowMatchSelections.set(id, ref.eventId);
+                chart.replaceChildren(contextNode('p', 'context-note', 'Wczytywanie zapisanego przebiegu…'));
+                const key = ref.eventId + '/' + ref.revision;
+                try {
+                    if (!window.go?.main?.App?.GetMatchFlow) throw new Error('Przebuduj i uruchom ponownie klienta Wails.');
+                    if (!matchFlowPromises.has(key)) {
+                        const request = window.go.main.App.GetMatchFlow(ref.eventId, ref.revision).catch(error => { matchFlowPromises.delete(key); throw error; });
+                        matchFlowPromises.set(key, request);
+                    }
+                    const data = await matchFlowPromises.get(key);
+                    if (token !== loadToken || !chart.isConnected) return;
+                    chart.replaceChildren(); renderHistoricalFlow(chart, data, Number(id));
+                } catch (error) {
+                    if (token !== loadToken || !chart.isConnected) return;
+                    chart.replaceChildren(contextNode('p', 'context-warning', 'Nie udało się wczytać przebiegu: ' + String(error)));
+                    const retry = contextNode('button', 'filter-select', 'Ponów'); retry.type = 'button'; retry.onclick = load; chart.appendChild(retry);
+                }
+            };
+            matchSelect.onchange = load; load();
+        };
+        teamSelect.onchange = render; render();
+    }
+
+    function renderHistoricalFlow(parent, flow, teamID) {
+        const home = flow.homeId === teamID;
+        const sign = home ? 1 : -1;
+        const ownName = home ? flow.homeName : flow.awayName;
+        const opponent = home ? flow.awayName : flow.homeName;
+        const stateLabel = state => state === 'DRAW' ? 'Remis' : state === (home ? 'HOME_LEAD' : 'AWAY_LEAD') ? 'Prowadzenie' : state === 'UNKNOWN' || !state ? 'Nieznany stan' : 'Strata';
+        const reactionLabel = r => {
+            const own = r.isHome === home;
+            if (r.kind === 'GOAL') return own ? 'Zdobyta bramka' : 'Stracona bramka';
+            const label = { RED_CARD:'Czerwona kartka', YELLOW_CARD:'Żółta kartka', SUBSTITUTION:'Zmiana' }[r.kind] || r.kind;
+            return label + (r.isHome == null ? '' : own ? ' · drużyna' : ' · rywal');
+        };
+        const wrap = contextNode('div', 'flow-chart-wrap');
+        const svg = createSvgElement('svg', { viewBox:'0 0 860 220', class:'flow-chart', role:'img', 'aria-label':`Przebieg meczu ${flow.homeName} – ${flow.awayName}` });
+        wrap.appendChild(svg); parent.appendChild(wrap);
+        const points = flow.graphPoints || [];
+        const max = Math.max(10, ...points.map(p => Math.abs(p.value)));
+        const xFor = minute => 38 + minute / 91 * 800;
+        const middle = 95; const yFor = value => middle - value / max * 70;
+        svg.appendChild(createSvgElement('line', { x1:38, x2:838, y1:middle, y2:middle, stroke:'var(--border)' }));
+        const rows = [];
+        for (const point of points) {
+            const value = point.value * sign; const y = yFor(value);
+            const bar = createSvgElement('rect', { x:xFor(point.minute)-2.8, y:Math.min(y,middle), width:5.6, height:Math.max(1,Math.abs(middle-y)), fill:value >= 0 ? '#34d399' : '#f87171', opacity:.85 });
+            const title = createSvgElement('title'); title.textContent = `${point.minute}′ · saldo ${contextSigned(value, 0)} · ${stateLabel(point.state)}`; bar.appendChild(title); svg.appendChild(bar);
+            const state = stateLabel(point.state);
+            svg.appendChild(createSvgElement('rect', { x:xFor(point.minute)-2.8, y:179, width:5.6, height:5, fill:state === 'Prowadzenie' ? '#34d399' : state === 'Strata' ? '#f87171' : '#64748b' }));
+        }
+        for (const minute of [0,15,30,45,60,75,90]) {
+            const label = createSvgElement('text', { x:xFor(minute), y:204, 'text-anchor':'middle', fill:'var(--text-muted)', 'font-size':10 }); label.textContent = minute + '′'; svg.appendChild(label);
+        }
+        svg.appendChild(createSvgElement('line', { x1:xFor(45.75), x2:xFor(45.75), y1:20, y2:185, stroke:'#94a3b8', 'stroke-dasharray':'3 4' }));
+        const marked = new Set();
+        (flow.reactions || []).forEach((r, index) => {
+            const markerKey = r.minute + '/' + r.kind;
+            if (marked.has(markerKey)) return; marked.add(markerKey);
+            const color = r.kind === 'GOAL' ? '#fbbf24' : r.kind === 'RED_CARD' ? '#f87171' : r.kind === 'SUBSTITUTION' ? '#a78bfa' : '#f59e0b';
+            const group = createSvgElement('g', { cursor:'pointer', tabindex:0, role:'button', 'aria-label':`${r.clock} ${reactionLabel(r)}` });
+            group.appendChild(createSvgElement('line', { x1:xFor(r.minute), x2:xFor(r.minute), y1:18, y2:175, stroke:color, 'stroke-dasharray':'2 3', opacity:.65 }));
+            const dot = createSvgElement('circle', { cx:xFor(r.minute), cy:13, r:4, fill:color }); group.appendChild(dot);
+            const title = createSvgElement('title'); title.textContent = `${r.clock} · ${reactionLabel(r)} · ${r.description || ''}`; group.appendChild(title);
+            const focusRow = () => { rows.forEach(row => row.classList.remove('flow-highlight')); rows[index]?.classList.add('flow-highlight'); rows[index]?.scrollIntoView({ block:'nearest', behavior:'smooth' }); };
+            group.onclick = focusRow; group.onkeydown = event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); focusRow(); } }; svg.appendChild(group);
+        });
+        const legend = contextNode('div', 'flow-legend');
+        legend.append(contextNode('span', '', `🟢 ${ownName}`), contextNode('span', '', `🔴 ${opponent}`), contextNode('span', '', '● gol · kartka · zmiana — kliknij znacznik'), contextNode('span', '', 'Dolny pasek: prowadzenie / remis / strata'));
+        parent.appendChild(legend);
+        const reactionRows = (flow.reactions || []).map(r => {
+            const description = contextNode('span', '', reactionLabel(r));
+            description.title = r.description || '';
+            const before = r.before?.points ? contextSigned(r.before.mean * sign) : '—';
+            const after = r.after?.points ? contextSigned(r.after.mean * sign) : '—';
+            return [r.clock, description, flow.timelineValid ? `${stateLabel(r.stateBefore)} → ${stateLabel(r.stateAfter)}` : 'Nieznany stan', before, after, r.eligible ? contextSigned((r.after.mean - r.before.mean) * sign) : '—', `${r.before?.points || 0}/${r.after?.points || 0} pkt${r.eligible ? '' : ' · poza agregatem'}`];
+        });
+        if (reactionRows.length) {
+            const table = contextTable(['Minuta', 'Incydent', 'Wynik', 'Przed', 'Po', 'Δ salda', 'Próbka przed/po'], reactionRows);
+            rows.push(...table.querySelectorAll('tbody tr')); parent.appendChild(table);
+        }
+        if (!flow.timelineValid) parent.appendChild(contextNode('div', 'context-warning', 'Wynik i incydenty są niespójne — pominięto klasyfikację stanów i agregaty reakcji.'));
+        contextNotes(parent, 'Jak czytać przebieg i reakcje', flow.notes || []);
     }
 
     function selectMatchForShotmap(index) {
@@ -1693,13 +2120,14 @@
         drawCurrentBetChart();
     }
 
-    function renderSampleChart(values, minutes, positions, opponents, dates, line, isUnder, marketLabel, superSubDeltas) {
+    function renderSampleChart(values, minutes, positions, opponents, dates, line, isUnder, marketLabel, superSubDeltas, ratings) {
         superSubDeltas = superSubDeltas || [];
         minutes = minutes || [];
+        ratings = ratings || [];
         const svg = document.getElementById('sampleChart');
         const width = 820;
         const height = 340;
-        const margin = { top: 32, right: 48, bottom: 62, left: 48 };
+        const margin = { top: 32, right: 48, bottom: 78, left: 48 };
         const plotWidth = width - margin.left - margin.right;
         const plotHeight = height - margin.top - margin.bottom;
 
@@ -1782,10 +2210,13 @@
             const d = dates[index] ? ` (${dates[index]})` : '';
             const posText = positions[index] ? ` · Poz: ${positions[index]}` : '';
             const minText = minutes[index] !== undefined ? ` · ${minutes[index]} min` : '';
+            const rating = ratings[index];
+            const hasRating = Number.isFinite(rating) && rating > 0;
+            const ratingText = hasRating ? ` · Rating SofaScore: ${rating.toFixed(1)}` : '';
 
             const delta = superSubDeltas[index] || 0;
             const tooltip = createSvgElement('title');
-            tooltip.textContent = `[Kliknij, by zobaczyć strzały na mapie] vs ${opp}${d}: wynik ${value}${delta > 0 ? ` (+${delta} SuperSub)` : ''}${posText}${minText} · ${hit ? 'Trafiony' : 'Nietrafiony'}`;
+            tooltip.textContent = `[Kliknij, by zobaczyć strzały na mapie] vs ${opp}${d}: wynik ${value}${delta > 0 ? ` (+${delta} SuperSub)` : ''}${posText}${minText}${ratingText} · ${hit ? 'Trafiony' : 'Nietrafiony'}`;
             bar.appendChild(tooltip);
             svg.appendChild(bar);
 
@@ -1844,6 +2275,16 @@
                 dateLabel.textContent = dates[index];
                 svg.appendChild(dateLabel);
             }
+            const ratingLabel = createSvgElement('text', {
+                x: x + barWidth / 2, y: height - margin.bottom + 44,
+                'text-anchor': 'middle', 'font-size': 11, 'font-weight': '700',
+                fill: !hasRating ? 'var(--text-muted)' : rating >= 7 ? '#10b981' : rating >= 6.5 ? '#fbbf24' : '#f87171'
+            });
+            ratingLabel.textContent = hasRating ? rating.toFixed(1) : '—';
+            const ratingTitle = createSvgElement('title');
+            ratingTitle.textContent = hasRating ? `Rating SofaScore zawodnika: ${rating.toFixed(1)}; informacja poglądowa` : 'Brak ratingu SofaScore';
+            ratingLabel.appendChild(ratingTitle);
+            svg.appendChild(ratingLabel);
         });
 
         if (minutes.length === values.length) {
@@ -2008,11 +2449,34 @@
         });
     }
 
+    function lineupBadge(status) {
+        switch (status) {
+            case 'STARTER':
+                return '<span class="badge-starter" title="Potwierdzona wyjściowa XI">XI</span>';
+            case 'PREDICTED_STARTER':
+                return '<span class="badge-predicted" title="Przewidywana wyjściowa XI SofaScore; skład niepotwierdzony">XI?</span>';
+            case 'BENCH':
+                return '<span class="badge-bench" title="Rezerwowy w potwierdzonym składzie">ŁAWKA</span>';
+            case 'PREDICTED_BENCH':
+                return '<span class="badge-predicted" title="Rezerwowy w przewidywanym składzie SofaScore; skład niepotwierdzony">POZA XI?</span>';
+            default:
+                return '';
+        }
+    }
+
+    function emptyAnalysisMessage() {
+        const xiOnly = document.getElementById('startingXIToggle')?.checked;
+        if (xiOnly && rawBets.length && rawBets.every(bet => !bet.lineupStatus || bet.lineupStatus === 'UNKNOWN')) {
+            return 'Brak dopasowanych danych o składach — status wszystkich zawodników jest nieznany. Wyłącz filtr XI, aby zobaczyć zakłady. Szczegóły są w ostrzeżeniach analizy.';
+        }
+        return 'Brak zakładów spełniających kryteria.';
+    }
+
     function renderListMode(filtered) {
         const tbody = document.getElementById("resultsBody");
         tbody.innerHTML = "";
         if (filtered.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--text-muted);">Brak zakładów spełniających kryteria.</td></tr>';
+            tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--text-muted);">${emptyAnalysisMessage()}</td></tr>`;
             return;
         }
 
@@ -2023,16 +2487,10 @@
             if (b.verdict === "VALUE") badge = '<span class="badge-value">🟢 VALUE</span>';
             if (b.verdict === "TRAP") badge = '<span class="badge-trap">🔴 PUŁAPKA</span>';
 
-            let lineupBadge = '';
-            if (b.lineupStatus === 'STARTER') {
-                lineupBadge = '<span class="badge-starter" title="Potwierdzona wyjściowa XI">XI</span>';
-            } else if (b.lineupStatus === 'BENCH') {
-                lineupBadge = '<span class="badge-bench" title="Ławka rezerwowych / poza kadrą">ŁAWKA</span>';
-            }
 
             tr.innerHTML = `
                 <td><span class="badge-bm bm-${b.bookmaker}">${b.bookmaker}</span></td>
-                <td><b>${b.playerName}</b>${lineupBadge}</td>
+                <td><b>${b.playerName}</b>${lineupBadge(b.lineupStatus)}</td>
                 <td>${b.marketLabel}<span class="tag-src" title="Próbka z SofaScore">SOFASCORE</span></td>
                 <td>${b.isUnder ? 'under' : 'over'} ${b.line}</td>
                 <td><b>${b.bookmakerOdds.toFixed(2)}</b></td>
@@ -2057,7 +2515,7 @@
         const tbody = document.getElementById("resultsBody");
         tbody.innerHTML = "";
         if (rows.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; padding: 25px; color: var(--text-muted);">Brak zdarzeń spełniających kryteria.</td></tr>';
+            tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding: 25px; color: var(--text-muted);">${emptyAnalysisMessage()}</td></tr>`;
             return;
         }
 
@@ -2083,17 +2541,11 @@
 
             const spreadText = Object.keys(g.books).length >= 2 ? g.bookmakerSpread.toFixed(2) : '—';
 
-            let lineupBadge = '';
-            if (g.lineupStatus === 'STARTER') {
-                lineupBadge = '<span class="badge-starter" title="Potwierdzona wyjściowa XI">XI</span>';
-            } else if (g.lineupStatus === 'BENCH') {
-                lineupBadge = '<span class="badge-bench" title="Ławka rezerwowych / poza kadrą">ŁAWKA</span>';
-            }
 
             const tr = document.createElement("tr");
             tr.className = 'result-row';
             tr.innerHTML = `
-                <td><b>${g.playerName}</b>${lineupBadge}</td>
+                <td><b>${g.playerName}</b>${lineupBadge(g.lineupStatus)}</td>
                 <td>${MARKET_LABELS[g.marketType] || g.marketType}<span class="tag-src" title="Próbka z SofaScore">SOFA</span></td>
                 <td>${g.isUnder ? 'under' : 'over'} ${g.line}</td>
                 <td>${g.fairOdds.toFixed(2)}</td>
@@ -2136,7 +2588,10 @@
                         samplePositions: g.samplePositions,
                         sampleOpponents: g.sampleOpponents,
                         sampleDates: g.sampleDates,
-                        sampleShots: g.sampleShots
+                        sampleShots: g.sampleShots,
+                        sampleRatings: g.sampleRatings,
+                        fairModel: g.fairModel,
+                        matchOverview: g.matchOverview
                     });
                 };
             });
@@ -2189,7 +2644,7 @@
             const card = document.createElement("div");
             card.className = "item-card";
             card.innerHTML = `
-                <div class="card-title">${b.playerName} ${b.lineupStatus === 'STARTER' ? '🟢' : (b.lineupStatus === 'BENCH' ? '🟡' : '')}</div>
+                <div class="card-title">${b.playerName}${lineupBadge(b.lineupStatus)}</div>
                 <div style="font-size:11px; color:var(--text-muted); margin-top:-2px; margin-bottom:2px;">${b.teamName || (b.teamSide === 'HOME' ? 'Gospodarze' : (b.teamSide === 'AWAY' ? 'Goście' : ''))}</div>
                 <div class="card-sub">${b.marketLabel} (${b.isUnder ? 'under' : 'over'} ${b.line}) [SOFA]</div>
                 <div style="margin-top:4px; font-weight:700; color:var(--accent);">

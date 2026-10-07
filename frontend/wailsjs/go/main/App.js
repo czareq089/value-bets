@@ -6,6 +6,10 @@ export function AnalyzeThreeBookmakers(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
   return window['go']['main']['App']['AnalyzeThreeBookmakers'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
 }
 
+export function CheckMatchMarkets(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['CheckMatchMarkets'](arg1, arg2, arg3, arg4);
+}
+
 export function DeleteMatchHistory(arg1) {
   return window['go']['main']['App']['DeleteMatchHistory'](arg1);
 }
@@ -18,6 +22,10 @@ export function DetectTeamsFromURL(arg1) {
   return window['go']['main']['App']['DetectTeamsFromURL'](arg1);
 }
 
+export function GetAnalysisProgress() {
+  return window['go']['main']['App']['GetAnalysisProgress']();
+}
+
 export function GetAvailableTournaments(arg1, arg2) {
   return window['go']['main']['App']['GetAvailableTournaments'](arg1, arg2);
 }
@@ -26,8 +34,8 @@ export function GetBetclicCalendar(arg1) {
   return window['go']['main']['App']['GetBetclicCalendar'](arg1);
 }
 
-export function GetPrefetchProgress() {
-  return window['go']['main']['App']['GetPrefetchProgress']();
+export function GetMatchFlow(arg1, arg2) {
+  return window['go']['main']['App']['GetMatchFlow'](arg1, arg2);
 }
 
 export function GetSTSCalendar(arg1) {
@@ -60,12 +68,4 @@ export function SaveMyBets(arg1) {
 
 export function SaveTeamSofaID(arg1, arg2) {
   return window['go']['main']['App']['SaveTeamSofaID'](arg1, arg2);
-}
-
-export function StartSuperbetPrefetch(arg1, arg2) {
-  return window['go']['main']['App']['StartSuperbetPrefetch'](arg1, arg2);
-}
-
-export function StopSuperbetPrefetch() {
-  return window['go']['main']['App']['StopSuperbetPrefetch']();
 }

@@ -1,22 +1,22 @@
 [
   {
-    "timestamp": "2026-10-04 19:25:42",
-    "title": "walia vs dania",
-    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/walia-vs-dania-14703867?mdt=o",
-    "betclicUrl": "",
-    "stsUrl": "",
-    "homeStatsId": "4702",
-    "awayStatsId": "4476",
+    "timestamp": "2026-10-07 21:09:20",
+    "title": "rb-bragantino vs mirassol",
+    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/rb-bragantino-vs-mirassol-13982560?mdt=o",
+    "betclicUrl": "https://www.betclic.pl/pilka-nozna-s1/bragantino-vs-mirassol-m1225362732241357",
+    "stsUrl": "https://www.sts.pl/kursy/pilka-nozna/rb-bragantino-vs-mirassol-fc/f2219030",
+    "homeStatsId": "1999",
+    "awayStatsId": "21982",
     "sampleLimit": 10
   },
   {
-    "timestamp": "2026-10-04 15:04:19",
-    "title": "grecja vs niemcy",
-    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/grecja-vs-niemcy-14703858?mdt=o",
-    "betclicUrl": "",
-    "stsUrl": "",
-    "homeStatsId": "4710",
-    "awayStatsId": "4711",
+    "timestamp": "2026-10-07 20:30:43",
+    "title": "internacional-rs vs corinthians",
+    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/internacional-rs-vs-corinthians-13982562?mdt=o",
+    "betclicUrl": "https://www.betclic.pl/pilka-nozna-s1/internacional-rs-vs-corinthians-m1225362008735744",
+    "stsUrl": "https://www.sts.pl/kursy/pilka-nozna/sc-internacional-vs-sc-corinthians/f2218823",
+    "homeStatsId": "1966",
+    "awayStatsId": "1957",
     "sampleLimit": 10
   }
 ]

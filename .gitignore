@@ -1,7 +1,13 @@
 *.md
+!server/README.md
 /build/
 /.llm_context/
 /frontend/wailsjs/
 /bookmaker_calendar_cache.json
 /logs/
 /.calendar-cache-*.tmp
+/data/
+/server/data/
+/server/logs/
+/server/value_bets
+/server/value_bets.exe

@@ -4,17 +4,21 @@ import {main} from '../models';
 
 export function AnalyzeThreeBookmakers(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:number,arg7:string):Promise<Array<main.AnalyzedBet>>;
 
+export function CheckMatchMarkets(arg1:string,arg2:string,arg3:string,arg4:string):Promise<main.MatchMarketAvailability>;
+
 export function DeleteMatchHistory(arg1:number):Promise<Array<main.MatchHistoryEntry>>;
 
 export function DetectCalendarTeams(arg1:string,arg2:string):Promise<main.TeamDetectionResult>;
 
 export function DetectTeamsFromURL(arg1:string):Promise<main.TeamDetectionResult>;
 
+export function GetAnalysisProgress():Promise<main.AnalysisJob>;
+
 export function GetAvailableTournaments(arg1:string,arg2:string):Promise<Array<main.LeagueOption>>;
 
 export function GetBetclicCalendar(arg1:string):Promise<main.SuperbetCalendar>;
 
-export function GetPrefetchProgress():Promise<main.PrefetchProgress>;
+export function GetMatchFlow(arg1:string,arg2:string):Promise<main.HistoricalMatchFlow>;
 
 export function GetSTSCalendar(arg1:string):Promise<main.SuperbetCalendar>;
 
@@ -31,7 +35,3 @@ export function SaveMatchHistory(arg1:main.MatchHistoryEntry):Promise<Array<main
 export function SaveMyBets(arg1:Array<main.MyBetItem>):Promise<boolean>;
 
 export function SaveTeamSofaID(arg1:string,arg2:string):Promise<boolean>;
-
-export function StartSuperbetPrefetch(arg1:number,arg2:string):Promise<void>;
-
-export function StopSuperbetPrefetch():Promise<void>;
