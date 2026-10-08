@@ -1,22 +1,12 @@
 [
   {
-    "timestamp": "2026-10-07 21:09:20",
-    "title": "rb-bragantino vs mirassol",
-    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/rb-bragantino-vs-mirassol-13982560?mdt=o",
-    "betclicUrl": "https://www.betclic.pl/pilka-nozna-s1/bragantino-vs-mirassol-m1225362732241357",
-    "stsUrl": "https://www.sts.pl/kursy/pilka-nozna/rb-bragantino-vs-mirassol-fc/f2219030",
-    "homeStatsId": "1999",
-    "awayStatsId": "21982",
-    "sampleLimit": 10
-  },
-  {
-    "timestamp": "2026-10-07 20:30:43",
-    "title": "internacional-rs vs corinthians",
-    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/internacional-rs-vs-corinthians-13982562?mdt=o",
-    "betclicUrl": "https://www.betclic.pl/pilka-nozna-s1/internacional-rs-vs-corinthians-m1225362008735744",
-    "stsUrl": "https://www.sts.pl/kursy/pilka-nozna/sc-internacional-vs-sc-corinthians/f2218823",
-    "homeStatsId": "1966",
-    "awayStatsId": "1957",
+    "timestamp": "2026-10-08 13:43:03",
+    "title": "borussia-dortmund vs werder-bremen",
+    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/borussia-dortmund-vs-werder-bremen-14025546?mdt=o",
+    "betclicUrl": "https://www.betclic.pl/pilka-nozna-s1/borussia-dortmund-vs-werder-m1227192019210240",
+    "stsUrl": "https://www.sts.pl/kursy/pilka-nozna/borussia-dortmund-vs-werder-brema/f3205599",
+    "homeStatsId": "2673",
+    "awayStatsId": "2534",
     "sampleLimit": 10
   }
 ]

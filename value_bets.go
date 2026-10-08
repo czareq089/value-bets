@@ -21,6 +21,7 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // Uruchomienie aplikacji Wails.
@@ -214,6 +215,7 @@ type HistoricalMatchFlow struct {
 }
 
 type AnalyzedBet struct {
+	ContextPending       bool               `json:"contextPending,omitempty"`
 	SampleRatings        []*float64         `json:"sampleRatings"`
 	FairModel            *FairModelDetails  `json:"fairModel,omitempty"`
 	MatchOverview        *MatchOverview     `json:"matchOverview,omitempty"`
@@ -582,20 +584,21 @@ type AnalysisRequest struct {
 }
 
 type AnalysisJob struct {
-	ID           string          `json:"id"`
-	Match        string          `json:"match"`
-	Status       string          `json:"status"`
-	Stage        string          `json:"stage"`
-	Message      string          `json:"message"`
-	PlayersDone  int             `json:"playersDone"`
-	PlayersTotal int             `json:"playersTotal"`
-	CreatedAt    time.Time       `json:"createdAt"`
-	StartedAt    time.Time       `json:"startedAt,omitempty"`
-	FinishedAt   time.Time       `json:"finishedAt,omitempty"`
-	Request      AnalysisRequest `json:"request"`
-	Warnings     []string        `json:"warnings"`
-	Result       []AnalyzedBet   `json:"result,omitempty"`
-	Error        string          `json:"error,omitempty"`
+	ResultRevision int             `json:"resultRevision"`
+	ID             string          `json:"id"`
+	Match          string          `json:"match"`
+	Status         string          `json:"status"`
+	Stage          string          `json:"stage"`
+	Message        string          `json:"message"`
+	PlayersDone    int             `json:"playersDone"`
+	PlayersTotal   int             `json:"playersTotal"`
+	CreatedAt      time.Time       `json:"createdAt"`
+	StartedAt      time.Time       `json:"startedAt,omitempty"`
+	FinishedAt     time.Time       `json:"finishedAt,omitempty"`
+	Request        AnalysisRequest `json:"request"`
+	Warnings       []string        `json:"warnings"`
+	Result         []AnalyzedBet   `json:"result,omitempty"`
+	Error          string          `json:"error,omitempty"`
 }
 
 func (a *App) SaveTeamSofaID(slug, sofaID string) bool {
@@ -692,6 +695,7 @@ func (a *App) AnalyzeThreeBookmakers(sb, betclic, sts, home, away string, limit 
 	}
 	a.setAnalysisProgress(job)
 	id := job.ID
+	lastRevision := 0
 	failures := 0
 	for {
 		timer := time.NewTimer(1500 * time.Millisecond)
@@ -702,7 +706,8 @@ func (a *App) AnalyzeThreeBookmakers(sb, betclic, sts, home, away string, limit 
 		case <-timer.C:
 		}
 		pollCtx, pollCancel := context.WithTimeout(ctx, 20*time.Second)
-		err = a.serverRequest(pollCtx, http.MethodGet, "/api/v1/analyses/"+url.PathEscape(id), nil, &job)
+		var nextJob AnalysisJob
+		err = a.serverRequest(pollCtx, http.MethodGet, "/api/v1/analyses/"+url.PathEscape(id)+"?afterRevision="+fmt.Sprint(lastRevision), nil, &nextJob)
 		pollCancel()
 		if err != nil {
 			failures++
@@ -715,7 +720,14 @@ func (a *App) AnalyzeThreeBookmakers(sb, betclic, sts, home, away string, limit 
 			continue
 		}
 		failures = 0
+		job = nextJob
 		a.setAnalysisProgress(job)
+		if job.ResultRevision > lastRevision {
+			lastRevision = job.ResultRevision
+			if (job.Status == "running" || job.Status == "failed") && len(job.Result) > 0 && a.ctx != nil {
+				wailsruntime.EventsEmit(a.ctx, "analysis:players-ready", job)
+			}
+		}
 		switch job.Status {
 		case "completed":
 			if job.Result == nil {

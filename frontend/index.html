@@ -436,7 +436,7 @@
 
     <!-- PASKI FILTROWANIA -->
     <div class="toolbar">
-        <input type="text" id="searchBox" class="search-box" placeholder="Szukaj zawodnika, np. haaland..." onkeyup="renderFiltered()">
+        <input type="text" id="searchBox" class="search-box" placeholder="Szukaj zawodnika (także bez polskich znaków)…" oninput="renderFiltered()">
         <button id="compareToggle" class="filter-select" style="cursor:pointer; font-weight:700;" onclick="toggleCompareMode()">🔀 Widok: Lista</button>
 
         <select id="teamFilter" class="filter-select" onchange="renderFiltered()">
@@ -669,6 +669,7 @@
     const CALENDAR_INPUTS = { SUPERBET: 'sbInput', STS: 'stsInput', BETCLIC: 'betclicInput' };
     const CALENDAR_LABELS = { SUPERBET: 'Superbet', STS: 'STS', BETCLIC: 'Betclic' };
     let analysisPolling = false;
+    let analysisActive = false;
 
     const MARKET_LABELS = {
         SHOTS_TOTAL: "Strzały",
@@ -920,12 +921,14 @@
             const bar = document.getElementById('analysisBar');
             const label = document.getElementById('analysisLabel');
             const warningBox = document.getElementById('analysisWarnings');
+            const fetchingPlayers = state.stage === 'statistics' || state.stage?.startsWith('statistics-');
             strip.hidden = !state.message;
             if (state.status === 'completed') bar.value = 100;
-            else if (state.stage === 'statistics' && state.playersTotal) bar.value = Math.min(100, state.playersDone / state.playersTotal * 100);
+            else if (fetchingPlayers && state.playersTotal) bar.value = Math.min(100, state.playersDone / state.playersTotal * 100);
             else if (running) bar.removeAttribute('value');
             else bar.value = 0;
-            const players = state.stage === 'statistics' && state.playersTotal ? ' · zawodnicy ' + state.playersDone + '/' + state.playersTotal : '';
+            const players = fetchingPlayers && state.playersTotal ? ' · zawodnicy ' + state.playersDone + '/' + state.playersTotal : '';
+            if (analysisActive && running) document.getElementById('btnAnalyze').innerHTML = analysisStageButton(state.stage);
             const warnings = state.warnings || [];
             label.textContent = 'Serwer · ' + (state.message || '') + players + (warnings.length ? ' · ostrzeżenia: ' + warnings.length : '');
             strip.title = state.id ? 'Zlecenie: ' + state.id : '';
@@ -1184,23 +1187,31 @@
         const normalized = String(name || '').toLowerCase().replace(/ł/g, 'l').replace(/ß/g, 'ss')
             .replace(/ø/g, 'o').replace(/đ/g, 'd').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
             .replace(/u\s*[-.]?\s*(\d{2})\b/g, 'u$1').replace(/[^a-z0-9]+/g, ' ').trim();
-        const clubWords = new Set(['fc', 'cf', 'afc', 'fk', 'sk', 'ks', 'sc', 'ac', 'ssc', 'as', 'rc', 'cd']);
+        const clubWords = new Set(['fc', 'cf', 'afc', 'fk', 'sk', 'ks', 'sc', 'ac', 'ssc', 'as', 'rc', 'cd', 'se', 'ec', 'sv']);
         const qualifiers = [];
         const words = normalized.split(/\s+/).filter(word => {
             if (/^u\d{2}$/.test(word)) { qualifiers.push(word); return false; }
-            if (['women', 'woman', 'ladies', 'kobiety', 'fem', 'feminino', 'femenino', 'femminile'].includes(word)) {
+            if (['women', 'womens', 'woman', 'ladies', 'female', 'kobiety', 'kobiet', 'fem', 'feminino', 'feminina', 'femenino', 'femenina', 'femminile'].includes(word)) {
                 qualifiers.push('women'); return false;
             }
+            if (['ii', 'res', 'reserve', 'reserves', 'rezerwy', 'castilla', 'primavera'].includes(word)) {
+                qualifiers.push('reserves'); return false;
+            }
+            if (['iii', 'iv'].includes(word)) { qualifiers.push(word); return false; }
             return !clubWords.has(word);
         });
         while (words.length) {
             const last = words[words.length - 1];
             if (['k', 'w', 'f'].includes(last)) qualifiers.push('women');
-            else if (['b', 'ii', 'res', 'reserves', 'rezerwy'].includes(last)) qualifiers.push('reserves');
+            else if (['b', 'ii', 'res', 'reserve', 'reserves', 'rezerwy', 'castilla', 'primavera'].includes(last)) qualifiers.push('reserves');
             else if (['iii', 'iv'].includes(last)) qualifiers.push(last);
             else break;
             words.pop();
         }
+        // RB is part of club identity (e.g. Red Bull Bragantino), not a
+        // dispensable club prefix such as FC or EC.
+        if (['rb', 'redbull'].includes(words[0])) words.splice(0, 1, 'red', 'bull');
+        if (words[0] === 'red' && words[1] === 'bull') qualifiers.push('red-bull');
         let core = words.join(' ');
         const aliases = {
             'man utd': 'manchester united', 'manchester utd': 'manchester united', 'man united': 'manchester united',
@@ -1213,16 +1224,36 @@
             'arsenal londyn': 'arsenal', 'chelsea londyn': 'chelsea', 'tottenham londyn': 'tottenham',
             'tottenham hotspur': 'tottenham', 'west ham united': 'west ham',
             'bvb': 'borussia dortmund', 'borussia m gladbach': 'borussia monchengladbach',
-            'borussia moenchengladbach': 'borussia monchengladbach'
+            'borussia moenchengladbach': 'borussia monchengladbach',
+            'werder brema': 'werder bremen'
         };
         core = aliases[core] || core;
         return { core, qualifiers: [...new Set(qualifiers)].sort().join('|') };
+    }
+
+    const CALENDAR_GENERIC_TEAM_WORDS = new Set(['real', 'atletico', 'athletic', 'sporting', 'racing', 'nacional', 'national', 'america', 'inter', 'united', 'city', 'town', 'deportivo', 'club', 'de', 'da', 'do', 'the', 'borussia', 'dynamo', 'dinamo', 'olympique', 'olympic', 'hapoel', 'maccabi', 'red', 'bull']);
+
+    function calendarTeamSharesAnchor(leftName, rightName) {
+        const left = calendarTeamName(leftName), right = calendarTeamName(rightName);
+        if (!left.core || !right.core || left.qualifiers !== right.qualifiers) return false;
+        const rightWords = new Set(right.core.split(' '));
+        return left.core.split(' ').some(word => word.length >= 5 && !CALENDAR_GENERIC_TEAM_WORDS.has(word) && rightWords.has(word));
     }
 
     function calendarTeamSimilarity(leftName, rightName) {
         const left = calendarTeamName(leftName), right = calendarTeamName(rightName);
         if (!left.core || !right.core || left.qualifiers !== right.qualifiers) return 0;
         if (left.core === right.core) return 1;
+        const leftWords = left.core.split(' '), rightWords = right.core.split(' ');
+        const shorter = leftWords.length <= rightWords.length ? leftWords : rightWords;
+        const longer = leftWords.length <= rightWords.length ? rightWords : leftWords;
+        const informative = shorter.filter(word => word.length >= 4 && !CALENDAR_GENERIC_TEAM_WORDS.has(word));
+        // Compare full tokens, not arbitrary substrings: Bahia is a core of
+        // "Bahia Salvador BA"; "Inter" alone cannot identify Internacional.
+        if (informative.length && (shorter.length > 1 || informative[0].length >= 5) &&
+            longer.length - shorter.length <= 3 && shorter.every(word => longer.includes(word))) {
+            return 0.97;
+        }
         const leftText = left.core.replace(/\s/g, ''), rightText = right.core.replace(/\s/g, '');
         if (Math.min(leftText.length, rightText.length) < 5) return 0;
         const pairs = text => {
@@ -1242,7 +1273,7 @@
     function matchCalendarEvent(selected, events) {
         const selectedTime = Date.parse(selected.startTime);
         if (!Number.isFinite(selectedTime)) return { reason: 'niepoprawny termin wybranego meczu' };
-        const candidates = [];
+        const strictCandidates = [], fallbackCandidates = [];
         for (const candidate of events) {
             if (!candidate.url) continue;
             const difference = Math.abs(Date.parse(candidate.startTime) - selectedTime);
@@ -1251,16 +1282,24 @@
             const home = calendarTeamSimilarity(selected.home, candidate.home);
             const away = calendarTeamSimilarity(selected.away, candidate.away);
             const score = (home + away) / 2;
+            const ranked = { event: candidate, score: score - difference / (10 * 60 * 1000) * 0.01 };
             if (Math.min(home, away) >= 0.88 && score >= 0.94) {
-                candidates.push({ event: candidate, score: score - difference / (10 * 60 * 1000) * 0.01 });
+                strictCandidates.push(ranked);
+            } else if (Math.max(home, away) >= 0.90 &&
+                (home >= 0.90 || calendarTeamSharesAnchor(selected.home, candidate.home)) &&
+                (away >= 0.90 || calendarTeamSharesAnchor(selected.away, candidate.away))) {
+                // Only when full names do not match: one side must have a
+                // strong name match, and the other an exact distinctive word.
+                fallbackCandidates.push(ranked);
             }
         }
+        const candidates = strictCandidates.length ? strictCandidates : fallbackCandidates;
         candidates.sort((a, b) => b.score - a.score);
         if (!candidates.length) return { reason: 'nie znaleziono zgodnego meczu w kalendarzu' };
         if (candidates.length > 1 && candidates[0].score - candidates[1].score < 0.06) {
             return { reason: 'kilka podobnych wydarzeń — wybierz link ręcznie' };
         }
-        return { event: candidates[0].event };
+        return { event: candidates[0].event, strategy: strictCandidates.length ? 'nazwy' : 'wspólny rdzeń' };
     }
 
     async function fillCalendarLinks(event, selection) {
@@ -1275,7 +1314,7 @@
                 // Preserve a link the user typed while calendars were loading.
                 if (!input.value.trim()) input.value = match.event.url;
                 console.info(`Dopasowanie ${CALENDAR_LABELS[bookmaker]}:`, event.id, match.event.id,
-                    `${match.event.home} – ${match.event.away}`, match.event.startTime);
+                    `${match.event.home} – ${match.event.away}`, match.event.startTime, match.strategy);
                 return { bookmaker, matched: true };
             } catch (error) {
                 return { bookmaker, reason: `błąd pobierania: ${error.message || error}` };
@@ -1461,10 +1500,14 @@
         }
     }
 
-    function syncMinOddsSliderRange() {
+    function syncMinOddsSliderRange(reset = true) {
         const minEl = document.getElementById("oddsMinSlider");
         const maxEl = document.getElementById("oddsMaxSlider");
         if (!minEl || !maxEl) return;
+        const previousMin = Number(minEl.value);
+        const previousMax = Number(maxEl.value);
+        const followMin = reset || previousMin === Number(minEl.min);
+        const followMax = reset || previousMax === Number(maxEl.max);
 
         if (rawBets.length === 0) {
             minEl.min = maxEl.min = "1.05";
@@ -1486,14 +1529,55 @@
             const maxO = Math.ceil(Math.max(...allOdds) * 100) / 100;
             minEl.min = maxEl.min = minO.toFixed(2);
             minEl.max = maxEl.max = (maxO > minO ? maxO : minO + 1.0).toFixed(2);
-            minEl.value = minO.toFixed(2);
-            maxEl.value = maxEl.max;
+            minEl.value = followMin ? minEl.min : Math.max(minO, Math.min(Number(minEl.max), previousMin)).toFixed(2);
+            maxEl.value = followMax ? maxEl.max : Math.max(Number(maxEl.min), Math.min(Number(maxEl.max), previousMax)).toFixed(2);
             document.getElementById("oddsRangeVal").innerText = `${minEl.value} – ${maxEl.value}`;
             updateDualRangeFill(minEl, maxEl, document.getElementById("oddsRangeFill"));
         }
     }
 
+    function applyAnalysisResults(bets, resetOddsRange) {
+        const previousChart = currentChartBet;
+        rawBets = Array.isArray(bets) ? bets : [];
+        for (const [side, input] of [['HOME', 'homeIdInput'], ['AWAY', 'awayIdInput']]) {
+            const team = rawBets.find(b => b.teamSide === side && b.teamId);
+            if (team) document.getElementById(input).value = team.teamId;
+        }
+        updateTeamDropdown(rawBets);
+        syncMinOddsSliderRange(resetOddsRange);
+        renderFiltered();
+        updateStats();
+        if (previousChart && document.getElementById('chartModal').classList.contains('is-open')) {
+            const rows = previousChart.books ? buildComparisonRows(rawBets) : rawBets;
+            const replacement = rows.find(b => b.playerName === previousChart.playerName && b.marketType === previousChart.marketType && b.line === previousChart.line && b.isUnder === previousChart.isUnder && (!previousChart.bookmaker || b.bookmaker === previousChart.bookmaker));
+            if (replacement) {
+                currentChartBet = replacement;
+                drawCurrentBetChart();
+            }
+        }
+    }
+
+    function analysisStageButton(stage) {
+        if (stage === 'statistics-xi' || stage === 'lineups') return '⏳ Pobieranie XI...';
+        if (stage === 'statistics-bench') return '⏳ Uzupełnianie ławki...';
+        if (stage === 'statistics-other') return '⏳ Pozostali zawodnicy...';
+        if (stage === 'matchup-xi') return '⏳ Kontekst i wycena XI...';
+        if (stage === 'reserve-pricing') return '⏳ Wycena rezerwy...';
+        if (stage === 'matchup') return '⏳ Uzupełnianie kontekstu...';
+        return '⏳ Analizowanie...';
+    }
+
     async function runAnalysis() {
+        if (analysisActive) return;
+        analysisActive = true;
+        let previewReceived = false;
+        let finalReceived = false;
+        const stopPreview = window.runtime?.EventsOnMultiple?.('analysis:players-ready', job => {
+            if (!analysisActive || finalReceived || !Array.isArray(job.result)) return;
+            applyAnalysisResults(job.result, !previewReceived);
+            previewReceived = true;
+            document.getElementById('btnAnalyze').innerHTML = analysisStageButton(job.stage);
+        }, -1);
         const btn = document.getElementById('btnAnalyze');
         const tbody = document.getElementById("resultsBody");
 
@@ -1515,13 +1599,17 @@
         btn.disabled = true;
         btn.style.opacity = "0.7";
         btn.innerHTML = `⏳ Analizowanie...`;
+        rawBets = [];
+        closeChart();
         tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 40px; color: var(--accent);">
             <div style="font-size:16px; font-weight:700; margin-bottom:8px;">Serwer pobiera kursy, składy i statystyki...</div>
             <div style="font-size:12px; color:var(--text-muted);">Postęp analizy i ewentualne ostrzeżenia pojawią się nad formularzem.</div>
         </td></tr>`;
 
         try {
-            rawBets = await window.go.main.App.AnalyzeThreeBookmakers(sb, betclic, sts, home, away, limit, selectedTournaments);
+            const finalBets = await window.go.main.App.AnalyzeThreeBookmakers(sb, betclic, sts, home, away, limit, selectedTournaments);
+            finalReceived = true;
+            applyAnalysisResults(finalBets, !previewReceived);
 
             if (rawBets.some(b => b.teamSide === 'HOME' && b.teamId)) {
                 home = rawBets.find(b => b.teamSide === 'HOME' && b.teamId).teamId;
@@ -1531,11 +1619,6 @@
                 away = rawBets.find(b => b.teamSide === 'AWAY' && b.teamId).teamId;
                 document.getElementById('awayIdInput').value = away;
             }
-
-            updateTeamDropdown(rawBets);
-            syncMinOddsSliderRange();
-            renderFiltered();
-            updateStats();
 
             let title = "";
             if (currentHomeSlug && currentAwaySlug) {
@@ -1570,8 +1653,10 @@
             }
         } catch (e) {
             alert("Błąd analizy: " + e);
-            tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--danger);">Nie udało się zakończyć analizy. Szczegóły znajdują się w komunikacie i ostrzeżeniach nad formularzem.</td></tr>`;
+            if (!previewReceived) tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--danger);">Nie udało się zakończyć analizy. Szczegóły znajdują się w komunikacie i ostrzeżeniach nad formularzem.</td></tr>`;
         } finally {
+            analysisActive = false;
+            if (typeof stopPreview === 'function') stopPreview();
             await refreshAnalysisProgress();
             btn.disabled = false;
             btn.style.opacity = "1";
@@ -1646,6 +1731,7 @@
             const key = `${b.playerName}|${b.marketType}|${b.line}|${b.isUnder}`;
             if (!groups.has(key)) {
                 groups.set(key, {
+                    contextPending: !!b.contextPending,
                     playerName: b.playerName,
                     marketType: b.marketType,
                     marketLabel: b.marketLabel,
@@ -1686,11 +1772,15 @@
     }
 
     function normalizeSearchText(value) {
+        const letters = { 'ł': 'l', 'ø': 'o', 'đ': 'd', 'ð': 'd', 'ß': 'ss', 'æ': 'ae', 'œ': 'oe', 'þ': 'th', 'ı': 'i', 'ŋ': 'n' };
         return String(value ?? "")
             .toLocaleLowerCase('pl-PL')
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '')
-            .replace(/ł/g, 'l');
+            .normalize('NFKD')
+            .replace(/\p{M}/gu, '')
+            .replace(/[łøđðßæœþıŋ]/g, letter => letters[letter])
+            .replace(/[’‘]/g, "'")
+            .replace(/\s+/g, ' ')
+            .trim();
     }
 
     function renderFiltered() {
@@ -1714,7 +1804,7 @@
                 const matchQuery = normalizeSearchText(b.playerName).includes(q);
                 const matchBm = selectedBMs.includes(b.bookmaker);
                 const matchMarket = selectedMarkets.includes(b.marketType);
-                const matchVerdict = (verdict === "ALL") || (b.verdict === verdict);
+                const matchVerdict = b.contextPending || (verdict === "ALL") || (b.verdict === verdict);
                 const matchOdds = b.bookmakerOdds >= minOdds && b.bookmakerOdds <= maxOdds;
                 const matchHr = b.hitRate >= minHr && b.hitRate <= maxHr;
                 const matchSample = b.matchesSample >= minSample && b.matchesSample <= maxSample;
@@ -1726,7 +1816,7 @@
 
                 if (onlyStartingXI && !['STARTER', 'PREDICTED_STARTER'].includes(b.lineupStatus)) return false;
 
-                if (bufferMode) {
+                if (bufferMode && !b.contextPending) {
                     const isVal = b.verdict === "VALUE";
                     if (!passesBufferMode(b, isVal)) return false;
                 }
@@ -1742,7 +1832,7 @@
             const matchQuery = normalizeSearchText(g.playerName).includes(q);
             const matchMarket = selectedMarkets.includes(g.marketType);
             const matchBm = selectedBMs.some(bm => !!g.books[bm]);
-            const matchVerdict = (verdict === "ALL") || Object.values(g.books).some(o => o.verdict === verdict);
+            const matchVerdict = g.contextPending || (verdict === "ALL") || Object.values(g.books).some(o => o.verdict === verdict);
 
             const matchOdds = Object.values(g.books).some(o => o.odds >= minOdds && o.odds <= maxOdds);
             const matchHr = Object.values(g.books).some(o => o.hitRate >= minHr && o.hitRate <= maxHr) || (g.hitRate >= minHr && g.hitRate <= maxHr);
@@ -1755,7 +1845,7 @@
 
             if (onlyStartingXI && !['STARTER', 'PREDICTED_STARTER'].includes(g.lineupStatus)) return false;
 
-            if (bufferMode) {
+            if (bufferMode && !g.contextPending) {
                 const hasValueBook = Object.values(g.books).some(o => o.verdict === "VALUE");
                 if (!passesBufferMode(g, hasValueBook)) return false;
             }
@@ -1871,6 +1961,10 @@
         panel.currentBet = bet;
         panel.replaceChildren();
         const model = bet.fairModel;
+        if (bet.contextPending) {
+            panel.appendChild(contextNode('p', 'context-note', 'Statystyki zawodnika są gotowe. Kontekst i wycena nie są jeszcze ukończone — fair kurs, EV i ocena pojawią się po ich pobraniu. Postęp lub błąd jest widoczny nad formularzem.'));
+            return;
+        }
         if (!model) {
             panel.appendChild(contextNode('p', 'context-note', 'Zapisana analiza nie zawiera szczegółów nowego modelu.'));
             return;
@@ -2486,6 +2580,7 @@
             let badge = '<span class="badge-neutral">NEUTRALNY</span>';
             if (b.verdict === "VALUE") badge = '<span class="badge-value">🟢 VALUE</span>';
             if (b.verdict === "TRAP") badge = '<span class="badge-trap">🔴 PUŁAPKA</span>';
+            if (b.contextPending) badge = '<span class="badge-neutral">KONTEKST…</span>';
 
 
             tr.innerHTML = `
@@ -2494,10 +2589,10 @@
                 <td>${b.marketLabel}<span class="tag-src" title="Próbka z SofaScore">SOFASCORE</span></td>
                 <td>${b.isUnder ? 'under' : 'over'} ${b.line}</td>
                 <td><b>${b.bookmakerOdds.toFixed(2)}</b></td>
-                <td>${b.fairOdds.toFixed(2)}</td>
+                <td>${b.contextPending ? '—' : b.fairOdds.toFixed(2)}</td>
                 <td style="font-weight:700; color:var(--accent);">${b.hitRate}%</td>
-                <td style="color:${b.edgePercent >= 0 ? 'var(--success)' : 'var(--danger)'}">${b.edgePercent > 0 ? '+' : ''}${b.edgePercent}%</td>
-                <td style="font-weight:700; color:${b.evWithTax >= 0 ? 'var(--success)' : 'var(--danger)'}">${b.evWithTax > 0 ? '+' : ''}${b.evWithTax}%</td>
+                <td style="color:${b.contextPending ? 'var(--text-muted)' : b.edgePercent >= 0 ? 'var(--success)' : 'var(--danger)'}">${b.contextPending ? '—' : (b.edgePercent > 0 ? '+' : '') + b.edgePercent + '%'}</td>
+                <td style="font-weight:700; color:${b.contextPending ? 'var(--text-muted)' : b.evWithTax >= 0 ? 'var(--success)' : 'var(--danger)'}">${b.contextPending ? '—' : (b.evWithTax > 0 ? '+' : '') + b.evWithTax + '%'}</td>
                 <td>${b.matchesSample} meczów</td>
                 <td>${badge}</td>
             `;
@@ -2535,7 +2630,7 @@
                 const edgeColor = o.edgePercent >= 0 ? "var(--success)" : "var(--danger)";
                 return `<td class="${cls} bm-cell" data-bm="${bmKey}">
                     <b>${o.odds.toFixed(2)}</b>
-                    <div style="font-size:10px; color:${edgeColor};">${o.edgePercent > 0 ? '+' : ''}${o.edgePercent}%</div>
+                    <div style="font-size:10px; color:${g.contextPending ? 'var(--text-muted)' : edgeColor};">${g.contextPending ? 'kontekst…' : (o.edgePercent > 0 ? '+' : '') + o.edgePercent + '%'}</div>
                 </td>`;
             }).join("");
 
@@ -2548,7 +2643,7 @@
                 <td><b>${g.playerName}</b>${lineupBadge(g.lineupStatus)}</td>
                 <td>${MARKET_LABELS[g.marketType] || g.marketType}<span class="tag-src" title="Próbka z SofaScore">SOFA</span></td>
                 <td>${g.isUnder ? 'under' : 'over'} ${g.line}</td>
-                <td>${g.fairOdds.toFixed(2)}</td>
+                <td>${g.contextPending ? '—' : g.fairOdds.toFixed(2)}</td>
                 <td style="font-weight:700; color:var(--accent);">${g.hitRate}%</td>
                 <td>${g.matchesSample} meczów</td>
                 <td style="font-weight:700; color:var(--accent);">${spreadText}</td>
@@ -2563,6 +2658,7 @@
                     e.preventDefault();
                     e.stopPropagation();
                     addToMyBets({
+                        contextPending: g.contextPending,
                         bookmaker: bmKey,
                         playerName: g.playerName,
                         marketType: g.marketType,
@@ -2612,6 +2708,10 @@
     }
 
     function addToMyBets(bet) {
+        if (bet.contextPending) {
+            alert('Poczekaj na ukończenie kontekstu i wyceny przed zapisaniem zakładu.');
+            return;
+        }
         const id = `${bet.bookmaker}_${bet.playerName}_${bet.marketLabel}_${bet.line}_${bet.isUnder}`;
         if (myBets.some(b => b.id === id)) {
             removeMyBet(id);

@@ -327,6 +327,7 @@ export namespace main {
 	    }
 	}
 	export class AnalyzedBet {
+	    contextPending?: boolean;
 	    sampleRatings: number[];
 	    fairModel?: FairModelDetails;
 	    matchOverview?: MatchOverview;
@@ -363,6 +364,7 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.contextPending = source["contextPending"];
 	        this.sampleRatings = source["sampleRatings"];
 	        this.fairModel = this.convertValues(source["fairModel"], FairModelDetails);
 	        this.matchOverview = this.convertValues(source["matchOverview"], MatchOverview);
@@ -437,6 +439,7 @@ export namespace main {
 	    }
 	}
 	export class AnalysisJob {
+	    resultRevision: number;
 	    id: string;
 	    match: string;
 	    status: string;
@@ -461,6 +464,7 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.resultRevision = source["resultRevision"];
 	        this.id = source["id"];
 	        this.match = source["match"];
 	        this.status = source["status"];

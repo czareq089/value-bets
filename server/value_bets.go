@@ -19,6 +19,7 @@ import (
 	"log"
 	"math"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -1226,6 +1227,7 @@ type SuperbetCalendar = Calendar
 var strokeLetterReplacer = strings.NewReplacer(
 	"ł", "l", "Ł", "L", "đ", "d", "Đ", "D", "ø", "o", "Ø", "O",
 	"æ", "ae", "Æ", "AE", "œ", "oe", "Œ", "OE", "ß", "ss",
+	"ẞ", "SS", "ð", "d", "Ð", "D", "þ", "th", "Þ", "TH", "ı", "i", "ŋ", "n", "Ŋ", "N",
 )
 
 func removeDiacritics(s string) string {
@@ -1478,28 +1480,10 @@ func (cache *CalendarCache) stopAndWait(ctx context.Context) {
 	}
 }
 
-// Once a future Superbet day has been requested, keep it refreshed on the same
-// source schedule. Past days remain available as historical cache only.
+// Superbet serves individual days. Fetch all local dates intersecting the
+// rolling warmup window; calendars outside it remain available on demand.
 func (cache *CalendarCache) superbetRefreshDates() []string {
-	today, tomorrow := polishDates()
-	days := map[string]bool{today: true, tomorrow: true}
-	cache.once.Do(cache.readDisk)
-	cache.mu.Lock()
-	for key := range cache.entries {
-		if strings.HasPrefix(key, "superbet:") {
-			date := strings.TrimPrefix(key, "superbet:")
-			if date >= today && validateCalendarQuery("SUPERBET", date) == nil {
-				days[date] = true
-			}
-		}
-	}
-	cache.mu.Unlock()
-	result := make([]string, 0, len(days))
-	for date := range days {
-		result = append(result, date)
-	}
-	sort.Strings(result)
-	return result
+	return polishWarmupDates(time.Now())
 }
 
 type collectorSchedule struct {
@@ -1569,9 +1553,6 @@ func (s *calendarServer) beginForeground(ctx context.Context) (func(), error) {
 }
 
 func (s *calendarServer) beginBackground() (context.Context, func(), bool) {
-	if !sofaCooldownUntil().IsZero() {
-		return nil, nil, false
-	}
 	s.workMu.Lock()
 	defer s.workMu.Unlock()
 	if s.ctx.Err() != nil || s.foregroundWork != 0 || s.backgroundFlight != nil || len(s.analysisQueue) != 0 {
@@ -1608,6 +1589,7 @@ type statsWarmupState struct {
 	Status            string    `json:"status"`
 	Players           int       `json:"players"`
 	Error             string    `json:"error,omitempty"`
+	OddsVersion       string    `json:"oddsVersion,omitempty"`
 }
 
 type statsBackgroundState struct {
@@ -1643,6 +1625,9 @@ func (s *calendarServer) rememberStatsFixture(fixture statsFixture) {
 	for key, entry := range playerStatsCache {
 		if entry.FixtureID == fixture.ID && !entry.ValidUntil.Equal(fixture.ValidUntil) {
 			entry.ValidUntil = fixture.ValidUntil
+			if entry.ConsecutiveMissing >= sofaStatsMissingLimit || entry.MissingRetryAt.After(fixture.ValidUntil) {
+				entry.MissingRetryAt = fixture.ValidUntil
+			}
 			playerStatsCache[key], changed = entry, true
 		}
 	}
@@ -1654,6 +1639,7 @@ func (s *calendarServer) rememberStatsFixture(fixture statsFixture) {
 }
 
 func (s *calendarServer) refreshStatsFixture(client *ResilientClient, fixture statsFixture) (statsFixture, error) {
+	wasFinished := fixture.Finished
 	body, err := client.withScope("status-meczu-waznosc-statystyk-" + fixture.ID).GetSofa("/event/" + fixture.ID)
 	if err != nil {
 		return fixture, err
@@ -1688,6 +1674,17 @@ func (s *calendarServer) refreshStatsFixture(client *ResilientClient, fixture st
 	}
 	fixture.NextCheckAt = time.Now().Add(5 * time.Minute)
 	s.rememberStatsFixture(fixture)
+	if fixture.Finished && !wasFinished {
+		finishedID := ""
+		if event.Status.Type == "finished" || event.Status.Code == 100 {
+			finishedID = fixture.ID
+		}
+		for _, teamID := range []string{fixture.HomeID, fixture.AwayID} {
+			if err := markSofaTeamRefreshDue(client, teamID, finishedID); err != nil {
+				client.warn("Odświeżenie kontekstu po meczu: " + err.Error())
+			}
+		}
+	}
 	return fixture, nil
 }
 
@@ -1774,7 +1771,18 @@ type statsWarmupCandidate struct {
 	KnownMarkets bool
 }
 
+const statsWarmupHorizon = 48 * time.Hour
+
 func (s *calendarServer) nextStatsWarmup() (statsWarmupCandidate, bool) {
+	now := time.Now()
+	s.oddsMu.Lock()
+	freshOffers := map[string]matchOddsSnapshot{}
+	for key, snapshot := range s.oddsCache {
+		if snapshot.fresh(now) {
+			freshOffers[key] = snapshot
+		}
+	}
+	s.oddsMu.Unlock()
 	s.marketMu.Lock()
 	available := map[string]bool{}
 	for key, result := range s.marketCache {
@@ -1797,7 +1805,7 @@ func (s *calendarServer) nextStatsWarmup() (statsWarmupCandidate, bool) {
 		}
 		for _, event := range entry.Calendar.Events {
 			start, err := time.Parse(time.RFC3339, event.StartTime)
-			if err != nil || event.Live || !start.After(time.Now()) || start.After(time.Now().Add(24*time.Hour)) || event.URL == "" {
+			if err != nil || event.Live || !start.After(now) || start.After(now.Add(statsWarmupHorizon)) || event.URL == "" {
 				continue
 			}
 			id := book + ":" + event.ID
@@ -1811,12 +1819,16 @@ func (s *calendarServer) nextStatsWarmup() (statsWarmupCandidate, bool) {
 	s.prefetchMu.Lock()
 	var candidates []statsWarmupCandidate
 	for key, candidate := range unique {
-		state, exists := s.prefetch.Events[key]
-		if exists && time.Now().Before(state.NextAttempt) {
+		if offer, exists := freshOffers[key]; exists && len(offer.Props) == 0 {
+			// Empty offers only wait for the ordinary TTL, never a miss limit.
 			continue
 		}
-		if exists && !candidate.FetchedAt.After(state.CalendarFetchedAt) && (state.Status == "completed" || state.Status == "unavailable") {
-			continue
+		state, exists := s.prefetch.Events[key]
+		if exists && now.Before(state.NextAttempt) {
+			offer, fresh := freshOffers[key]
+			if (state.Status != "completed" && state.Status != "sofa-missing") || !fresh || state.OddsVersion == offer.ArchiveVersion {
+				continue
+			}
 		}
 		candidates = append(candidates, candidate)
 	}
@@ -1855,6 +1867,19 @@ func (s *calendarServer) warmupPlayerStats(ctx context.Context, candidate statsW
 	if len(props) == 0 {
 		return 0, "unavailable", nil
 	}
+	s.prefetchMu.Lock()
+	previous := s.prefetch.Events[book+":"+event.ID]
+	s.prefetchMu.Unlock()
+	start, _ := time.Parse(time.RFC3339, event.StartTime)
+	if (previous.Status == "completed" || previous.Status == "sofa-missing") && previous.OddsVersion == odds.ArchiveVersion && previous.StartTime.Equal(start) {
+		// Recheck bookmakers indefinitely, but unchanged offers do not require
+		// rediscovering squads with complete or repeatedly unavailable histories.
+		log.Printf("[STATS-BACKGROUND] REUSE bookmaker=%s event_id=%s stats_status=%s reason=unchanged-offer", book, event.ID, previous.Status)
+		return previous.Players, previous.Status, nil
+	}
+	if !sofaCooldownUntil().IsZero() {
+		return previous.Players, "sofa-paused", nil
+	}
 	client, err := newSofaClient(ctx, func(message string) { log.Printf("[STATS-BACKGROUND] WARNING %s", message) }, nil)
 	if err != nil {
 		return 0, "error", err
@@ -1868,7 +1893,7 @@ func (s *calendarServer) warmupPlayerStats(ctx context.Context, candidate statsW
 	if teams.HomeID == "" || teams.AwayID == "" {
 		return 0, "error", fmt.Errorf("rozpoznanie drużyn: %s", strings.Join(teams.Warnings, "; "))
 	}
-	fixture, _, err := s.statsFixtureForMatch(client, teams.HomeID, teams.AwayID, match.StartTime)
+	fixture, reversed, err := s.statsFixtureForMatch(client, teams.HomeID, teams.AwayID, match.StartTime)
 	if err != nil {
 		return 0, "error", err
 	}
@@ -1880,18 +1905,18 @@ func (s *calendarServer) warmupPlayerStats(ctx context.Context, candidate statsW
 			targets = append(targets, prop.PlayerName)
 		}
 	}
-	players := []*PlayerStatHistory{}
-	for _, id := range []string{teams.HomeID, teams.AwayID} {
-		histories, _, err := fetchSofaTeamDataComprehensive(client, id, 10, "ALL", targets)
-		players = append(players, histories...)
-		if err != nil {
-			return len(players), "partial", err
-		}
+	data, err := fetchSofaMatchPlayers(client, teams.HomeID, teams.AwayID, event.Home, event.Away, fixture.ID, reversed, 10, "ALL", targets, nil)
+	players := append(append([]*PlayerStatHistory(nil), data.Home...), data.Away...)
+	if err != nil {
+		return len(players), "partial", err
 	}
 	if err := errors.Join(ctx.Err(), client.archiveError()); err != nil {
 		return len(players), "error", err
 	}
-	if len(players) == 0 {
+	client.state.mu.Lock()
+	unavailable, pending := client.state.statsUnavailable, client.state.statsMissingPending
+	client.state.mu.Unlock()
+	if len(players) == 0 && unavailable == 0 {
 		return 0, "error", fmt.Errorf("brak historii zawodników dla obsługiwanych rynków")
 	}
 	for _, player := range players {
@@ -1901,6 +1926,15 @@ func (s *calendarServer) warmupPlayerStats(ctx context.Context, candidate statsW
 	}
 	if err := archiveResponse(ctx, "statystyki-w-tle-gotowe-do-analizy", nil, "", map[string]any{"fixture": fixture, "bookmakerEvent": event, "matchLimit": 10, "tournamentIds": "ALL", "players": players}, nil); err != nil {
 		return len(players), "error", err
+	}
+	if unavailable > 0 {
+		if pending == 0 {
+			return len(players), "sofa-missing", nil
+		}
+		if len(players) == 0 {
+			return 0, "sofa-unavailable", nil
+		}
+		return len(players), "sofa-partial", nil
 	}
 	return len(players), "completed", nil
 }
@@ -1917,7 +1951,7 @@ func (s *calendarServer) statsBackgroundStep(ctx context.Context) bool {
 		}
 	}
 	s.prefetchMu.Unlock()
-	if due.ID != "" {
+	if due.ID != "" && sofaCooldownUntil().IsZero() {
 		client, err := newSofaClient(ctx, nil, nil)
 		if err == nil {
 			_, err = s.refreshStatsFixture(client, due)
@@ -1953,10 +1987,17 @@ func (s *calendarServer) statsBackgroundStep(ctx context.Context) bool {
 		state.NextAttempt = time.Now().Add(15 * time.Second)
 	case "partial", "error":
 		state.NextAttempt = time.Now().Add(15 * time.Minute)
+	case "completed", "unavailable", "sofa-unavailable", "sofa-partial", "sofa-missing", "sofa-paused":
+		state.NextAttempt = time.Now().Add(matchOddsTTL)
 	}
-	if until := sofaCooldownUntil(); until.After(state.NextAttempt) {
-		state.NextAttempt = until
+	s.oddsMu.Lock()
+	if offer, ok := s.oddsCache[key]; ok {
+		state.OddsVersion = offer.ArchiveVersion
+		if status == "unavailable" || status == "completed" || strings.HasPrefix(status, "sofa-") {
+			state.NextAttempt = offer.ExpiresAt
+		}
 	}
+	s.oddsMu.Unlock()
 	s.prefetchMu.Lock()
 	s.prefetch.Events[key] = state
 	s.saveStatsBackgroundLocked()
@@ -1967,7 +2008,11 @@ func (s *calendarServer) statsBackgroundStep(ctx context.Context) bool {
 
 func (s *calendarServer) statsBackgroundWorker() {
 	defer close(s.backgroundDone)
-	log.Printf("[STATS-BACKGROUND] PACING requests=1 delay=2s-4s between_matches=30s-60s")
+	if sofaBrowserBase != "" {
+		log.Printf("[STATS-BACKGROUND] PACING horizon=%s transport=chromium-cdp requests=1 delay=%s-%s between_matches=2s-5s", statsWarmupHorizon, sofaBrowserGap, 2*sofaBrowserGap)
+	} else {
+		log.Printf("[STATS-BACKGROUND] PACING horizon=%s requests=1 delay=2s-4s between_matches=30s-60s", statsWarmupHorizon)
+	}
 	for {
 		delay := 15 * time.Second
 		ctx, finish, ok := s.beginBackground()
@@ -1984,6 +2029,9 @@ func (s *calendarServer) statsBackgroundWorker() {
 			}()
 			if didWork {
 				delay = 30*time.Second + time.Duration(rand.Int64N(int64(30*time.Second)+1))
+				if sofaBrowserBase != "" {
+					delay = 2*time.Second + time.Duration(rand.Int64N(int64(3*time.Second)+1))
+				}
 			}
 		}
 		timer := time.NewTimer(delay)
@@ -2011,6 +2059,20 @@ func polishDates() (string, string) {
 	zone, _ := time.LoadLocation("Europe/Warsaw")
 	today := time.Now().In(zone)
 	return today.Format("2006-01-02"), today.AddDate(0, 0, 1).Format("2006-01-02")
+}
+
+func polishWarmupDates(now time.Time) []string {
+	zone, _ := time.LoadLocation("Europe/Warsaw")
+	local := now.In(zone)
+	day := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, zone)
+	end := now.Add(statsWarmupHorizon)
+	var dates []string
+	// Calendar-day iteration also covers a 48-hour window across a DST change.
+	for !day.After(end) {
+		dates = append(dates, day.Format("2006-01-02"))
+		day = day.AddDate(0, 0, 1)
+	}
+	return dates
 }
 
 func calendarFetchedAt(calendar *Calendar) time.Time {
@@ -2073,6 +2135,14 @@ func newCalendarServer(ctx context.Context, dir string) (*calendarServer, error)
 	if s.marketCache == nil {
 		s.marketCache = map[string]MatchMarketAvailability{}
 	}
+	for key, entry := range s.marketCache {
+		// Migrate old 30/60-minute negative availability without deleting data.
+		limit := entry.CheckedAt.Add(matchOddsTTL)
+		if entry.ExpiresAt.After(limit) {
+			entry.ExpiresAt = limit
+			s.marketCache[key] = entry
+		}
+	}
 	s.jobs = map[string]*analysisTask{}
 	s.analysisQueue = make(chan *analysisTask, 4)
 	s.analysisDone = make(chan struct{})
@@ -2109,14 +2179,21 @@ func newCalendarServer(ctx context.Context, dir string) (*calendarServer, error)
 	if s.schedule == nil {
 		s.schedule = map[string]collectorSchedule{}
 	}
-	today, tomorrow := polishDates()
+	warmupDates := polishWarmupDates(time.Now())
+	today := warmupDates[0]
 	for _, book := range serverBookmakers {
 		entry := s.schedule[book]
 		calendar := s.cache.Peek(sourceKey(book, today))
 		if book == "SUPERBET" {
-			other := s.cache.Peek(sourceKey(book, tomorrow))
-			if other == nil || calendarFetchedAt(other).Before(calendarFetchedAt(calendar)) {
-				calendar = other
+			for _, date := range warmupDates[1:] {
+				other := s.cache.Peek(sourceKey(book, date))
+				if other == nil {
+					calendar = nil
+					break
+				}
+				if calendar != nil && calendarFetchedAt(other).Before(calendarFetchedAt(calendar)) {
+					calendar = other
+				}
 			}
 		}
 		if calendar == nil {
@@ -2423,7 +2500,15 @@ func main() {
 	listen := flag.String("listen", "127.0.0.1:8090", "adres nasłuchu HTTP API (lokalnie dla Cloudflare Tunnel)")
 	dataDir := flag.String("data", "data", "katalog cache, harmonogramu i archiwum")
 	sofaDiagnose := flag.Bool("sofa-diagnose", false, "porównaj połączenia SofaScore i zakończ bez uruchamiania API")
+	sofaBrowser := flag.String("sofa-browser", os.Getenv("VALUE_BETS_SOFA_BROWSER"), "lokalny adres DevTools działającego Chromium, np. http://127.0.0.1:9222; pusty = HTTP")
+	sofaBrowserGapMS := flag.String("sofa-browser-gap-ms", sofaBrowserGapSetting(), "minimalny odstęp po żądaniu Chromium w ms (0–10000); jitter do 2x tej wartości")
 	flag.Parse()
+	if err := configureSofaBrowserGap(*sofaBrowserGapMS); err != nil {
+		log.Fatal(err)
+	}
+	if err := configureSofaBrowser(*sofaBrowser); err != nil {
+		log.Fatal(err)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if *sofaDiagnose {
@@ -2734,13 +2819,17 @@ type PlayerStatHistory struct {
 }
 
 type CachedPlayerHistory struct {
-	History    PlayerStatHistory `json:"history"`
-	CreatedAt  time.Time         `json:"createdAt"`
-	FixtureID  string            `json:"fixtureId,omitempty"`
-	ValidUntil time.Time         `json:"validUntil,omitempty"`
+	History            PlayerStatHistory `json:"history"`
+	CreatedAt          time.Time         `json:"createdAt"`
+	FixtureID          string            `json:"fixtureId,omitempty"`
+	ValidUntil         time.Time         `json:"validUntil,omitempty"`
+	ConsecutiveMissing int               `json:"consecutiveMissing,omitempty"`
+	MissingCheckedAt   time.Time         `json:"missingCheckedAt,omitempty"`
+	MissingRetryAt     time.Time         `json:"missingRetryAt,omitempty"`
 }
 
 type AnalyzedBet struct {
+	ContextPending       bool               `json:"contextPending,omitempty"`
 	SampleRatings        []*float64         `json:"sampleRatings"`
 	FairModel            *FairModelDetails  `json:"fairModel,omitempty"`
 	MatchOverview        *MatchOverview     `json:"matchOverview,omitempty"`
@@ -2990,7 +3079,8 @@ type SofaTeamEventsResponse struct {
 		HomeScore SofaFlowScore `json:"homeScore"`
 		AwayScore SofaFlowScore `json:"awayScore"`
 		Status    struct {
-			Code int `json:"code"`
+			Code int    `json:"code"`
+			Type string `json:"type"`
 		} `json:"status"`
 	} `json:"events"`
 }
@@ -3046,7 +3136,7 @@ func getPlayerCache(key string) (*PlayerStatHistory, bool) {
 	defer playerStatsCacheMu.Unlock()
 
 	item, exists := playerStatsCache[key]
-	if !exists {
+	if !exists || item.ConsecutiveMissing > 0 {
 		return nil, false
 	}
 
@@ -3080,6 +3170,77 @@ func savePlayerCache(key string, hist *PlayerStatHistory, fixture statsFixture) 
 
 	if err := atomicJSON(getCacheFilePath("sofa_player_stats_cache.json"), playerStatsCache); err != nil {
 		log.Printf("STATS_CACHE_WRITE_ERROR: %v", err)
+	}
+}
+
+const sofaStatsMissingLimit = 3
+
+var errSofaStatsUnavailable = errors.New("SofaScore: brak historii ze statystykami zawodnika")
+
+func sofaPlayerHistoryKey(client *ResilientClient, playerID, matchLimit int, tournaments string) string {
+	return fmt.Sprintf("v%d_%s_%d_%d_%s", playerCacheVersion, client.statsFixture.ID, playerID, matchLimit, tournaments)
+}
+
+func sofaStatsMissingCached(key string, background bool) bool {
+	cacheLoadedOnce.Do(initPlayerCache)
+	playerStatsCacheMu.Lock()
+	defer playerStatsCacheMu.Unlock()
+	entry, ok := playerStatsCache[key]
+	if !ok || entry.ConsecutiveMissing == 0 {
+		return false
+	}
+	now := time.Now()
+	if !now.Before(entry.ValidUntil) {
+		delete(playerStatsCache, key)
+		return false
+	}
+	if !background || !now.Before(entry.MissingRetryAt) {
+		return false
+	}
+	log.Printf("[SOFA-STATS-MISS] SKIP key=%q consecutive_missing=%d retry_at=%s", key, entry.ConsecutiveMissing, entry.MissingRetryAt.Format(time.RFC3339))
+	return true
+}
+
+func recordSofaStatsMissing(client *ResilientClient, key string, playerID int) error {
+	if err := errors.Join(client.ctx.Err(), client.archiveError(), sofaCooldownError()); err != nil {
+		return err
+	}
+	cacheLoadedOnce.Do(initPlayerCache)
+	playerStatsCacheMu.Lock()
+	defer playerStatsCacheMu.Unlock()
+	now := time.Now().UTC()
+	previous := playerStatsCache[key]
+	count := 1
+	if previous.ConsecutiveMissing > 0 && now.Before(previous.ValidUntil) {
+		count = min(previous.ConsecutiveMissing+1, sofaStatsMissingLimit)
+	}
+	until := client.statsFixture.ValidUntil
+	if until.IsZero() {
+		until = now.Add(playerCacheTTL)
+	}
+	retry := now.Add(15 * time.Minute)
+	if count >= sofaStatsMissingLimit || retry.After(until) {
+		retry = until
+	}
+	entry := CachedPlayerHistory{History: PlayerStatHistory{ID: playerID}, CreatedAt: now, FixtureID: client.statsFixture.ID, ValidUntil: until, ConsecutiveMissing: count, MissingCheckedAt: now, MissingRetryAt: retry}
+	playerStatsCache[key] = entry
+	if err := atomicJSON(getCacheFilePath("sofa_player_stats_cache.json"), playerStatsCache); err != nil {
+		log.Printf("STATS_CACHE_WRITE_ERROR: %v", err)
+	}
+	log.Printf("[SOFA-STATS-MISS] OBSERVATION player_id=%d fixture_id=%s consecutive_missing=%d retry_at=%s", playerID, entry.FixtureID, count, retry.Format(time.RFC3339))
+	return errSofaStatsUnavailable
+}
+
+func clearSofaStatsMissing(key string) {
+	cacheLoadedOnce.Do(initPlayerCache)
+	playerStatsCacheMu.Lock()
+	defer playerStatsCacheMu.Unlock()
+	if entry, ok := playerStatsCache[key]; ok && entry.ConsecutiveMissing > 0 {
+		delete(playerStatsCache, key)
+		if err := atomicJSON(getCacheFilePath("sofa_player_stats_cache.json"), playerStatsCache); err != nil {
+			log.Printf("STATS_CACHE_WRITE_ERROR: %v", err)
+		}
+		log.Printf("[SOFA-STATS-MISS] RESET key=%q reason=statistics-available", key)
 	}
 }
 
@@ -3267,7 +3428,7 @@ func canonicalTeamCore(s string) string {
 	s = strings.ReplaceAll(s, "monachium", "munchen")
 	s = strings.ReplaceAll(s, "mgladbach", "monchengladbach")
 	s = strings.Trim(s, "-")
-	prefixes := []string{"1-fc-", "1-fsv-", "fc-", "sc-", "sv-", "vfb-", "vfl-", "tsg-", "1-"}
+	prefixes := []string{"1-fc-", "1-fsv-", "fc-", "sc-", "sv-", "vfb-", "vfl-", "tsg-", "se-", "ec-", "1-"}
 	for _, p := range prefixes {
 		s = strings.TrimPrefix(s, p)
 	}
@@ -3283,8 +3444,13 @@ func canonicalTeamCore(s string) string {
 }
 
 var teamSlugAliases = map[string]string{
-	"rb-lipsk": "rb-leipzig",
-	"lipsk":    "leipzig",
+	"rb-lipsk":          "rb-leipzig",
+	"lipsk":             "leipzig",
+	"bahia-salvador":    "bahia",
+	"bahia-salvador-ba": "bahia",
+	"werder":            "werder-bremen",
+	"werder-brema":      "werder-bremen",
+	"borussia-dortmun":  "borussia-dortmund",
 }
 
 func findTeamIDInCache(teamSlug string, cache map[string]string) string {
@@ -3508,7 +3674,8 @@ func fetchSofaTeamSquad(client *ResilientClient, teamID string) ([]SofaPlayerDet
 		log.Printf("[SOFA-SQUAD] Ostrzeżenie: nie udało się pobrać /team/%s/players: %v", teamID, err)
 	}
 
-	evBody, err := client.GetSofa(fmt.Sprintf("/team/%s/events/last/0", teamID))
+	refresh, err := getSofaTeamRefresh(client, teamID)
+	evBody := refresh.Events
 	if err == nil {
 		var evRes SofaTeamEventsResponse
 		if json.Unmarshal(evBody, &evRes) == nil && len(evRes.Events) > 0 {
@@ -3581,6 +3748,7 @@ func isShotInsideBox(x, y float64) bool {
 
 func fetchSofaPlayerCompleteHistory(client *ResilientClient, playerID int, matchLimit int, allowedTournamentIDs string) (*PlayerStatHistory, error) {
 	var incomplete atomic.Bool
+	var baseStatsFailure atomic.Bool
 	getHistoryData := func(c *ResilientClient, endpoint string) ([]byte, error) {
 		body, err := c.GetSofa(endpoint)
 		if err != nil {
@@ -3597,10 +3765,13 @@ func fetchSofaPlayerCompleteHistory(client *ResilientClient, playerID int, match
 		return err
 	}
 	// A pre-match history belongs to this fixture, not the next match of a team.
-	cacheKey := fmt.Sprintf("v%d_%s_%d_%d_%s", playerCacheVersion, client.statsFixture.ID, playerID, matchLimit, allowedTournamentIDs)
+	cacheKey := sofaPlayerHistoryKey(client, playerID, matchLimit, allowedTournamentIDs)
 	if cached, ok := getPlayerCache(cacheKey); ok {
 		log.Printf("[SOFA-PLAYER-CACHE] Trafienie w cache dla gracza %d (limit: %d, turnieje: %s)", playerID, matchLimit, allowedTournamentIDs)
 		return cached, nil
+	}
+	if sofaStatsMissingCached(cacheKey, client.statsPrefetch) {
+		return nil, errSofaStatsUnavailable
 	}
 
 	log.Printf("[SOFA-PLAYER] Brak w cache. Pobieranie historii z sieci dla playerID=%d (limit: %d)", playerID, matchLimit)
@@ -3609,6 +3780,9 @@ func fetchSofaPlayerCompleteHistory(client *ResilientClient, playerID int, match
 	body, err := client.GetSofa(endpoint)
 	if err != nil {
 		log.Printf("[SOFA-PLAYER] Błąd pobierania zdarzeń dla gracza %d: %v", playerID, err)
+		if strings.Contains(err.Error(), "SofaScore HTTP 404") && !isArchiveFailure(err) && client.ctx.Err() == nil {
+			return nil, recordSofaStatsMissing(client, cacheKey, playerID)
+		}
 		return nil, err
 	}
 
@@ -3650,6 +3824,9 @@ func fetchSofaPlayerCompleteHistory(client *ResilientClient, playerID int, match
 	if err := json.Unmarshal(body, &pEvents); err != nil {
 		log.Printf("[SOFA-PLAYER] Błąd unmarshalu zdarzeń dla gracza %d: %v", playerID, err)
 		return nil, err
+	}
+	if pEvents.Events == nil {
+		return nil, fmt.Errorf("SofaScore: odpowiedź historii gracza %d nie zawiera listy events", playerID)
 	}
 
 	allowedTIDs := make(map[int]bool)
@@ -3791,12 +3968,29 @@ func fetchSofaPlayerCompleteHistory(client *ResilientClient, playerID int, match
 
 			// 1. Statystyki bazowe zawodnika
 			statURL := fmt.Sprintf("/event/%d/player/%d/statistics", match.EventID, playerID)
-			sBody, err := getHistoryData(client, statURL)
+			sBody, err := client.GetSofa(statURL)
 			if err != nil {
+				incomplete.Store(true)
+				if !strings.Contains(err.Error(), "SofaScore HTTP 404") || isArchiveFailure(err) || client.ctx.Err() != nil {
+					baseStatsFailure.Store(true)
+				}
 				return
 			}
 			var pStat SofaPlayerMatchStatResponse
-			if err := json.Unmarshal(sBody, &pStat); err != nil || pStat.Statistics.MinutesPlayed <= 0 {
+			var statFields map[string]json.RawMessage
+			if err := json.Unmarshal(sBody, &statFields); err != nil || statFields["statistics"] == nil {
+				incomplete.Store(true)
+				baseStatsFailure.Store(true)
+				client.warn(fmt.Sprintf("Niepoprawna odpowiedź statystyk gracza %d w meczu %d", playerID, match.EventID))
+				return
+			}
+			if err := json.Unmarshal(sBody, &pStat); err != nil {
+				incomplete.Store(true)
+				baseStatsFailure.Store(true)
+				client.warn(fmt.Sprintf("Błąd odczytu statystyk gracza %d w meczu %d: %v", playerID, match.EventID, err))
+				return
+			}
+			if pStat.Statistics.MinutesPlayed <= 0 {
 				incomplete.Store(true)
 				client.warn(fmt.Sprintf("Niekompletne statystyki gracza %d w meczu %d", playerID, match.EventID))
 				return
@@ -3957,20 +4151,19 @@ func fetchSofaPlayerCompleteHistory(client *ResilientClient, playerID int, match
 
 	hist.Incomplete = incomplete.Load()
 	log.Printf("[SOFA-PLAYER] Zebrano historię gracza %d: mecze=%d niepelna=%t", playerID, hist.Matches, hist.Incomplete)
+	if hist.Matches == 0 && !baseStatsFailure.Load() {
+		return nil, recordSofaStatsMissing(client, cacheKey, playerID)
+	}
+	if hist.Matches > 0 {
+		clearSofaStatsMissing(cacheKey)
+	}
 	if !hist.Incomplete && hist.Matches > 0 {
 		savePlayerCache(cacheKey, hist, client.statsFixture)
 	}
 	return hist, nil
 }
 
-func fetchSofaTeamDataComprehensive(client *ResilientClient, teamID string, matchLimit int, tournamentIDs string, targetPlayerNames []string) ([]*PlayerStatHistory, string, error) {
-	log.Printf("[COMPREHENSIVE] Analiza kompleksowa drużyny %s (wymagani gracze: %d)", teamID, len(targetPlayerNames))
-	squad, teamDisplayName, err := fetchSofaTeamSquad(client, teamID)
-	if err != nil {
-		log.Printf("[COMPREHENSIVE] Błąd pobierania składu %s: %v", teamID, err)
-		return nil, "", err
-	}
-
+func selectSofaMarketPlayers(squad []SofaPlayerDetails, targetPlayerNames []string) []SofaPlayerDetails {
 	lookupMap := make(map[string]int)
 	for _, p := range squad {
 		regSofaAliases(lookupMap, p.Name, p.ShortName, p.Slug, p.ID)
@@ -4006,41 +4199,38 @@ func fetchSofaTeamDataComprehensive(client *ResilientClient, teamID string, matc
 		}
 	}
 
-	var playersToFetch []SofaPlayerDetails
-	if len(matchedPlayerIDs) > 0 {
-		for _, p := range matchedPlayerIDs {
-			playersToFetch = append(playersToFetch, p)
-		}
-		log.Printf("[COMPREHENSIVE] Dopasowano %d graczy do pobrania historii z oferty bukmacherskiej dla %s", len(playersToFetch), teamDisplayName)
-	} else {
-		if client.statsPrefetch {
-			log.Printf("[STATS-BACKGROUND] SKIP_TEAM team_id=%s reason=no-matched-market-players", teamID)
-			return nil, teamDisplayName, nil
-		}
-		playersToFetch = squad
-		log.Printf("[COMPREHENSIVE] Brak pasujących filtrów graczy. Pobieranie historii dla CAŁEJ kadry (%d) dla %s", len(playersToFetch), teamDisplayName)
+	playersToFetch := make([]SofaPlayerDetails, 0, len(matchedPlayerIDs))
+	for _, p := range matchedPlayerIDs {
+		playersToFetch = append(playersToFetch, p)
 	}
 	sort.Slice(playersToFetch, func(i, j int) bool { return playersToFetch[i].ID < playersToFetch[j].ID })
+	return playersToFetch
+}
+
+func fetchSofaPlayerHistories(client *ResilientClient, teamID, teamDisplayName string, playersToFetch []SofaPlayerDetails, matchLimit int, tournamentIDs string) ([]*PlayerStatHistory, error) {
 	client.report(0, len(playersToFetch))
 
 	var finalHistories []*PlayerStatHistory
 	var mu sync.Mutex
 	var wg sync.WaitGroup
+	var unavailable atomic.Int32
 	playerConcurrency := 2
 	if client.statsPrefetch {
 		playerConcurrency = 1
 	}
 	sem := make(chan struct{}, playerConcurrency)
 
+schedulePlayers:
 	for _, p := range playersToFetch {
+		// Reserve the slot before starting the goroutine, preserving queue order.
+		select {
+		case sem <- struct{}{}:
+		case <-client.ctx.Done():
+			break schedulePlayers
+		}
 		wg.Add(1)
 		go func(player SofaPlayerDetails) {
 			defer wg.Done()
-			select {
-			case sem <- struct{}{}:
-			case <-client.ctx.Done():
-				return
-			}
 			defer func() { <-sem }()
 			if client.background && !sofaCooldownUntil().IsZero() {
 				return
@@ -4050,6 +4240,20 @@ func fetchSofaTeamDataComprehensive(client *ResilientClient, teamID string, matc
 
 			h, err := fetchSofaPlayerCompleteHistory(client, player.ID, matchLimit, tournamentIDs)
 			if err != nil {
+				if errors.Is(err, errSofaStatsUnavailable) {
+					unavailable.Add(1)
+					playerStatsCacheMu.Lock()
+					pending := playerStatsCache[sofaPlayerHistoryKey(client, player.ID, matchLimit, tournamentIDs)].ConsecutiveMissing < sofaStatsMissingLimit
+					playerStatsCacheMu.Unlock()
+					client.state.mu.Lock()
+					client.state.statsUnavailable++
+					if pending {
+						client.state.statsMissingPending++
+					}
+					client.state.mu.Unlock()
+					client.warn("Brak historii ze statystykami SofaScore: " + player.Name)
+					return
+				}
 				client.warn("Historia " + player.Name + ": " + err.Error())
 				return
 			}
@@ -4072,20 +4276,20 @@ func fetchSofaTeamDataComprehensive(client *ResilientClient, teamID string, matc
 	}
 
 	wg.Wait()
-	log.Printf("[COMPREHENSIVE] Zakończono analizę zespołu %s. Zwrócono %d profili statystycznych", teamDisplayName, len(finalHistories))
+	log.Printf("[COMPREHENSIVE] Drużyna %s: historie %d/%d", teamDisplayName, len(finalHistories), len(playersToFetch))
 	if err := errors.Join(client.ctx.Err(), client.archiveError()); err != nil {
-		return nil, teamDisplayName, err
+		return finalHistories, err
 	}
 	if client.background {
 		if err := sofaCooldownError(); err != nil {
-			return finalHistories, teamDisplayName, err
+			return finalHistories, err
 		}
 	}
-	if client.statsPrefetch && len(finalHistories) != len(playersToFetch) {
-		return finalHistories, teamDisplayName, fmt.Errorf("pobrano historie %d/%d dopasowanych zawodników", len(finalHistories), len(playersToFetch))
+	if client.statsPrefetch && len(finalHistories)+int(unavailable.Load()) != len(playersToFetch) {
+		return finalHistories, fmt.Errorf("pobrano historie %d/%d dopasowanych zawodników", len(finalHistories), len(playersToFetch))
 	}
 	sort.Slice(finalHistories, func(i, j int) bool { return finalHistories[i].ID < finalHistories[j].ID })
-	return finalHistories, teamDisplayName, nil
+	return finalHistories, nil
 }
 
 func regSofaAliases(m map[string]int, name, shortName, slug string, id int) {
@@ -4117,24 +4321,30 @@ func lookupMapInt(src map[string]int) map[string]string {
 	return res
 }
 
-func fetchSofaLineups(client *ResilientClient, eventID string) (map[string]bool, map[string]bool, bool, error) {
+type sofaMatchLineup struct {
+	Home, Away               map[string]bool
+	HomePlayers, AwayPlayers []SofaPlayerDetails
+	Confirmed                bool
+}
+
+func fetchSofaLineups(client *ResilientClient, eventID string) (sofaMatchLineup, error) {
 	if eventID == "" {
-		return nil, nil, false, fmt.Errorf("brak ID meczu do pobrania składów")
+		return sofaMatchLineup{}, fmt.Errorf("brak ID meczu do pobrania składów")
 	}
 	log.Printf("[SOFA-LINEUP] Pobieranie składów dla meczu eventID=%s", eventID)
 	body, err := client.GetSofa(fmt.Sprintf("/event/%s/lineups", eventID))
 	if err != nil {
 		log.Printf("[SOFA-LINEUP] Błąd pobierania składów: %v", err)
-		return nil, nil, false, err
+		return sofaMatchLineup{}, err
 	}
 
 	var res SofaLineupResponse
 	if err := json.Unmarshal(body, &res); err != nil {
-		return nil, nil, false, fmt.Errorf("odczyt składów: %w", err)
+		return sofaMatchLineup{}, fmt.Errorf("odczyt składów: %w", err)
 	}
 	log.Printf("[SOFA-LINEUP] RESPONSE eventID=%s confirmed_present=%v home_players=%d away_players=%d", eventID, res.Confirmed != nil, len(res.Home.Players), len(res.Away.Players))
 	if res.Confirmed == nil {
-		return nil, nil, false, fmt.Errorf("odpowiedź składów nie zawiera statusu confirmed")
+		return sofaMatchLineup{}, fmt.Errorf("odpowiedź składów nie zawiera statusu confirmed")
 	}
 
 	homeMap := make(map[string]bool)
@@ -4174,10 +4384,188 @@ func fetchSofaLineups(client *ResilientClient, eventID string) (map[string]bool,
 	}
 
 	if len(homeMap) == 0 && len(awayMap) == 0 {
-		return nil, nil, false, fmt.Errorf("brak zawodników z oznaczeniem substitute w składach (confirmed=%v)", *res.Confirmed)
+		return sofaMatchLineup{}, fmt.Errorf("brak zawodników z oznaczeniem substitute w składach (confirmed=%v)", *res.Confirmed)
 	}
 	log.Printf("[SOFA-LINEUP] Składy załadowane (potwierdzone: %v) - Gospodarze: %d graczy, Goście: %d graczy", *res.Confirmed, len(res.Home.Players), len(res.Away.Players))
-	return homeMap, awayMap, *res.Confirmed, nil
+	result := sofaMatchLineup{Home: homeMap, Away: awayMap, Confirmed: *res.Confirmed}
+	for _, p := range res.Home.Players {
+		if p.Player.ID > 0 {
+			result.HomePlayers = append(result.HomePlayers, p.Player)
+		}
+	}
+	for _, p := range res.Away.Players {
+		if p.Player.ID > 0 {
+			result.AwayPlayers = append(result.AwayPlayers, p.Player)
+		}
+	}
+	return result, nil
+}
+
+type sofaMatchPlayerData struct {
+	Home, Away []*PlayerStatHistory
+	Lineup     sofaMatchLineup
+}
+
+// Both teams finish each phase before any history from the next phase starts.
+// Lineup IDs let XI and bench histories bypass full squad discovery.
+// The synchronous preview hook may finish and price XI context before reserves.
+func fetchSofaMatchPlayers(client *ResilientClient, homeID, awayID, homeName, awayName, eventID string, reversed bool, matchLimit int, tournamentIDs string, targets []string, preview func(sofaMatchPlayerData, string, string) error) (sofaMatchPlayerData, error) {
+	data := sofaMatchPlayerData{}
+	if client.progress != nil {
+		client.progress("lineups", "Odczytywanie predicted / confirmed XI", 0, 0)
+	}
+	lineup, err := fetchSofaLineups(client, eventID)
+	if err != nil {
+		client.warn("SofaScore: nie udało się odczytać składów; pobieranie zawodników bez priorytetu XI: " + err.Error())
+	} else {
+		if reversed {
+			lineup.Home, lineup.Away = lineup.Away, lineup.Home
+			lineup.HomePlayers, lineup.AwayPlayers = lineup.AwayPlayers, lineup.HomePlayers
+		}
+		data.Lineup = lineup
+		if !lineup.Confirmed {
+			client.warn("SofaScore: wykorzystano przewidywane składy (XI?), jeszcze niepotwierdzone")
+		}
+		if len(lineup.Home) == 0 || len(lineup.Away) == 0 {
+			client.warn("SofaScore: brak składu jednej z drużyn")
+		}
+	}
+	if err := errors.Join(client.ctx.Err(), client.archiveError()); err != nil {
+		return data, err
+	}
+	if homeName == "" {
+		homeName = "Gospodarze"
+	}
+	if awayName == "" {
+		awayName = "Goście"
+	}
+	type teamPlan struct {
+		id, name  string
+		lineup    map[string]bool
+		players   []SofaPlayerDetails
+		attempted map[int]bool
+		histories *[]*PlayerStatHistory
+	}
+	plans := []teamPlan{
+		{homeID, homeName, data.Lineup.Home, data.Lineup.HomePlayers, make(map[int]bool), &data.Home},
+		{awayID, awayName, data.Lineup.Away, data.Lineup.AwayPlayers, make(map[int]bool), &data.Away},
+	}
+	phase := func(stage, message, nextStage, nextMessage string, lists [2][]SofaPlayerDetails) error {
+		count := len(lists[0]) + len(lists[1])
+		if client.progress != nil {
+			client.progress(stage, message, 0, 0)
+		}
+		log.Printf("[SOFA-PLAYERS] PHASE stage=%s home=%d away=%d", stage, len(lists[0]), len(lists[1]))
+		var wg sync.WaitGroup
+		var phaseErrors [2]error
+		fetch := func(i int) {
+			plan := &plans[i]
+			for _, p := range lists[i] {
+				plan.attempted[p.ID] = true
+			}
+			histories, err := fetchSofaPlayerHistories(client.withScope(stage+"-druzyna-"+plan.id), plan.id, plan.name, lists[i], matchLimit, tournamentIDs)
+			*plan.histories = append(*plan.histories, histories...)
+			phaseErrors[i] = err
+		}
+		for i := range plans {
+			if client.statsPrefetch {
+				fetch(i)
+				if phaseErrors[i] != nil {
+					break
+				}
+			} else {
+				wg.Add(1)
+				go func(i int) { defer wg.Done(); fetch(i) }(i)
+			}
+		}
+		wg.Wait()
+		if err := errors.Join(phaseErrors[0], phaseErrors[1], client.ctx.Err(), client.archiveError()); err != nil {
+			return err
+		}
+		if preview != nil && count > 0 && len(data.Home)+len(data.Away) > 0 {
+			return preview(data, nextStage, nextMessage)
+		}
+		return nil
+	}
+	var starters, bench [2][]SofaPlayerDetails
+	for i, plan := range plans {
+		for _, player := range selectSofaMarketPlayers(plan.players, targets) {
+			isStarter, classified := plan.lineup["player:"+strconv.Itoa(player.ID)]
+			if !classified {
+				continue
+			}
+			if isStarter {
+				starters[i] = append(starters[i], player)
+			} else {
+				bench[i] = append(bench[i], player)
+			}
+		}
+	}
+	if err := phase("statistics-xi", "Pobieranie statystyk predicted / confirmed XI", "matchup-xi", "XI gotowe — pobieranie kontekstu i wyceny", starters); err != nil {
+		return data, err
+	}
+	if err := phase("statistics-bench", "Pobieranie statystyk ławki", "statistics-other", "Uzupełnianie pozostałych zawodników z oferty", bench); err != nil {
+		return data, err
+	}
+	if client.progress != nil {
+		client.progress("statistics-other", "Uzupełnianie kadry i pozostałych zawodników z oferty", 0, 0)
+	}
+	var remaining [2][]SofaPlayerDetails
+	var squadErrors [2]error
+	var wg sync.WaitGroup
+	prepare := func(i int) {
+		plan := &plans[i]
+		squad, name, err := fetchSofaTeamSquad(client.withScope("kadra-druzyna-"+plan.id), plan.id)
+		if err != nil {
+			squadErrors[i] = err
+			return
+		}
+		if name != "" && name != plan.id {
+			plan.name = name
+		}
+		// Retain fixture players even when the roster omits them.
+		seen := make(map[int]bool)
+		for _, p := range squad {
+			seen[p.ID] = true
+		}
+		for _, p := range plan.players {
+			if !seen[p.ID] {
+				squad = append(squad, p)
+				seen[p.ID] = true
+			}
+		}
+		matched := selectSofaMarketPlayers(squad, targets)
+		if len(matched) == 0 && !client.statsPrefetch && len(plan.attempted) == 0 {
+			matched = squad
+		}
+		for _, p := range matched {
+			if !plan.attempted[p.ID] {
+				remaining[i] = append(remaining[i], p)
+			}
+		}
+		for _, history := range *plan.histories {
+			history.TeamName = plan.name
+		}
+	}
+	for i := range plans {
+		if client.statsPrefetch {
+			prepare(i)
+			if squadErrors[i] != nil {
+				break
+			}
+		} else {
+			wg.Add(1)
+			go func(i int) { defer wg.Done(); prepare(i) }(i)
+		}
+	}
+	wg.Wait()
+	if err := errors.Join(squadErrors[0], squadErrors[1], client.ctx.Err(), client.archiveError()); err != nil {
+		return data, err
+	}
+	if err := phase("statistics-other", "Pobieranie statystyk pozostałych zawodników", "calculation", "Uzupełnianie wyceny pozostałych zawodników", remaining); err != nil {
+		return data, err
+	}
+	return data, nil
 }
 
 // ==========================================
@@ -4733,7 +5121,7 @@ func ParseBetclicProps(rawBuf []byte) []NormalizedProp {
 // ==========================================
 
 func NormalizePlayerName(s string) string {
-	s = removeDiacritics(s)
+	s = removeDiacritics(norm.NFKD.String(s))
 	s = strings.ToLower(s)
 	s = strings.ReplaceAll(s, ",", " ")
 	s = strings.ReplaceAll(s, ".", " ")
@@ -5148,17 +5536,14 @@ func (s *calendarServer) registerMatchFlowAPI(mux *http.ServeMux) {
 	})
 }
 
-func fetchHistoricalMatchFlow(client *ResilientClient, ref FlowMatchReference, homeID, awayID int, regulationScoreKnown bool) (*HistoricalMatchFlow, error) {
-	ttl := 7 * 24 * time.Hour
-	if time.Since(ref.StartedAt) < 24*time.Hour {
-		ttl = 30 * time.Minute
-	}
+func fetchHistoricalMatchFlow(client *ResilientClient, ref FlowMatchReference, homeID, awayID int, regulationScoreKnown bool, refreshRevision string) (*HistoricalMatchFlow, error) {
 	indexPath := filepath.Join(serverDataDir, "match_flow_cache", "mecz-"+ref.EventID, "ostatnia-wersja.json")
 	var index struct {
 		Revision  string    `json:"revision"`
 		FetchedAt time.Time `json:"fetchedAt"`
 	}
-	if raw, err := os.ReadFile(indexPath); err == nil && json.Unmarshal(raw, &index) == nil && time.Since(index.FetchedAt) >= 0 && time.Since(index.FetchedAt) < ttl {
+	// A successfully saved finished match is immutable for subsequent analyses.
+	if raw, err := os.ReadFile(indexPath); err == nil && json.Unmarshal(raw, &index) == nil {
 		if flow, err := readMatchFlow(ref.EventID, index.Revision); err == nil {
 			return flow, nil
 		}
@@ -5169,7 +5554,7 @@ func fetchHistoricalMatchFlow(client *ResilientClient, ref FlowMatchReference, h
 		PeriodCount   int              `json:"periodCount"`
 		OvertimeCount *int             `json:"overtimeCount"`
 	}
-	_, err := getSofaContextJSON(client, "/event/"+ref.EventID+"/graph", ttl, &graph)
+	_, err := getSofaContextJSON(client, "/event/"+ref.EventID+"/graph", 0, &graph, refreshRevision)
 	if err != nil {
 		return nil, err
 	}
@@ -5179,7 +5564,7 @@ func fetchHistoricalMatchFlow(client *ResilientClient, ref FlowMatchReference, h
 	var response struct {
 		Incidents []FlowIncident `json:"incidents"`
 	}
-	_, err = getSofaContextJSON(client, "/event/"+ref.EventID+"/incidents", ttl, &response)
+	_, err = getSofaContextJSON(client, "/event/"+ref.EventID+"/incidents", 0, &response, refreshRevision)
 	if err != nil {
 		return nil, err
 	}
@@ -5406,7 +5791,10 @@ func fetchHistoricalMatchFlow(client *ResilientClient, ref FlowMatchReference, h
 func fetchTeamFlowOverview(client *ResilientClient, teamID string, leagueID int, shared map[string]*HistoricalMatchFlow) *TeamFlowOverview {
 	result := &TeamFlowOverview{Requested: 5, Matches: []FlowMatchReference{}, States: []FlowStateSummary{}, Reactions: []FlowReactionSummary{}, Notes: []string{}}
 	var events SofaTeamEventsResponse
-	_, err := getSofaContextJSON(client, "/team/"+teamID+"/events/last/0", 6*time.Hour, &events)
+	refresh, err := getSofaTeamRefresh(client, teamID)
+	if err == nil {
+		err = json.Unmarshal(refresh.Events, &events)
+	}
 	if err != nil {
 		result.Notes = append(result.Notes, "Nie udało się pobrać historii meczów: "+err.Error())
 		return result
@@ -5445,7 +5833,7 @@ func fetchTeamFlowOverview(client *ResilientClient, teamID string, leagueID int,
 		flow := shared[ref.EventID]
 		var err error
 		if flow == nil {
-			flow, err = fetchHistoricalMatchFlow(client.withScope("przebieg-"+ref.HomeName+"-vs-"+ref.AwayName+"-mecz-"+ref.EventID), ref, event.HomeTeam.ID, event.AwayTeam.ID, event.HomeScore.Normaltime != nil && event.AwayScore.Normaltime != nil)
+			flow, err = fetchHistoricalMatchFlow(client.withScope("przebieg-"+ref.HomeName+"-vs-"+ref.AwayName+"-mecz-"+ref.EventID), ref, event.HomeTeam.ID, event.AwayTeam.ID, event.HomeScore.Normaltime != nil && event.AwayScore.Normaltime != nil, refresh.Revision)
 		}
 		if err != nil {
 			ref.Reason = err.Error()
@@ -5596,13 +5984,262 @@ type fairModelInput struct {
 }
 
 type analysisMatchContext struct {
-	Input    fairModelInput `json:"fairInput"`
-	Overview *MatchOverview `json:"overview"`
+	Pending         bool           `json:"pending,omitempty"`
+	Input           fairModelInput `json:"fairInput"`
+	Overview        *MatchOverview `json:"overview"`
+	profileAttempts map[int]bool
 }
 
 type sofaContextSnapshot struct {
 	FetchedAt time.Time       `json:"fetchedAt"`
 	Body      json.RawMessage `json:"body"`
+	Revision  string          `json:"sourceRevision,omitempty"`
+}
+
+// This clock follows completed matches. NextCheckAt schedules small fixture
+// discovery requests; it never expires a season profile or an existing graph.
+type sofaTeamRefreshState struct {
+	TeamID          string          `json:"teamId"`
+	Revision        string          `json:"lastFinishedRevision"`
+	LastFinished    time.Time       `json:"lastFinishedAt,omitempty"`
+	FetchedAt       time.Time       `json:"fetchedAt"`
+	NextCheckAt     time.Time       `json:"nextCheckAt"`
+	AwaitFinishedID string          `json:"awaitFinishedId,omitempty"`
+	Events          json.RawMessage `json:"events"`
+}
+
+var sofaTeamRefreshLocks = struct {
+	sync.Mutex
+	byTeam map[string]chan struct{}
+}{byTeam: map[string]chan struct{}{}}
+
+func lockSofaTeamRefresh(ctx context.Context, teamID string) (func(), error) {
+	sofaTeamRefreshLocks.Lock()
+	lock := sofaTeamRefreshLocks.byTeam[teamID]
+	if lock == nil {
+		lock = make(chan struct{}, 1)
+		sofaTeamRefreshLocks.byTeam[teamID] = lock
+	}
+	sofaTeamRefreshLocks.Unlock()
+	select {
+	case lock <- struct{}{}:
+		return func() { <-lock }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func sofaTeamRefreshPath(teamID string) string {
+	return filepath.Join(serverDataDir, "matchup_cache", "druzyna-"+teamID+"_stan-po-meczu.json")
+}
+
+func markSofaTeamRefreshDue(client *ResilientClient, teamID, finishedID string) error {
+	unlock, err := lockSofaTeamRefresh(client.ctx, teamID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	path := sofaTeamRefreshPath(teamID)
+	raw, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	var state sofaTeamRefreshState
+	if err == nil {
+		err = json.Unmarshal(raw, &state)
+	}
+	if err != nil {
+		return err
+	}
+	state.NextCheckAt = time.Time{}
+	state.AwaitFinishedID = finishedID
+	if err := atomicJSON(path, state); err != nil {
+		return err
+	}
+	client.state.mu.Lock()
+	delete(client.state.teamRefresh, teamID)
+	client.state.mu.Unlock()
+	log.Printf("[TEAM-CONTEXT] MATCH_ENDED team_id=%s; kontrola nowych danych przy kolejnym uzyciu", teamID)
+	return nil
+}
+
+func archiveSofaTeamVersion(client *ResilientClient, teamID, label string, body json.RawMessage, fetchedAt time.Time, revision string) error {
+	if len(body) == 0 {
+		return nil
+	}
+	digest := sha256.Sum256(body)
+	name := archiveName(label)
+	path := filepath.Join(archiveRoot, "kontekst-druzyn", "druzyna-"+teamID, name, fmt.Sprintf("wersja-%x", digest), name+".json.gz")
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
+		return err
+	}
+	raw, err := json.MarshalIndent(map[string]any{"teamId": teamID, "sourceRevision": revision, "fetchedAt": fetchedAt, "data": body}, "", "  ")
+	if err == nil {
+		err = writeGzip(path, raw)
+	}
+	if err != nil {
+		client.recordArchiveError(err)
+	}
+	return err
+}
+
+func getSofaTeamRefresh(client *ResilientClient, teamID string) (sofaTeamRefreshState, error) {
+	client.state.mu.Lock()
+	memo, ok := client.state.teamRefresh[teamID]
+	client.state.mu.Unlock()
+	if ok {
+		return memo, nil
+	}
+	unlock, err := lockSofaTeamRefresh(client.ctx, teamID)
+	if err != nil {
+		return sofaTeamRefreshState{}, err
+	}
+	defer unlock()
+	path := sofaTeamRefreshPath(teamID)
+	var previous sofaTeamRefreshState
+	if raw, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(raw, &previous)
+	}
+	now := time.Now().UTC()
+	state := previous
+	if previous.TeamID != teamID || previous.Revision == "" || len(previous.Events) == 0 || previous.FetchedAt.After(now) || !now.Before(previous.NextCheckAt) {
+		body, err := client.GetSofa("/team/" + teamID + "/events/last/0")
+		if err != nil {
+			return previous, err
+		}
+		var recent SofaTeamEventsResponse
+		if err := json.Unmarshal(body, &recent); err != nil {
+			return previous, err
+		}
+		lastID, lastTS := 0, int64(0)
+		for _, event := range recent.Events {
+			if (strconv.Itoa(event.HomeTeam.ID) != teamID && strconv.Itoa(event.AwayTeam.ID) != teamID) || (event.Status.Code != 100 && event.Status.Type != "finished") {
+				continue
+			}
+			if event.StartTS > lastTS || (event.StartTS == lastTS && event.ID > lastID) {
+				lastID, lastTS = event.ID, event.StartTS
+			}
+		}
+		if !previous.LastFinished.IsZero() && lastTS < previous.LastFinished.Unix() {
+			return previous, fmt.Errorf("SofaScore: historia drużyny %s cofnęła się; zachowano poprzedni cache", teamID)
+		}
+		state = sofaTeamRefreshState{TeamID: teamID, Revision: fmt.Sprintf("mecz-%d-%d", lastID, lastTS), FetchedAt: now, NextCheckAt: now.Add(24 * time.Hour), AwaitFinishedID: previous.AwaitFinishedID, Events: body}
+		if lastTS > 0 {
+			state.LastFinished = time.Unix(lastTS, 0).UTC()
+		}
+		// Look at the schedule once, then wait until that match can have ended.
+		// A daily schedule check catches rescheduling/teams without known fixtures.
+		var upcoming SofaTeamEventsResponse
+		nextBody, nextErr := client.GetSofa("/team/" + teamID + "/events/next/0")
+		if err := errors.Join(client.ctx.Err(), client.archiveError()); err != nil {
+			return previous, err
+		}
+		if nextErr == nil {
+			nextErr = json.Unmarshal(nextBody, &upcoming)
+		}
+		if nextErr != nil && !strings.Contains(nextErr.Error(), "SofaScore HTTP 404") {
+			client.warn("Terminarz do odświeżania kontekstu drużyny " + teamID + ": " + nextErr.Error())
+			state.NextCheckAt = now.Add(time.Hour)
+			if strings.Contains(nextErr.Error(), "SofaScore HTTP 403") {
+				state.NextCheckAt = now // No pause imposed on manual challenge retries.
+			}
+		}
+		for _, events := range []SofaTeamEventsResponse{recent, upcoming} {
+			for _, event := range events.Events {
+				if event.StartTS <= 0 || (strconv.Itoa(event.HomeTeam.ID) != teamID && strconv.Itoa(event.AwayTeam.ID) != teamID) || event.Status.Code == 100 || event.Status.Type == "finished" || event.Status.Type == "canceled" || event.Status.Type == "postponed" {
+					continue
+				}
+				start := time.Unix(event.StartTS, 0).UTC()
+				if start.Before(now.Add(-4*time.Hour)) && event.Status.Type != "inprogress" {
+					continue
+				}
+				check := start.Add(2*time.Hour + 15*time.Minute)
+				if !check.After(now) {
+					check = now.Add(5 * time.Minute)
+				}
+				if check.Before(state.NextCheckAt) {
+					state.NextCheckAt = check
+				}
+			}
+		}
+		if state.AwaitFinishedID != "" {
+			for _, event := range recent.Events {
+				if strconv.Itoa(event.ID) == state.AwaitFinishedID && (event.Status.Code == 100 || event.Status.Type == "finished") {
+					state.AwaitFinishedID = ""
+					break
+				}
+			}
+			// The event-status endpoint can report finished before the team list
+			// catches up. Keep the previous revision and check again shortly.
+			if state.AwaitFinishedID != "" && now.Add(5*time.Minute).Before(state.NextCheckAt) {
+				state.NextCheckAt = now.Add(5 * time.Minute)
+			}
+		}
+		if previous.Revision != state.Revision {
+			if err := archiveSofaTeamVersion(client, teamID, "lista-ostatnich-meczow", previous.Events, previous.FetchedAt, previous.Revision); err != nil {
+				return previous, err
+			}
+			if err := archiveSofaTeamVersion(client, teamID, "lista-ostatnich-meczow", state.Events, state.FetchedAt, state.Revision); err != nil {
+				return previous, err
+			}
+			log.Printf("[TEAM-CONTEXT] NEW_FINISHED team_id=%s previous=%q revision=%q; profile i lista do aktualizacji", teamID, previous.Revision, state.Revision)
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
+			return previous, err
+		}
+		if err := atomicJSON(path, state); err != nil {
+			return previous, err
+		}
+		log.Printf("[TEAM-CONTEXT] CHECKED team_id=%s revision=%q next_check=%s", teamID, state.Revision, state.NextCheckAt.Format(time.RFC3339))
+	}
+	client.state.mu.Lock()
+	if client.state.teamRefresh == nil {
+		client.state.teamRefresh = map[string]sofaTeamRefreshState{}
+	}
+	client.state.teamRefresh[teamID] = state
+	client.state.mu.Unlock()
+	return state, nil
+}
+
+func getSofaSeasonProfile(client *ResilientClient, teamID, endpoint string, target any) (time.Time, error) {
+	state, err := getSofaTeamRefresh(client, teamID)
+	if err != nil {
+		return time.Time{}, err
+	}
+	path := filepath.Join(serverDataDir, "matchup_cache", archiveName(endpoint)+".json")
+	var old sofaContextSnapshot
+	if raw, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(raw, &old)
+	}
+	if old.Revision != state.Revision {
+		if err := archiveSofaTeamVersion(client, teamID, "profil-sezonowy-"+archiveName(endpoint), old.Body, old.FetchedAt, old.Revision); err != nil {
+			return time.Time{}, err
+		}
+	}
+	fetchedAt, err := getSofaContextJSON(client, endpoint, 0, target, state.Revision)
+	if err != nil {
+		return fetchedAt, err
+	}
+	snapshot := old
+	if old.Revision != state.Revision || !old.FetchedAt.Equal(fetchedAt) {
+		raw, err := os.ReadFile(path)
+		if err == nil {
+			err = json.Unmarshal(raw, &snapshot)
+		}
+		if err != nil {
+			return fetchedAt, err
+		}
+	}
+	// Also repairs an archive write interrupted after the active cache was saved.
+	if err := archiveSofaTeamVersion(client, teamID, "profil-sezonowy-"+archiveName(endpoint), snapshot.Body, snapshot.FetchedAt, snapshot.Revision); err != nil {
+		return fetchedAt, err
+	}
+	return fetchedAt, nil
 }
 
 // Small shared snapshots survive restart. Actual HTTP calls retain the existing
@@ -5612,10 +6249,14 @@ var sofaContextFailures = struct {
 	until map[string]time.Time
 }{until: make(map[string]time.Time)}
 
-func getSofaContextJSON(client *ResilientClient, endpoint string, ttl time.Duration, target any) (time.Time, error) {
+func getSofaContextJSON(client *ResilientClient, endpoint string, ttl time.Duration, target any, revisions ...string) (time.Time, error) {
 	path := filepath.Join(serverDataDir, "matchup_cache", archiveName(endpoint)+".json")
+	revision := ""
+	if len(revisions) > 0 {
+		revision = revisions[0]
+	}
 	var snapshot sofaContextSnapshot
-	if raw, err := os.ReadFile(path); err == nil && json.Unmarshal(raw, &snapshot) == nil && time.Since(snapshot.FetchedAt) >= 0 && time.Since(snapshot.FetchedAt) < ttl {
+	if raw, err := os.ReadFile(path); err == nil && json.Unmarshal(raw, &snapshot) == nil && !snapshot.FetchedAt.IsZero() && time.Since(snapshot.FetchedAt) >= 0 && (ttl == 0 || time.Since(snapshot.FetchedAt) < ttl) && (revision == "" || snapshot.Revision == revision) {
 		if err := json.Unmarshal(snapshot.Body, target); err == nil {
 			return snapshot.FetchedAt, nil
 		}
@@ -5632,14 +6273,14 @@ func getSofaContextJSON(client *ResilientClient, endpoint string, ttl time.Durat
 	}
 	if err != nil {
 		// A 403 must not impose an endpoint-specific pause on manual attempts.
-		if client.ctx.Err() == nil && !strings.Contains(err.Error(), "SofaScore HTTP 403") && !strings.HasPrefix(err.Error(), "sesja SofaScore:") {
+		if client.ctx.Err() == nil && !strings.Contains(err.Error(), "SofaScore HTTP 403") && !strings.HasPrefix(err.Error(), "sesja SofaScore:") && !strings.HasPrefix(err.Error(), "Chromium SofaScore:") {
 			sofaContextFailures.Lock()
 			sofaContextFailures.until[path] = time.Now().Add(15 * time.Minute)
 			sofaContextFailures.Unlock()
 		}
 		return time.Time{}, err
 	}
-	snapshot = sofaContextSnapshot{FetchedAt: time.Now().UTC(), Body: body}
+	snapshot = sofaContextSnapshot{FetchedAt: time.Now().UTC(), Body: body, Revision: revision}
 	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
 		return snapshot.FetchedAt, err
 	}
@@ -5647,6 +6288,109 @@ func getSofaContextJSON(client *ResilientClient, endpoint string, ttl time.Durat
 		return snapshot.FetchedAt, fmt.Errorf("zapis cache matchupu: %w", err)
 	}
 	return snapshot.FetchedAt, nil
+}
+
+// Add only profiles needed by newly available histories. Published overviews
+// stay immutable; tables and match flows are fetched only in the initial phase.
+func extendAnalysisMatchProfiles(client *ResilientClient, current analysisMatchContext, players []*PlayerStatHistory, includeTeamOverview bool) analysisMatchContext {
+	result := current
+	if result.Input.HomeID == 0 || result.Input.AwayID == 0 || result.Input.LeagueID == 0 || result.Input.SeasonID == 0 || result.Overview == nil {
+		return result
+	}
+	result.Input.Profiles = make(map[int]teamMatchProfile, len(current.Input.Profiles))
+	for id, profile := range current.Input.Profiles {
+		result.Input.Profiles[id] = profile
+	}
+	result.profileAttempts = make(map[int]bool, len(current.profileAttempts))
+	for id, attempted := range current.profileAttempts {
+		result.profileAttempts[id] = attempted
+	}
+	overview := *current.Overview
+	overview.Notes = append([]string(nil), current.Overview.Notes...)
+	result.Overview = &overview
+	in := &result.Input
+	base := fmt.Sprintf("/unique-tournament/%d/season/%d", in.LeagueID, in.SeasonID)
+	warn := func(label string, err error) {
+		message := label + ": " + err.Error()
+		result.Overview.Notes = append(result.Overview.Notes, message)
+		client.warn(message)
+	}
+	// Historical comparisons use profiles of the same league and season, observed
+	// now. They are NOT reconstructed statistics as of each historical fixture.
+	ids := map[int]bool{in.HomeID: true, in.AwayID: true}
+	for _, hist := range players {
+		for _, m := range hist.MatchContexts {
+			if m.LeagueID == in.LeagueID && m.SeasonID == in.SeasonID {
+				if m.TeamID > 0 {
+					ids[m.TeamID] = true
+				}
+				if m.OpponentID > 0 {
+					ids[m.OpponentID] = true
+				}
+			}
+		}
+	}
+	orderedIDs := []int{in.HomeID, in.AwayID}
+	var historicalIDs []int
+	for id := range ids {
+		if id != in.HomeID && id != in.AwayID {
+			historicalIDs = append(historicalIDs, id)
+		}
+	}
+	sort.Ints(historicalIDs)
+	orderedIDs = append(orderedIDs, historicalIDs...)
+	// One budget across XI and reserve phases, including unsuccessful attempts.
+	if result.profileAttempts == nil {
+		result.profileAttempts = make(map[int]bool)
+	}
+	missing, attempted := 0, 0
+	for _, id := range orderedIDs {
+		if client.ctx.Err() != nil {
+			break
+		}
+		if result.profileAttempts[id] {
+			continue
+		}
+		if len(result.profileAttempts) >= 32 {
+			break
+		}
+		result.profileAttempts[id] = true
+		attempted++
+		var profile teamMatchProfile
+		var err error
+		profile.FetchedAt, err = getSofaSeasonProfile(client, strconv.Itoa(id), fmt.Sprintf("/team/%d%s/statistics/overall", id, base), &profile)
+		if err != nil || profile.Statistics["matches"] <= 0 {
+			missing++
+			continue
+		}
+		if overview := result.Overview.Teams[strconv.Itoa(id)]; includeTeamOverview && overview != nil {
+			overview.StatsMatches = int(profile.Statistics["matches"])
+			for _, key := range []string{"shots", "shotsAgainst", "shotsOnTarget", "shotsOnTargetAgainst", "expectedGoals", "tackles", "interceptions", "fouls"} {
+				if value, ok := profile.Statistics[key]; ok {
+					overview.Metrics[key] = value / profile.Statistics["matches"]
+				}
+			}
+			for _, key := range []string{"averageBallPossession", "avgRating"} {
+				if value, ok := profile.Statistics[key]; ok {
+					overview.Metrics[key] = value
+				}
+			}
+		}
+		modelStats := map[string]float64{"matches": profile.Statistics["matches"]}
+		for _, market := range []CanonicalMarket{MarketShotsTotal, MarketShotsOnTarget, MarketShotsOffTarget, MarketShotsBlocked, MarketShotsInsideBox, MarketShotsOutsideBox, MarketTackles, MarketInterceptions, MarketOffsides, MarketFoulsDrawn} {
+			own, opponent := matchupFeatures(market)
+			for _, key := range []string{own, opponent} {
+				if value, ok := profile.Statistics[key]; ok && key != "" {
+					modelStats[key] = value
+				}
+			}
+		}
+		in.Profiles[id] = teamMatchProfile{FetchedAt: profile.FetchedAt, Statistics: modelStats}
+	}
+	if missing > 0 {
+		warn("Kontekst drużyn", fmt.Errorf("brak %d/%d profili; dla brakujących danych model pomija korektę", missing, attempted))
+	}
+	return result
 }
 
 func fetchAnalysisMatchContext(client *ResilientClient, homeID, awayID string, players []*PlayerStatHistory) analysisMatchContext {
@@ -5706,72 +6450,9 @@ func fetchAnalysisMatchContext(client *ResilientClient, homeID, awayID string, p
 		return result
 	}
 	base := fmt.Sprintf("/unique-tournament/%d/season/%d", in.LeagueID, in.SeasonID)
-	// Historical comparisons use profiles of the same league and season, observed
-	// now. They are NOT reconstructed statistics as of each historical fixture.
-	ids := map[int]bool{in.HomeID: true, in.AwayID: true}
-	for _, hist := range players {
-		for _, m := range hist.MatchContexts {
-			if m.LeagueID == in.LeagueID && m.SeasonID == in.SeasonID {
-				if m.TeamID > 0 {
-					ids[m.TeamID] = true
-				}
-				if m.OpponentID > 0 {
-					ids[m.OpponentID] = true
-				}
-			}
-		}
-	}
-	orderedIDs := []int{in.HomeID, in.AwayID}
-	var historicalIDs []int
-	for id := range ids {
-		if id != in.HomeID && id != in.AwayID {
-			historicalIDs = append(historicalIDs, id)
-		}
-	}
-	sort.Ints(historicalIDs)
-	orderedIDs = append(orderedIDs, historicalIDs...)
-	// Transfers and very large samples cannot trigger an unbounded request burst.
-	if len(orderedIDs) > 32 {
-		orderedIDs = orderedIDs[:32]
-	}
-	missing := 0
-	for _, id := range orderedIDs {
-		if client.ctx.Err() != nil {
-			break
-		}
-		var profile teamMatchProfile
-		profile.FetchedAt, err = getSofaContextJSON(client, fmt.Sprintf("/team/%d%s/statistics/overall", id, base), 6*time.Hour, &profile)
-		if err != nil || profile.Statistics["matches"] <= 0 {
-			missing++
-			continue
-		}
-		if overview := result.Overview.Teams[strconv.Itoa(id)]; overview != nil {
-			overview.StatsMatches = int(profile.Statistics["matches"])
-			for _, key := range []string{"shots", "shotsAgainst", "shotsOnTarget", "shotsOnTargetAgainst", "expectedGoals", "tackles", "interceptions", "fouls"} {
-				if value, ok := profile.Statistics[key]; ok {
-					overview.Metrics[key] = value / profile.Statistics["matches"]
-				}
-			}
-			for _, key := range []string{"averageBallPossession", "avgRating"} {
-				if value, ok := profile.Statistics[key]; ok {
-					overview.Metrics[key] = value
-				}
-			}
-		}
-		modelStats := map[string]float64{"matches": profile.Statistics["matches"]}
-		for _, market := range []CanonicalMarket{MarketShotsTotal, MarketShotsOnTarget, MarketShotsOffTarget, MarketShotsBlocked, MarketShotsInsideBox, MarketShotsOutsideBox, MarketTackles, MarketInterceptions, MarketOffsides, MarketFoulsDrawn} {
-			own, opponent := matchupFeatures(market)
-			for _, key := range []string{own, opponent} {
-				if value, ok := profile.Statistics[key]; ok && key != "" {
-					modelStats[key] = value
-				}
-			}
-		}
-		in.Profiles[id] = teamMatchProfile{FetchedAt: profile.FetchedAt, Statistics: modelStats}
-	}
-	if missing > 0 {
-		warn("Kontekst drużyn", fmt.Errorf("brak %d/%d profili; dla brakujących danych model pomija korektę", missing, len(orderedIDs)))
-	}
+	result = extendAnalysisMatchProfiles(client, result, players, true)
+	// Keep the pointer in sync with the copied profile map.
+	in = &result.Input
 	for _, venue := range []string{"total", "home", "away"} {
 		if client.ctx.Err() != nil {
 			break
@@ -6190,18 +6871,20 @@ func CalculateValueBets(
 		} else {
 			pHit = float64(hitsOver) / float64(sample)
 		}
-		model := contextualFairModel(hist, prop.MarketType, prop.Line, prop.IsUnder, contextData.Input)
-		pFinal := model.Probability
-
-		fairOdds := 1.0 / pFinal
-		edge := (prop.Odds - fairOdds) / fairOdds * 100.0
-		evTax := ((1.0/fairOdds)*(prop.Odds*0.88-1.0) - (1.0 - (1.0 / fairOdds))) * 100.0
-
-		verdict := "NEUTRAL"
-		if evTax > 0.0 {
-			verdict = "VALUE"
-		} else if evTax < -15.0 {
-			verdict = "TRAP"
+		var model *FairModelDetails
+		var fairOdds, edge, evTax float64
+		verdict := "PENDING"
+		if !contextData.Pending {
+			model = contextualFairModel(hist, prop.MarketType, prop.Line, prop.IsUnder, contextData.Input)
+			fairOdds = 1.0 / model.Probability
+			edge = (prop.Odds - fairOdds) / fairOdds * 100.0
+			evTax = ((1.0/fairOdds)*(prop.Odds*0.88-1.0) - (1.0 - (1.0 / fairOdds))) * 100.0
+			verdict = "NEUTRAL"
+			if evTax > 0.0 {
+				verdict = "VALUE"
+			} else if evTax < -15.0 {
+				verdict = "TRAP"
+			}
 		}
 
 		label := prop.MarketLabel
@@ -6212,6 +6895,7 @@ func CalculateValueBets(
 		status, isStarting := getLineupStatus(hist.ID, hist.FullName, hist.TeamSide)
 
 		results = append(results, AnalyzedBet{
+			ContextPending:       contextData.Pending,
 			SampleRatings:        append([]*float64(nil), hist.Ratings...),
 			FairModel:            model,
 			MatchOverview:        contextData.Overview,
@@ -6405,20 +7089,21 @@ type AnalysisRequest struct {
 }
 
 type AnalysisJob struct {
-	ID           string          `json:"id"`
-	Match        string          `json:"match"`
-	Status       string          `json:"status"`
-	Stage        string          `json:"stage"`
-	Message      string          `json:"message"`
-	PlayersDone  int             `json:"playersDone"`
-	PlayersTotal int             `json:"playersTotal"`
-	CreatedAt    time.Time       `json:"createdAt"`
-	StartedAt    time.Time       `json:"startedAt,omitempty"`
-	FinishedAt   time.Time       `json:"finishedAt,omitempty"`
-	Request      AnalysisRequest `json:"request"`
-	Warnings     []string        `json:"warnings"`
-	Result       []AnalyzedBet   `json:"result,omitempty"`
-	Error        string          `json:"error,omitempty"`
+	ResultRevision int             `json:"resultRevision"`
+	ID             string          `json:"id"`
+	Match          string          `json:"match"`
+	Status         string          `json:"status"`
+	Stage          string          `json:"stage"`
+	Message        string          `json:"message"`
+	PlayersDone    int             `json:"playersDone"`
+	PlayersTotal   int             `json:"playersTotal"`
+	CreatedAt      time.Time       `json:"createdAt"`
+	StartedAt      time.Time       `json:"startedAt,omitempty"`
+	FinishedAt     time.Time       `json:"finishedAt,omitempty"`
+	Request        AnalysisRequest `json:"request"`
+	Warnings       []string        `json:"warnings"`
+	Result         []AnalyzedBet   `json:"result,omitempty"`
+	Error          string          `json:"error,omitempty"`
 }
 
 type analysisTask struct {
@@ -6448,6 +7133,17 @@ func (task *analysisTask) report(stage, message string, done, total int) {
 	}
 	task.job.PlayersDone += done
 	task.job.PlayersTotal += total
+}
+
+func (task *analysisTask) publishPlayers(result []AnalyzedBet, stage, message string) {
+	task.mu.Lock()
+	defer task.mu.Unlock()
+	// Published slices are immutable. The final calculation creates a new slice.
+	task.job.Result = result
+	task.job.ResultRevision++
+	task.job.Stage = stage
+	task.job.Message = message
+	log.Printf("ANALYSIS_PLAYERS_READY id=%s stage=%s revision=%d results=%d", task.job.ID, stage, task.job.ResultRevision, len(result))
 }
 
 func (task *analysisTask) warn(message string) {
@@ -6622,7 +7318,12 @@ func (s *calendarServer) registerAnalysisAPI(mux *http.ServeMux) {
 		task := s.jobs[id]
 		s.analysisMu.Unlock()
 		if task != nil {
-			jsonResponse(w, 200, task.snapshot())
+			job := task.snapshot()
+			// Older clients omit afterRevision and still receive the full result.
+			if after, err := strconv.Atoi(r.URL.Query().Get("afterRevision")); err == nil && after >= job.ResultRevision {
+				job.Result = nil
+			}
+			jsonResponse(w, 200, job)
 			return
 		}
 		var job AnalysisJob
@@ -6796,13 +7497,17 @@ func (s *calendarServer) runAnalysisTask(task *analysisTask) {
 func (s *calendarServer) finishAnalysisTask(task *analysisTask, result []AnalyzedBet, err error) {
 	defer task.cancel()
 	job := task.snapshot()
+	preview := job.Result
 	job.FinishedAt = time.Now().UTC()
+	job.ResultRevision++
 	job.Result = result
 	job.Status, job.Stage, job.Message = "completed", "completed", fmt.Sprintf("Analiza zakończona: %d zakładów", len(result))
 	if err != nil {
 		job.Status, job.Stage, job.Error = "failed", "failed", err.Error()
 		job.Message = job.Error
-		job.Result = nil
+		// Keep the latest published snapshot, including an already priced XI,
+		// if context or reserve fetching fails later.
+		job.Result = preview
 	}
 	ctx := analysisContext(context.Background(), job, "ANALIZA", "wynik-proba-"+strconv.Itoa(job.Request.MatchLimit)+"-meczow")
 	if saveErr := archiveResponse(ctx, "wynik-analizy-algorytm-"+fairModelVersion, nil, "", job, err); saveErr != nil {
@@ -7017,6 +7722,7 @@ func detectTeamsBySlugs(client *ResilientClient, home, away string, match sofaMa
 func (engine *analysisEngine) analyze(query AnalysisRequest) ([]AnalyzedBet, error) {
 	task, client := engine.task, engine.client
 	var match sofaMatchContext
+	var homeName, awayName string
 	task.report("teams", "Rozpoznawanie drużyn w SofaScore", 0, 0)
 	// Revalidate automatic IDs before fetching any player statistics. An old
 	// desktop/history entry can still carry a wrong ID from the legacy cache.
@@ -7027,6 +7733,7 @@ func (engine *analysisEngine) analyze(query AnalysisRequest) ([]AnalyzedBet, err
 			}
 			_, slug, provider := extractIDAndSlug(input)
 			home, away := parseTeamsFromSlug(slug, provider)
+			homeName, awayName = strings.ReplaceAll(home, "-", " "), strings.ReplaceAll(away, "-", " ")
 			cached := loadTeamCache()
 			oldHomeID, oldAwayID := findTeamIDInCache(home, cached), findTeamIDInCache(away, cached)
 			match = engine.server.sofaContextForURL(input)
@@ -7145,47 +7852,53 @@ func (engine *analysisEngine) analyze(query AnalysisRequest) ([]AnalyzedBet, err
 	} else {
 		client.statsFixture = fixture
 	}
-	var homePlayers, awayPlayers []*PlayerStatHistory
-	var homeErr, awayErr error
-	var homeLineup, awayLineup map[string]bool
-	var lineupsConfirmed bool
 	lineupEventID := fixture.ID
-	var wg sync.WaitGroup
-	wg.Add(3)
-	go func() {
-		defer wg.Done()
-		homePlayers, _, homeErr = fetchSofaTeamDataComprehensive(client.withScope("gospodarze-druzyna-"+query.HomeID), query.HomeID, query.MatchLimit, query.TournamentIDs, targets)
-	}()
-	go func() {
-		defer wg.Done()
-		awayPlayers, _, awayErr = fetchSofaTeamDataComprehensive(client.withScope("goscie-druzyna-"+query.AwayID), query.AwayID, query.MatchLimit, query.TournamentIDs, targets)
-	}()
-	go func() {
-		defer wg.Done()
-		if lineupEventID != "" {
-			var lineupErr error
-			homeLineup, awayLineup, lineupsConfirmed, lineupErr = fetchSofaLineups(client, lineupEventID)
-			if reversed {
-				homeLineup, awayLineup = awayLineup, homeLineup
+	var matchContext analysisMatchContext
+	contextReady := false
+	playerData, err := fetchSofaMatchPlayers(client, query.HomeID, query.AwayID, homeName, awayName, lineupEventID, reversed, query.MatchLimit, query.TournamentIDs, targets, func(data sofaMatchPlayerData, stage, message string) error {
+		players := append(append([]*PlayerStatHistory(nil), data.Home...), data.Away...)
+		if !contextReady {
+			preview := CalculateValueBets(allProps, data.Home, data.Away, data.Lineup.Home, data.Lineup.Away, data.Lineup.Confirmed, analysisMatchContext{Pending: true})
+			if len(preview) > 0 {
+				task.publishPlayers(preview, stage, message)
 			}
-			if lineupErr != nil {
-				task.warn("SofaScore: nie udało się odczytać składów: " + lineupErr.Error())
-			} else {
-				if !lineupsConfirmed {
-					task.warn("SofaScore: wykorzystano przewidywane składy (XI?), jeszcze niepotwierdzone")
-				}
-				if len(homeLineup) == 0 || len(awayLineup) == 0 {
-					task.warn("SofaScore: brak składu jednej z drużyn")
-				}
+			// Without an available XI, finish discovering players first.
+			if stage != "matchup-xi" {
+				return nil
 			}
+			task.report("matchup-xi", "Pobieranie kontekstu drużyn i wyceny XI", 0, 0)
+			matchContext = fetchAnalysisMatchContext(client.withScope("matchup-XI-druzyny-i-tabela"), query.HomeID, query.AwayID, players)
+			if err := errors.Join(client.archiveError(), task.ctx.Err()); err != nil {
+				return err
+			}
+			// This priced snapshot can be used before reserves finish, so retain
+			// its exact model inputs even if a later phase is interrupted.
+			ctx := analysisContext(task.ctx, task.snapshot(), "ANALIZA", "dane-XI-z-kontekstem")
+			if err := archiveResponse(ctx, "kursy-statystyki-sklady-matchup-XI-uzyte-do-obliczen", nil, "", map[string]any{"algorithm": fairModelVersion, "request": query, "oddsSources": oddsSources, "homePlayers": data.Home, "awayPlayers": data.Away, "homeLineup": data.Lineup.Home, "awayLineup": data.Lineup.Away, "lineupsConfirmed": data.Lineup.Confirmed, "lineupEventId": lineupEventID, "matchContext": matchContext}, nil); err != nil {
+				return err
+			}
+			contextReady = true
+			stage, message = "statistics-bench", "XI wycenione — pobieranie statystyk rezerwy"
 		} else {
-			task.warn("SofaScore: nie znaleziono nadchodzącego meczu do sprawdzenia składów")
+			// New histories may introduce other opponents. Reuse the existing
+			// match context and add only missing season profiles within its budget.
+			task.report("reserve-pricing", "Uzupełnianie wyceny rezerwy i brakujących profili rywali", 0, 0)
+			matchContext = extendAnalysisMatchProfiles(client.withScope("matchup-rezerwa-brakujace-profile"), matchContext, players, false)
+			if err := errors.Join(client.archiveError(), task.ctx.Err()); err != nil {
+				return err
+			}
 		}
-	}()
-	wg.Wait()
-	if err := errors.Join(homeErr, awayErr, client.archiveError(), task.ctx.Err()); err != nil {
+		preview := CalculateValueBets(allProps, data.Home, data.Away, data.Lineup.Home, data.Lineup.Away, data.Lineup.Confirmed, matchContext)
+		if len(preview) > 0 {
+			task.publishPlayers(preview, stage, message)
+		}
+		return nil
+	})
+	if err != nil {
 		return nil, err
 	}
+	homePlayers, awayPlayers := playerData.Home, playerData.Away
+	homeLineup, awayLineup, lineupsConfirmed := playerData.Lineup.Home, playerData.Lineup.Away, playerData.Lineup.Confirmed
 	if len(homePlayers) == 0 && len(awayPlayers) == 0 {
 		return nil, fmt.Errorf("SofaScore nie zwrócił historii zawodników; sprawdź ostrzeżenia")
 	}
@@ -7195,9 +7908,11 @@ func (engine *analysisEngine) analyze(query AnalysisRequest) ([]AnalyzedBet, err
 	if len(awayPlayers) == 0 {
 		task.warn("SofaScore: brak historii zawodników gości")
 	}
-	task.report("matchup", "Pobieranie kontekstu drużyn, rywala i tabeli", 0, 0)
-	contextPlayers := append(append([]*PlayerStatHistory(nil), homePlayers...), awayPlayers...)
-	matchContext := fetchAnalysisMatchContext(client.withScope("matchup-druzyny-i-tabela"), query.HomeID, query.AwayID, contextPlayers)
+	if !contextReady {
+		task.report("matchup", "Statystyki zawodników gotowe — uzupełnianie kontekstu i wyceny", 0, 0)
+		contextPlayers := append(append([]*PlayerStatHistory(nil), homePlayers...), awayPlayers...)
+		matchContext = fetchAnalysisMatchContext(client.withScope("matchup-druzyny-i-tabela"), query.HomeID, query.AwayID, contextPlayers)
+	}
 	if err := errors.Join(client.archiveError(), task.ctx.Err()); err != nil {
 		return nil, err
 	}
@@ -7255,26 +7970,15 @@ func usableMatchProps(props []NormalizedProp) []NormalizedProp {
 
 const matchOddsTTL = 15 * time.Minute
 
-func missingMarketsTTL(checks int) time.Duration {
-	if checks >= 4 {
-		return time.Hour
-	}
-	if checks == 3 {
-		return 30 * time.Minute
-	}
-	return matchOddsTTL
-}
-
 type matchOddsSnapshot struct {
-	Bookmaker          string           `json:"bookmaker"`
-	EventID            string           `json:"eventId"`
-	Match              string           `json:"match,omitempty"`
-	ObservedAt         time.Time        `json:"observedAt"`
-	ExpiresAt          time.Time        `json:"expiresAt"`
-	Props              []NormalizedProp `json:"props"`
-	FromCache          bool             `json:"-"`
-	ConsecutiveMissing int              `json:"consecutiveMissing,omitempty"`
-	ArchiveVersion     string           `json:"archiveVersion,omitempty"`
+	Bookmaker      string           `json:"bookmaker"`
+	EventID        string           `json:"eventId"`
+	Match          string           `json:"match,omitempty"`
+	ObservedAt     time.Time        `json:"observedAt"`
+	ExpiresAt      time.Time        `json:"expiresAt"`
+	Props          []NormalizedProp `json:"props"`
+	FromCache      bool             `json:"-"`
+	ArchiveVersion string           `json:"archiveVersion,omitempty"`
 }
 
 var oddsArchiveMu sync.Mutex
@@ -7372,18 +8076,12 @@ func archiveOddsObservation(ctx context.Context, snapshot *matchOddsSnapshot, bu
 }
 
 func (snapshot matchOddsSnapshot) fresh(now time.Time) bool {
-	ttl := matchOddsTTL
-	if len(snapshot.Props) == 0 {
-		ttl = missingMarketsTTL(snapshot.ConsecutiveMissing)
-	}
 	return !snapshot.ObservedAt.IsZero() && !snapshot.ObservedAt.After(now) && now.Before(snapshot.ExpiresAt) &&
-		!snapshot.ExpiresAt.After(snapshot.ObservedAt.Add(ttl))
+		!snapshot.ExpiresAt.After(snapshot.ObservedAt.Add(matchOddsTTL))
 }
 
 func (snapshot matchOddsSnapshot) retain(now time.Time) bool {
-	// Keep expired negative observations for the retry counter, never as fresh odds.
-	return snapshot.fresh(now) || (len(snapshot.Props) == 0 && snapshot.ConsecutiveMissing > 0 &&
-		!snapshot.ObservedAt.After(now) && snapshot.ObservedAt.After(now.Add(-24*time.Hour)))
+	return snapshot.fresh(now)
 }
 
 func (snapshot matchOddsSnapshot) copy(reused bool) matchOddsSnapshot {
@@ -7435,7 +8133,6 @@ func (s *calendarServer) matchOdds(ctx context.Context, book, id string) (matchO
 				return snapshot, err
 			}
 		}
-		previous := s.oddsCache[key]
 		flight := &matchOddsFlight{done: make(chan struct{})}
 		s.oddsFlights[key] = flight
 		s.oddsMu.Unlock()
@@ -7456,13 +8153,6 @@ func (s *calendarServer) matchOdds(ctx context.Context, book, id string) (matchO
 			err = ctx.Err()
 		}
 		snapshot.ExpiresAt = snapshot.ObservedAt.Add(matchOddsTTL)
-		if err == nil && len(snapshot.Props) == 0 {
-			snapshot.ConsecutiveMissing = 1
-			if len(previous.Props) == 0 && previous.ObservedAt.After(snapshot.ObservedAt.Add(-24*time.Hour)) {
-				snapshot.ConsecutiveMissing = min(previous.ConsecutiveMissing+1, 4)
-			}
-			snapshot.ExpiresAt = snapshot.ObservedAt.Add(missingMarketsTTL(snapshot.ConsecutiveMissing))
-		}
 		if err == nil {
 			err = archiveOddsObservation(ctx, &snapshot, buffer)
 		} else {
@@ -7480,7 +8170,7 @@ func (s *calendarServer) matchOdds(ctx context.Context, book, id string) (matchO
 			if saveErr := atomicJSON(filepath.Join(s.dataDir, "bookmaker_match_odds_cache.json"), s.oddsCache); saveErr != nil {
 				log.Printf("ODDS_CACHE_WRITE_ERROR: %v", saveErr)
 			}
-			log.Printf("[ODDS-CACHE] STORED bookmaker=%s event_id=%s props=%d consecutive_missing=%d expires_at=%s", book, id, len(snapshot.Props), snapshot.ConsecutiveMissing, snapshot.ExpiresAt.Format(time.RFC3339))
+			log.Printf("[ODDS-CACHE] STORED bookmaker=%s event_id=%s props=%d expires_at=%s", book, id, len(snapshot.Props), snapshot.ExpiresAt.Format(time.RFC3339))
 		}
 		flight.snapshot, flight.err = snapshot, err
 		delete(s.oddsFlights, key)
@@ -7540,7 +8230,7 @@ func (s *calendarServer) rememberMarketAvailability(result MatchMarketAvailabili
 	defer s.marketMu.Unlock()
 	s.marketCache[result.Bookmaker+":"+result.EventID] = result
 	for key, entry := range s.marketCache {
-		if entry.CheckedAt.Before(time.Now().Add(-24 * time.Hour)) {
+		if entry.CheckedAt.Before(time.Now().Add(-statsWarmupHorizon)) {
 			delete(s.marketCache, key)
 		}
 	}
@@ -7552,7 +8242,7 @@ func (s *calendarServer) rememberMarketAvailability(result MatchMarketAvailabili
 func (s *calendarServer) checkMatchMarkets(ctx context.Context, book, id, home, away string) MatchMarketAvailability {
 	key := book + ":" + id
 	s.marketMu.Lock()
-	if cached, ok := s.marketCache[key]; ok && time.Now().Before(cached.ExpiresAt) {
+	if cached, ok := s.marketCache[key]; ok && time.Now().Before(cached.ExpiresAt) && !cached.ExpiresAt.After(cached.CheckedAt.Add(matchOddsTTL)) {
 		s.marketMu.Unlock()
 		log.Printf("[MARKET-CACHE] HIT bookmaker=%s event_id=%s status=%s expires_at=%s", book, id, cached.Status, cached.ExpiresAt.Format(time.RFC3339))
 		return cached
@@ -7664,9 +8354,12 @@ func fetchRawMatchProps(ctx context.Context, book, id string) ([]NormalizedProp,
 }
 
 type sofaClientState struct {
-	mu          sync.Mutex
-	archiveErr  error
-	lineupRoles map[int]string
+	mu                  sync.Mutex
+	archiveErr          error
+	lineupRoles         map[int]string
+	teamRefresh         map[string]sofaTeamRefreshState
+	statsUnavailable    int
+	statsMissingPending int
 }
 type ResilientClient struct {
 	statsFixture  statsFixture
@@ -7710,6 +8403,9 @@ func newSofaHTTPClient(extra ...tls_client.HttpClientOption) (tls_client.HttpCli
 func runSofaDiagnostics(ctx context.Context, dataDir string) error {
 	serverDataDir = dataDir
 	archiveRoot = filepath.Join(dataDir, "archive")
+	if sofaBrowserBase != "" {
+		return runSofaBrowserDiagnostic(ctx, dataDir)
+	}
 	dir := filepath.Join(dataDir, "diagnostics")
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return err
@@ -7890,7 +8586,7 @@ func (client *ResilientClient) GetSofa(endpoint string) ([]byte, error) {
 }
 
 func (client *ResilientClient) getSofaAttempt(endpoint string) ([]byte, error) {
-	if client.background {
+	if client.background && sofaBrowserBase == "" {
 		release, err := waitBackgroundSofa(client.ctx)
 		if err != nil {
 			return nil, err
@@ -7917,46 +8613,33 @@ func (client *ResilientClient) getSofaAttempt(endpoint string) ([]byte, error) {
 	if err := sofaCooldownError(); err != nil {
 		return nil, err
 	}
-	if !strings.HasPrefix(endpoint, "/") {
+	if !strings.HasPrefix(endpoint, "/") || strings.HasPrefix(endpoint, "//") {
 		return nil, fmt.Errorf("niepoprawny endpoint SofaScore")
 	}
 	reqURL := sofaBase + endpoint
-	req, err := fhttp.NewRequestWithContext(client.ctx, fhttp.MethodGet, reqURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	if err := applySofaRequestHeaders(client.tlsClient, req); err != nil {
-		return nil, err
-	}
-	if strings.HasPrefix(endpoint, "/search/") {
-		// Header.Get canonicalizes keys; these deliberately lowercase keys must be read directly.
-		log.Printf("[SOFA-HTTP] REQUEST endpoint=%q tls_profile=Chrome_152 user_agent=%q requested_with=%q referer=%q captcha_configured=%t header_order=%q", endpoint, strings.Join(req.Header["user-agent"], ""), strings.Join(req.Header["x-requested-with"], ""), strings.Join(req.Header["referer"], ""), len(req.Header["x-captcha"]) > 0, req.Header[fhttp.HeaderOrderKey])
-	}
 	info := archiveInfoFrom(client.ctx)
 	info.Endpoint, info.Method = reqURL, "GET"
+	// Do not inherit HTTP metadata from an earlier archive scope on a failed fetch.
+	info.Status, info.ContentType = 0, ""
 	started := time.Now()
-	resp, fetchErr := client.tlsClient.Do(req)
-	var body []byte
-	protocol := ""
-	if resp != nil {
-		defer resp.Body.Close()
-		noteSofaBlocked(resp.StatusCode, resp.Header.Get("Retry-After"))
-		protocol = resp.Proto
-		info.Status, info.ContentType = resp.StatusCode, resp.Header.Get("Content-Type")
-		var readErr error
-		body, readErr = readBounded(resp.Body, 32<<20)
-		fetchErr = errors.Join(fetchErr, readErr)
-		if resp.StatusCode != 200 {
-			fetchErr = errors.Join(fetchErr, fmt.Errorf("SofaScore HTTP %d", resp.StatusCode))
+	var response sofaFetchResult
+	var fetchErr error
+	if sofaBrowserBase != "" {
+		response, fetchErr = fetchSofaBrowser(client.ctx, reqURL)
+	} else {
+		response, fetchErr = client.fetchSofaHTTP(reqURL, endpoint)
+	}
+	info.Status, info.ContentType = response.Status, response.ContentType
+	if response.Status != 0 {
+		noteSofaBlocked(response.Status, response.RetryAfter)
+		if response.Status != http.StatusOK {
+			fetchErr = errors.Join(fetchErr, fmt.Errorf("SofaScore HTTP %d", response.Status))
 		}
 	}
-	log.Printf("[SOFA-HTTP] endpoint=%q status=%d protocol=%q content_type=%q bytes=%d duration=%s error=%v", endpoint, info.Status, protocol, info.ContentType, len(body), time.Since(started), fetchErr)
+	body := response.Body
+	log.Printf("[SOFA-HTTP] endpoint=%q status=%d protocol=%q content_type=%q bytes=%d duration=%s error=%v", endpoint, info.Status, response.Protocol, info.ContentType, len(body), time.Since(started), fetchErr)
 	if fetchErr != nil && len(body) > 0 {
-		preview := body
-		if len(preview) > 512 {
-			preview = preview[:512]
-		}
-		log.Printf("[SOFA-HTTP] ERROR_BODY endpoint=%q preview=%q", endpoint, preview)
+		log.Printf("[SOFA-HTTP] ERROR_BODY endpoint=%q preview=%q", endpoint, body[:min(len(body), 512)])
 	}
 	ctx := context.WithValue(client.ctx, archiveContextKey{}, info)
 	if err := archiveResponse(ctx, "odpowiedz-"+calendarTeamSlug(endpoint), body, "http.bin", readableJSONValues(body), fetchErr); err != nil {
@@ -7964,6 +8647,433 @@ func (client *ResilientClient) getSofaAttempt(endpoint string) ([]byte, error) {
 		return nil, errors.Join(fetchErr, err)
 	}
 	return body, fetchErr
+}
+
+type sofaFetchResult struct {
+	Status      int    `json:"status"`
+	ContentType string `json:"contentType"`
+	RetryAfter  string `json:"retryAfter,omitempty"`
+	Protocol    string `json:"protocol"`
+	Body        []byte `json:"-"`
+}
+
+func (client *ResilientClient) fetchSofaHTTP(reqURL, endpoint string) (sofaFetchResult, error) {
+	var result sofaFetchResult
+	req, err := fhttp.NewRequestWithContext(client.ctx, fhttp.MethodGet, reqURL, nil)
+	if err != nil {
+		return result, err
+	}
+	if err := applySofaRequestHeaders(client.tlsClient, req); err != nil {
+		return result, err
+	}
+	if strings.HasPrefix(endpoint, "/search/") {
+		// Header.Get canonicalizes keys; these deliberately lowercase keys must be read directly.
+		log.Printf("[SOFA-HTTP] REQUEST endpoint=%q tls_profile=Chrome_152 user_agent=%q requested_with=%q referer=%q captcha_configured=%t header_order=%q", endpoint, strings.Join(req.Header["user-agent"], ""), strings.Join(req.Header["x-requested-with"], ""), strings.Join(req.Header["referer"], ""), len(req.Header["x-captcha"]) > 0, req.Header[fhttp.HeaderOrderKey])
+	}
+	resp, fetchErr := client.tlsClient.Do(req)
+	if resp != nil {
+		defer resp.Body.Close()
+		result.Status, result.Protocol = resp.StatusCode, resp.Proto
+		result.ContentType, result.RetryAfter = resp.Header.Get("Content-Type"), resp.Header.Get("Retry-After")
+		var readErr error
+		result.Body, readErr = readBounded(resp.Body, 32<<20)
+		fetchErr = errors.Join(fetchErr, readErr)
+	}
+	return result, fetchErr
+}
+
+// Browser mode attaches to a manually opened local Chromium. It never launches,
+// navigates or closes the user's browser, and never solves a challenge.
+var sofaBrowserBase string
+var sofaBrowserGap = 100 * time.Millisecond
+var sofaBrowserSlot = make(chan struct{}, 1)
+var sofaBrowserLastFinished time.Time // protected by sofaBrowserSlot
+var sofaBrowserLastTarget string      // protected by sofaBrowserSlot
+
+func sofaBrowserGapSetting() string {
+	if value := strings.TrimSpace(os.Getenv("VALUE_BETS_SOFA_BROWSER_GAP_MS")); value != "" {
+		return value
+	}
+	return "100"
+}
+
+func configureSofaBrowserGap(raw string) error {
+	ms, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || ms < 0 || ms > 10000 {
+		return fmt.Errorf("Chromium SofaScore: -sofa-browser-gap-ms musi być liczbą 0–10000")
+	}
+	sofaBrowserGap = time.Duration(ms) * time.Millisecond
+	return nil
+}
+
+func configureSofaBrowser(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "http" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") || u.Port() == "" {
+		return fmt.Errorf("Chromium SofaScore: -sofa-browser wymaga lokalnego adresu, np. http://127.0.0.1:9222")
+	}
+	ip := net.ParseIP(u.Hostname())
+	port, err := strconv.Atoi(u.Port())
+	if ip == nil || !ip.IsLoopback() || err != nil || port < 1 || port > 65535 {
+		return fmt.Errorf("Chromium SofaScore: DevTools musi nasłuchiwać na adresie loopback i poprawnym porcie")
+	}
+	sofaBrowserBase = "http://" + u.Host
+	log.Printf("[SOFA-BROWSER] CONFIGURED devtools=%q transport=chromium-cdp gap=%s-%s", sofaBrowserBase, sofaBrowserGap, 2*sofaBrowserGap)
+	return nil
+}
+
+func isSofaBrowserPage(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && u.Scheme == "https" && u.Hostname() == "www.sofascore.com" && (u.Port() == "" || u.Port() == "443") && u.User == nil
+}
+
+type sofaCDPTarget struct {
+	ID        string `json:"id"`
+	Type      string `json:"type"`
+	URL       string `json:"url"`
+	WebSocket string `json:"webSocketDebuggerUrl"`
+}
+
+func findSofaBrowserTarget(ctx context.Context) (sofaCDPTarget, error) {
+	var empty sofaCDPTarget
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sofaBrowserBase+"/json/list", nil)
+	if err != nil {
+		return empty, fmt.Errorf("Chromium SofaScore: niepoprawny adres DevTools")
+	}
+	// Never send the local DevTools request through a system HTTP proxy.
+	transport := &http.Transport{Proxy: nil}
+	defer transport.CloseIdleConnections()
+	cli := &http.Client{Transport: transport, Timeout: 4 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := cli.Do(req)
+	if err != nil {
+		return empty, fmt.Errorf("Chromium SofaScore: DevTools niedostępne; uruchom Chromium z portem debugowania: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return empty, fmt.Errorf("Chromium SofaScore: lista kart DevTools HTTP %d", resp.StatusCode)
+	}
+	raw, err := readBounded(resp.Body, 1<<20)
+	var targets []sofaCDPTarget
+	if err != nil || json.Unmarshal(raw, &targets) != nil {
+		return empty, fmt.Errorf("Chromium SofaScore: niepoprawna lista kart DevTools")
+	}
+	// Prefer a normal website tab over a JSON API viewer. Use only existing tabs.
+	sort.SliceStable(targets, func(i, j int) bool {
+		return !strings.Contains(targets[i].URL, "/api/v1/") && strings.Contains(targets[j].URL, "/api/v1/")
+	})
+	base, _ := url.Parse(sofaBrowserBase)
+	for _, target := range targets {
+		if target.Type != "page" || !isSofaBrowserPage(target.URL) || target.WebSocket == "" {
+			continue
+		}
+		ws, err := url.Parse(target.WebSocket)
+		if err != nil || ws.Scheme != "ws" || ws.User != nil || ws.RawQuery != "" || ws.Fragment != "" || ws.Port() != base.Port() || !strings.HasPrefix(ws.Path, "/devtools/page/") {
+			continue
+		}
+		host := net.ParseIP(ws.Hostname())
+		if ws.Hostname() != "localhost" && (host == nil || !host.IsLoopback()) {
+			continue
+		}
+		ws.Host = base.Host
+		target.WebSocket = ws.String()
+		return target, nil
+	}
+	return empty, fmt.Errorf("Chromium SofaScore: otwórz kartę https://www.sofascore.com/ w przeglądarce z włączonym DevTools; rozwiąż challenge ręcznie")
+}
+
+type sofaCDPConnection struct {
+	conn   *websocket.Conn
+	ctx    context.Context
+	nextID int
+	write  sync.Mutex
+	abort  map[string]any // protected by write
+}
+
+func (c *sofaCDPConnection) call(method string, params any, out any) error {
+	c.write.Lock()
+	if err := c.ctx.Err(); err != nil {
+		c.write.Unlock()
+		return err
+	}
+	c.nextID++
+	id := c.nextID
+	deadline, _ := c.ctx.Deadline()
+	_ = c.conn.SetWriteDeadline(deadline)
+	err := c.conn.WriteJSON(map[string]any{"id": id, "method": method, "params": params})
+	c.write.Unlock()
+	if err != nil {
+		return fmt.Errorf("Chromium SofaScore: wysłanie %s: %w", method, err)
+	}
+	for {
+		var message struct {
+			ID     int             `json:"id"`
+			Result json.RawMessage `json:"result"`
+			Error  *struct {
+				Code int `json:"code"`
+			} `json:"error"`
+		}
+		if err := c.conn.ReadJSON(&message); err != nil {
+			if c.ctx.Err() != nil {
+				return c.ctx.Err()
+			}
+			return fmt.Errorf("Chromium SofaScore: odczyt %s: %w", method, err)
+		}
+		if message.ID != id {
+			continue // unsolicited CDP events or cancellation acknowledgement
+		}
+		if message.Error != nil {
+			// CDP error text/exception details can contain an expression with a cookie.
+			return fmt.Errorf("Chromium SofaScore: %s odrzucone (kod %d); sprawdź kartę przeglądarki", method, message.Error.Code)
+		}
+		if err := json.Unmarshal(message.Result, out); err != nil {
+			return fmt.Errorf("Chromium SofaScore: niepoprawny wynik %s", method)
+		}
+		return nil
+	}
+}
+
+func fetchSofaBrowser(parent context.Context, reqURL string) (sofaFetchResult, error) {
+	result := sofaFetchResult{Protocol: "Chromium/CDP"}
+	u, err := url.Parse(reqURL)
+	if err != nil || !isSofaBrowserPage(reqURL) || !strings.HasPrefix(u.Path, "/api/v1/") || u.Fragment != "" {
+		return result, fmt.Errorf("Chromium SofaScore: dozwolone są tylko endpointy www.sofascore.com/api/v1/")
+	}
+	select {
+	case sofaBrowserSlot <- struct{}{}:
+	case <-parent.Done():
+		return result, parent.Err()
+	}
+	defer func() {
+		sofaBrowserLastFinished = time.Now()
+		<-sofaBrowserSlot
+	}()
+	// One shared queue and pacing for both foreground and background browser fetches.
+	gap := sofaBrowserGap + time.Duration(rand.Int64N(int64(sofaBrowserGap)+1))
+	if delay := time.Until(sofaBrowserLastFinished.Add(gap)); delay > 0 {
+		timer := time.NewTimer(delay)
+		select {
+		case <-parent.Done():
+			timer.Stop()
+			return result, parent.Err()
+		case <-timer.C:
+		}
+	}
+	ctx, cancel := context.WithTimeout(parent, 20*time.Second)
+	defer cancel()
+	if err := sofaCooldownError(); err != nil {
+		return result, err
+	}
+	target, err := findSofaBrowserTarget(ctx)
+	if err != nil {
+		return result, err
+	}
+	dialer := websocket.Dialer{HandshakeTimeout: 4 * time.Second, Proxy: nil}
+	conn, resp, err := dialer.DialContext(ctx, target.WebSocket, nil)
+	if err != nil {
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+		return result, fmt.Errorf("Chromium SofaScore: połączenie z kartą DevTools: %w", err)
+	}
+	defer conn.Close()
+	// A 32 MiB UTF-8 body can expand sixfold when escaped in CDP's JSON envelope.
+	conn.SetReadLimit((192 << 20) + (1 << 20))
+	deadline, _ := ctx.Deadline()
+	_ = conn.SetReadDeadline(deadline)
+	cdp := &sofaCDPConnection{conn: conn, ctx: ctx}
+	stopCancel := context.AfterFunc(ctx, func() {
+		cdp.write.Lock()
+		if cdp.abort != nil {
+			_ = conn.SetWriteDeadline(time.Now().Add(250 * time.Millisecond))
+			_ = conn.WriteJSON(map[string]any{"id": -1, "method": "Runtime.evaluate", "params": cdp.abort})
+		}
+		cdp.write.Unlock()
+		_ = conn.Close() // interrupts a pending CDP read even during setup
+	})
+	defer stopCancel()
+	var tree struct {
+		FrameTree struct {
+			Frame struct {
+				ID  string `json:"id"`
+				URL string `json:"url"`
+			} `json:"frame"`
+		} `json:"frameTree"`
+	}
+	if err := cdp.call("Page.getFrameTree", map[string]any{}, &tree); err != nil {
+		return result, err
+	}
+	if !isSofaBrowserPage(tree.FrameTree.Frame.URL) || tree.FrameTree.Frame.ID == "" {
+		return result, fmt.Errorf("Chromium SofaScore: karta zmieniła adres; pozostaw otwartą stronę SofaScore")
+	}
+	var world struct {
+		ID int `json:"executionContextId"`
+	}
+	if err := cdp.call("Page.createIsolatedWorld", map[string]any{"frameId": tree.FrameTree.Frame.ID, "worldName": "value-bets-sofascore"}, &world); err != nil {
+		return result, err
+	}
+	if world.ID == 0 {
+		return result, fmt.Errorf("Chromium SofaScore: brak kontekstu strony")
+	}
+	var cookies struct {
+		Cookies []struct {
+			Name  string `json:"name"`
+			Value string `json:"value"`
+		} `json:"cookies"`
+	}
+	if err := cdp.call("Network.getCookies", map[string]any{"urls": []string{reqURL}}, &cookies); err != nil {
+		return result, err
+	}
+	headers := map[string]string{"accept": "*/*"}
+	for _, cookie := range cookies.Cookies {
+		if cookie.Name == "sofa_captcha" {
+			headers["x-captcha"] = cookie.Value
+			break
+		}
+	}
+	if requestedWith := strings.TrimSpace(os.Getenv("VALUE_BETS_SOFA_REQUESTED_WITH")); requestedWith != "" {
+		if !sofaRequestedWithPattern.MatchString(requestedWith) {
+			return result, fmt.Errorf("Chromium SofaScore: niepoprawne VALUE_BETS_SOFA_REQUESTED_WITH")
+		}
+		headers["x-requested-with"] = requestedWith
+	}
+	urlJSON, _ := json.Marshal(reqURL)
+	headersJSON, _ := json.Marshal(headers)
+	var requestKey [12]byte
+	if _, err := cryptorand.Read(requestKey[:]); err != nil {
+		return result, fmt.Errorf("Chromium SofaScore: nie można utworzyć identyfikatora pobrania")
+	}
+	abortKeyJSON, _ := json.Marshal(fmt.Sprintf("__valueBetsFetch_%x", requestKey))
+	// The isolated world shares the real tab's cookie store and networking stack.
+	// No user-agent, TLS impersonation or cookies copied from a file are used here.
+	expression := `(async () => {
+  const result = {status:0, contentType:"", retryAfter:"", body:"", error:""};
+  if (location.origin !== "https://www.sofascore.com") { result.error="origin"; return result; }
+  const controller = new AbortController();
+  const abortKey = ` + string(abortKeyJSON) + `;
+  globalThis[abortKey] = controller;
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(` + string(urlJSON) + `, {
+      method:"GET", credentials:"include", cache:"no-store", redirect:"error",
+      headers:` + string(headersJSON) + `, signal:controller.signal
+    });
+    result.status = response.status;
+    result.contentType = response.headers.get("content-type") || "";
+    result.retryAfter = response.headers.get("retry-after") || "";
+    const reader = response.body.getReader(), decoder = new TextDecoder("utf-8", {fatal:true});
+    const parts = []; let size = 0;
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      size += chunk.value.byteLength;
+      if (size > 33554432) { controller.abort(); result.error="limit"; return result; }
+      parts.push(decoder.decode(chunk.value, {stream:true}));
+    }
+    parts.push(decoder.decode());
+    result.body = parts.join("");
+  } catch (_) { result.error = controller.signal.aborted ? "timeout" : "network"; }
+  finally { clearTimeout(timer); delete globalThis[abortKey]; }
+  return result;
+})()`
+	cdp.write.Lock()
+	cdp.abort = map[string]any{"expression": "globalThis[" + string(abortKeyJSON) + "]?.abort()", "contextId": world.ID, "silent": true}
+	cdp.write.Unlock()
+	if target.ID != sofaBrowserLastTarget {
+		log.Printf("[SOFA-BROWSER] ATTACHED target=%q transport=chromium-cdp", target.ID)
+		sofaBrowserLastTarget = target.ID
+	}
+	log.Printf("[SOFA-BROWSER] REQUEST endpoint=%q captcha_cookie=%t", u.RequestURI(), headers["x-captcha"] != "")
+	var evaluated struct {
+		Result struct {
+			Value struct {
+				Status      int    `json:"status"`
+				ContentType string `json:"contentType"`
+				RetryAfter  string `json:"retryAfter"`
+				Body        string `json:"body"`
+				Error       string `json:"error"`
+			} `json:"value"`
+		} `json:"result"`
+		Exception json.RawMessage `json:"exceptionDetails"`
+	}
+	if err := cdp.call("Runtime.evaluate", map[string]any{"expression": expression, "contextId": world.ID, "awaitPromise": true, "returnByValue": true, "silent": true}, &evaluated); err != nil {
+		return result, err
+	}
+	if len(evaluated.Exception) > 0 && string(evaluated.Exception) != "null" {
+		return result, fmt.Errorf("Chromium SofaScore: skrypt pobrania nie powiódł się; sprawdź kartę przeglądarki")
+	}
+	value := evaluated.Result.Value
+	result.Status, result.ContentType, result.RetryAfter = value.Status, value.ContentType, value.RetryAfter
+	result.Body = []byte(value.Body)
+	if value.Error != "" {
+		switch value.Error {
+		case "origin":
+			return result, fmt.Errorf("Chromium SofaScore: karta zmieniła domenę")
+		case "timeout":
+			return result, fmt.Errorf("Chromium SofaScore: przekroczono 15s na pobranie odpowiedzi")
+		case "limit":
+			return result, fmt.Errorf("Chromium SofaScore: odpowiedź przekracza 32 MiB")
+		default:
+			return result, fmt.Errorf("Chromium SofaScore: fetch nie powiódł się; sprawdź sieć i kartę przeglądarki")
+		}
+	}
+	if result.Status == http.StatusOK && !json.Valid(result.Body) {
+		return result, fmt.Errorf("Chromium SofaScore: HTTP 200 bez poprawnego JSON; sprawdź challenge ręcznie w przeglądarce")
+	}
+	if result.Status == 0 {
+		return result, fmt.Errorf("Chromium SofaScore: brak statusu odpowiedzi fetch")
+	}
+	return result, nil
+}
+
+func runSofaBrowserDiagnostic(ctx context.Context, dataDir string) error {
+	const endpoint = "/search/all?q=chicago+fire&page=0"
+	started := time.Now().UTC()
+	response, fetchErr := fetchSofaBrowser(ctx, sofaBase+endpoint)
+	if response.Status != 0 {
+		noteSofaBlocked(response.Status, response.RetryAfter)
+		if response.Status != http.StatusOK {
+			fetchErr = errors.Join(fetchErr, fmt.Errorf("SofaScore HTTP %d", response.Status))
+		}
+	}
+	teams := []SofaTeamItem{}
+	if fetchErr == nil {
+		var search SofaSearchResponse
+		if err := json.Unmarshal(response.Body, &search); err != nil {
+			fetchErr = fmt.Errorf("niepoprawny JSON wyszukiwania")
+		} else {
+			teams = search.ExtractTeams()
+			if len(teams) == 0 {
+				fetchErr = fmt.Errorf("wyszukiwanie Chicago Fire nie zwróciło drużyn")
+			}
+		}
+	}
+	info := archiveInfo{Bookmaker: "SOFASCORE", Scope: "diagnostyka-chromium-wyszukiwanie-chicago-fire", Endpoint: sofaBase + endpoint, Method: "GET", Status: response.Status, ContentType: response.ContentType}
+	if err := archiveResponse(context.WithValue(ctx, archiveContextKey{}, info), "odpowiedz-chromium", response.Body, "http.bin", readableJSONValues(response.Body), fetchErr); err != nil {
+		return errors.Join(fetchErr, err)
+	}
+	report := struct {
+		RecordedAt time.Time       `json:"recordedAt"`
+		Endpoint   string          `json:"endpoint"`
+		Response   sofaFetchResult `json:"response"`
+		Teams      []SofaTeamItem  `json:"teams"`
+		Error      string          `json:"error,omitempty"`
+	}{RecordedAt: started, Endpoint: endpoint, Response: response, Teams: teams}
+	if fetchErr != nil {
+		report.Error = fetchErr.Error()
+	}
+	dir := filepath.Join(dataDir, "diagnostics")
+	if err := os.MkdirAll(dir, 0750); err != nil {
+		return err
+	}
+	path := filepath.Join(dir, "sofascore_chromium-wyszukiwanie-chicago-fire_"+started.Format("20060102T150405.000000000Z")+".json")
+	if err := atomicJSON(path, report); err != nil {
+		return err
+	}
+	log.Printf("[SOFA-BROWSER] DIAGNOSTIC status=%d teams=%d duration=%s report=%q error=%v", response.Status, len(teams), time.Since(started), path, fetchErr)
+	return fetchErr
 }
 
 var sofaCaptchaPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$`)
