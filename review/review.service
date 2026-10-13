@@ -1,0 +1,18 @@
+[Unit]
+Description=Value Bets independent review panel
+Wants=network-online.target
+After=network-online.target value-bets.service
+
+[Service]
+Type=simple
+User=vstkxj
+WorkingDirectory=/home/vstkxj/value-bets/review
+ExecStart=/home/vstkxj/value-bets/review/review -listen 127.0.0.1:8092 -backend http://127.0.0.1:8090 -data /home/vstkxj/value-bets/review/data -public-url https://review.value-bets.pl
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

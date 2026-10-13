@@ -215,6 +215,7 @@ type HistoricalMatchFlow struct {
 }
 
 type AnalyzedBet struct {
+	PlayerID             int                `json:"playerId"`
 	ContextPending       bool               `json:"contextPending,omitempty"`
 	SampleRatings        []*float64         `json:"sampleRatings"`
 	FairModel            *FairModelDetails  `json:"fairModel,omitempty"`
@@ -305,17 +306,34 @@ type MyBetItem struct {
 }
 
 type App struct {
-	ctx              context.Context
-	analysisMu       sync.Mutex
-	analysisActive   bool
-	analysisProgress AnalysisJob
+	ctx                 context.Context
+	analysisMu          sync.Mutex
+	analysisActive      bool
+	analysisProgress    AnalysisJob
+	detectionMu         sync.Mutex
+	detectionCancel     context.CancelFunc
+	detectionRevision   uint64
+	preparationMu       sync.Mutex
+	preparationCancel   context.CancelFunc
+	preparationRevision uint64
 }
 
 var cacheMutex sync.Mutex
 
 func NewApp() *App                         { return &App{} }
 func (a *App) startup(ctx context.Context) { a.ctx = ctx }
-func (a *App) shutdown(context.Context)    {}
+func (a *App) shutdown(context.Context) {
+	a.detectionMu.Lock()
+	defer a.detectionMu.Unlock()
+	if a.detectionCancel != nil {
+		a.detectionCancel()
+	}
+	a.preparationMu.Lock()
+	defer a.preparationMu.Unlock()
+	if a.preparationCancel != nil {
+		a.preparationCancel()
+	}
+}
 
 func getCacheFilePath(filename string) string {
 	var candidates []string
@@ -443,15 +461,24 @@ func (a *App) SaveMyBets(bets []MyBetItem) bool {
 }
 
 type SuperbetCalendarEvent struct {
-	ID          string `json:"id"`
-	Home        string `json:"home"`
-	Away        string `json:"away"`
-	Competition string `json:"competition"`
-	Country     string `json:"country"`
-	StartTime   string `json:"startTime"`
-	URL         string `json:"url"`
-	Live        bool   `json:"live"`
-	BetBuilder  bool   `json:"betBuilder"`
+	ID                  string                   `json:"id"`
+	Home                string                   `json:"home"`
+	Away                string                   `json:"away"`
+	Competition         string                   `json:"competition"`
+	Country             string                   `json:"country"`
+	StartTime           string                   `json:"startTime"`
+	URL                 string                   `json:"url"`
+	Live                bool                     `json:"live"`
+	BetBuilder          bool                     `json:"betBuilder"`
+	MarketAvailability  *MatchMarketAvailability `json:"marketAvailability,omitempty"`
+	AnalysisEligibility *AnalysisEligibility     `json:"analysisEligibility,omitempty"`
+}
+
+type AnalysisEligibility struct {
+	Status    string            `json:"status"`
+	Reason    string            `json:"reason,omitempty"`
+	Links     map[string]string `json:"links"`
+	ExpiresAt time.Time         `json:"expiresAt,omitempty"`
 }
 
 type SuperbetCalendar struct {
@@ -480,6 +507,38 @@ func (a *App) CheckMatchMarkets(bookmaker, eventID, home, away string) (MatchMar
 	}
 	var result MatchMarketAvailability
 	err = a.serverRequest(ctx, http.MethodPost, "/api/v1/markets/check", body, &result)
+	return result, err
+}
+
+type MatchPreparation struct {
+	Qualified bool                               `json:"qualified"`
+	Sources   map[string]MatchMarketAvailability `json:"sources"`
+}
+
+func (a *App) PrepareCalendarMatch(superbet, betclic, sts string) (MatchPreparation, error) {
+	ctx, cancel := context.WithTimeout(a.calendarContext(), 100*time.Second)
+	a.preparationMu.Lock()
+	if a.preparationCancel != nil {
+		a.preparationCancel()
+	}
+	a.preparationRevision++
+	revision := a.preparationRevision
+	a.preparationCancel = cancel
+	a.preparationMu.Unlock()
+	defer func() {
+		cancel()
+		a.preparationMu.Lock()
+		if a.preparationRevision == revision {
+			a.preparationCancel = nil
+		}
+		a.preparationMu.Unlock()
+	}()
+	body, err := json.Marshal(map[string]string{"superbetUrl": superbet, "betclicUrl": betclic, "stsUrl": sts})
+	if err != nil {
+		return MatchPreparation{}, err
+	}
+	var result MatchPreparation
+	err = a.serverRequest(ctx, http.MethodPost, "/api/v1/markets/prepare", body, &result)
 	return result, err
 }
 
@@ -530,6 +589,39 @@ func (a *App) getBookmakerCalendar(ctx context.Context, bookmaker, date string, 
 
 // Cloudflare Tunnel forwards this public HTTPS endpoint to the home Debian server.
 const serverBaseURL = "https://api.value-bets.pl"
+
+type AutomaticSummary struct {
+	Bookmaker  string    `json:"bookmaker"`
+	EventID    string    `json:"eventId"`
+	FixtureID  string    `json:"fixtureId"`
+	Match      string    `json:"match"`
+	Status     string    `json:"status"`
+	Stage      string    `json:"stage"`
+	Value      int       `json:"value"`
+	Traps      int       `json:"traps"`
+	Total      int       `json:"total"`
+	AnalyzedAt time.Time `json:"analyzedAt"`
+	ExpiresAt  time.Time `json:"expiresAt"`
+	RunID      string    `json:"runId"`
+	Error      string    `json:"error,omitempty"`
+}
+
+func (a *App) GetAutomaticSummaries() ([]AutomaticSummary, error) {
+	ctx, cancel := context.WithTimeout(a.calendarContext(), 15*time.Second)
+	defer cancel()
+	var result []AutomaticSummary
+	err := a.serverRequest(ctx, http.MethodGet, "/api/v1/research/summaries", nil, &result)
+	return result, err
+}
+
+func (a *App) GetEvaluationReport(days int, payout float64, rules string) (map[string]any, error) {
+	ctx, cancel := context.WithTimeout(a.calendarContext(), 60*time.Second)
+	defer cancel()
+	query := url.Values{"days": {fmt.Sprint(days)}, "payout": {fmt.Sprint(payout)}, "rules": {rules}}
+	var result map[string]any
+	err := a.serverRequest(ctx, http.MethodGet, "/api/v1/research/reports?"+query.Encode(), nil, &result)
+	return result, err
+}
 
 var calendarAPIClient = &http.Client{
 	Timeout:       180 * time.Second,
@@ -617,10 +709,30 @@ func (a *App) DetectTeamsFromURL(rawURL string) (TeamDetectionResult, error) {
 func (a *App) DetectCalendarTeams(home, away string) (TeamDetectionResult, error) {
 	return a.detectTeams(map[string]string{"home": home, "away": away})
 }
+func (a *App) DetectCalendarEventTeams(home, away, matchURL string) (TeamDetectionResult, error) {
+	return a.detectTeams(map[string]string{"home": home, "away": away, "url": matchURL})
+}
 func (a *App) detectTeams(query map[string]string) (TeamDetectionResult, error) {
+	ctx, cancel := context.WithTimeout(a.calendarContext(), 100*time.Second)
+	a.detectionMu.Lock()
+	if a.detectionCancel != nil {
+		a.detectionCancel()
+	}
+	a.detectionRevision++
+	revision := a.detectionRevision
+	a.detectionCancel = cancel
+	a.detectionMu.Unlock()
+	defer func() {
+		cancel()
+		a.detectionMu.Lock()
+		if a.detectionRevision == revision {
+			a.detectionCancel = nil
+		}
+		a.detectionMu.Unlock()
+	}()
 	body, _ := json.Marshal(query)
 	var result TeamDetectionResult
-	if err := a.serverRequest(a.calendarContext(), http.MethodPost, "/api/v1/teams/detect", body, &result); err != nil {
+	if err := a.serverRequest(ctx, http.MethodPost, "/api/v1/teams/detect", body, &result); err != nil {
 		log.Printf("[API] Rozpoznawanie drużyn: %v", err)
 		return result, fmt.Errorf("detekcja SofaScore na serwerze: %w", err)
 	}
@@ -738,4 +850,12 @@ func (a *App) AnalyzeThreeBookmakers(sb, betclic, sts, home, away string, limit 
 			return nil, fmt.Errorf("%s", job.Error)
 		}
 	}
+}
+
+func (a *App) GetAutomaticAnalysis(runID string) ([]AnalyzedBet, error) {
+	ctx, cancel := context.WithTimeout(a.calendarContext(), 30*time.Second)
+	defer cancel()
+	var result []AnalyzedBet
+	err := a.serverRequest(ctx, http.MethodGet, "/api/v1/research/runs/"+url.PathEscape(runID), nil, &result)
+	return result, err
 }

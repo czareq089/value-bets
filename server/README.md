@@ -67,29 +67,68 @@ Nie usuwaj katalogu `data` przy aktualizacji. Gdy działa usługa systemd, nie u
 
 ## Dane i harmonogram
 
-Kalendarze STS, Betclic i Superbet mają cache na dysku. Serwer sam je odświeża co około 2 godziny, z losowym przesunięciem od −10 do +10 minut. Harmonogram działa również przy zamkniętej aplikacji desktopowej. Analiza korzysta ze wspólnego cache kursów i historii zawodników, które mogą być przygotowane wcześniej przez tło.
+### Kwalifikacja meczu i priorytety
 
-Uzupełnianie linków między kalendarzami porównuje pełne słowa tworzące wspólny rdzeń nazwy, pomijając skróty klubowe (także SE i EC). `Palmeiras` pasuje do `SE Palmeiras`, a `Bahia` do `EC Bahia` i `Bahia Salvador BA`. Dopasowanie wymaga zgodności obu drużyn w tej samej kolejności i terminu z tolerancją 10 minut. Samo ogólne słowo, np. Inter, United czy Sporting, nie wystarcza do dopasowania po wspólnym rdzeniu. Zachowywane są oznaczenia drużyn kobiet, wieku, rezerw i Red Bulla; przy kilku podobnych kandydatach aplikacja pozostawia wybór linku użytkownikowi. Detekcja SofaScore rozpoznaje prefiksy SE/EC i alias Bahia Salvador BA, zachowując weryfikację tożsamości drużyny.
+Analiza ręczna i automatyczna wymagają tego samego meczu w Superbet, Betclic i STS oraz poprawnego pobrania całej dostępnej oferty obsługiwanych rynków od każdego z nich. Zestawy rynków mogą się różnić; nie wymagamy identycznych typów, zawodników ani linii. Brak obsługiwanych rynków lub błąd jednego źródła blokuje pobieranie historii zawodników, obliczenia i zapis prognoz. Cache kalendarzy, dostępności ofert i diagnostyka służą także ustalaniu, które mecze spełniają warunki.
 
-Jeśli nie ma mocnego dopasowania nazw, klient wybiera najlepszego kandydata spośród spotkań w tym samym oknie czasu, wymagając mocnego dopasowania jednej drużyny oraz wspólnego charakterystycznego pełnego słowa drugiej (np. Werder). Ogólne człony takie jak Borussia, United, Real czy Atletico nie wystarczają jako samodzielna podstawa tego dopasowania. Ranking nadal uwzględnia podobieństwo obu nazw i różnicę godzin; różnica między dwoma najlepszymi wynikami poniżej 0,06 oznacza niejednoznaczność i wymaga ręcznego linku. Nazwy Werder Brema/Bremen są normalizowane, a detekcja SofaScore obsługuje również skrócone Werder oraz Borussia Dortmun. Te aliasy nie zastępują weryfikacji płci, kategorii i tożsamości drużyny.
+Serwer dopasowuje obie drużyny w tej samej kolejności, z tolerancją terminu 10 minut. Uwzględnia jawne aliasy, pełne słowa i oznaczenia juniorów, rezerw oraz Red Bulla. Kilka pasujących wydarzeń lub sprzeczność między dowolną parą bukmacherów wyklucza automatyczne dopasowanie. Klient korzysta z tych samych dopasowań serwera. Domyślny filtr kalendarza pokazuje mecze z zapisaną informacją o obecności rynków całej trójki. Aktualne kursy są sprawdzane przy analizie.
+
+Tło wycenia wszystkie trzy oferty w jednej analizie meczu. Zmiana wersji kursów dowolnego bukmachera jest uwzględniana przy następnym podejściu; termin ponownego sprawdzenia bierze pod uwagę najwcześniejsze wygaśnięcie oferty. Do czasu kwalifikacji tło sprawdza oferty jedynie spotkań jednoznacznie dostępnych we wszystkich kalendarzach.
+
+Priorytet obejmuje pobieranie rynków bukmacherów oraz żądania SofaScore. Wybranie meczu od razu przygotowuje oferty całej trójki przez `POST /api/v1/markets/prepare`. Ręczna analiza korzysta z tych samych pobrań i cache. Kolejka ofert ma cztery miejsca, z czego tło może zajmować najwyżej jedno; pozostałe są dostępne dla użytkownika. Gdy wybrana oferta jest pobierana z niższym priorytetem, żądanie jest anulowane i ponawiane z priorytetem użytkownika (log `[ODDS-CACHE] PROMOTE`). Przycisk „Analizuj” nie czeka na przygotowanie rynków ani odczyt rozgrywek.
+
+Kolejki SofaScore obsługują najpierw ręczną analizę, następnie interaktywną detekcję i rozgrywki, a na końcu tło. Dotyczy to transportu HTTP i pojedynczej sesji Chromium/CDP. Rozpoczęte analizy tła pozostają aktywne z niższym priorytetem; nowe zadania tła i skany ofert czekają podczas pracy użytkownika. Żądanie SofaScore już wysłane kończy się przed obsługą następnego w kolejce.
+
+Detekcja gospodarzy i gości pracuje równolegle, z zachowaniem limitów transportu. Wybór w kalendarzu przesyła nazwy oraz link wskazujący termin; para ID musi zgadzać się z terminarzem SofaScore. Wybór kolejnego meczu anuluje poprzednią detekcję po stronie klienta. Aktualizacja wymaga wgrania backendu na Debian i użycia przebudowanego klienta Windows.
+
+Kalendarz archiwizuje jedną aktualizowaną paczkę `archive/kalendarze/<polska-data>/<bukmacher>/kalendarz.json.gz` dziennie. Paczka obejmuje wszystkie pobrane daty Superbet; odpowiedzi transportowe i pośrednie strony kalendarza nie tworzą osobnych archiwów. Ręczne odświeżenie nadal jest dostępne.
+
+Oddzielny proces tła sprawdza rzeczywiste rynki w oknie 48 godzin, po jednej ofercie naraz, z co najmniej trzysekundową przerwą po zakończeniu pobrania. Nie rozpoczyna nowego skanu podczas detekcji, przygotowania wybranego meczu lub ręcznej analizy. Najpierw sprawdza nieodczytane oferty, od najbliższego startu, potem najstarsze wyniki. Logi `[MARKET-SCAN] CHECK` i `RESULT` pokazują sprawdzane wydarzenia oraz czas pobrania. Odczyt kalendarza zawiera zapisany stan dostępności rynków; klient odczytuje ten stan bez uruchamiania skanowania. Pobranie kalendarza nie przerywa analizy.
+
+Indeks nazw drużyn i dopasowania ofert są ponownie wykorzystywane do kolejnej aktualizacji kalendarza, zamiast przeliczania przy każdym odczycie i skanie. Log `[CALENDAR-INDEX] BUILT` wskazuje przebudowę indeksu. Zapis cache kursów i dostępności jest grupowany co pięć sekund; kodowanie JSON i zapis dyskowy odbywają się poza blokadami odczytu tych cache. Przy zatrzymaniu wykonywany jest końcowy zapis. Archiwa nadal używają gzip, z szybszą kompresją kosztem potencjalnie większych plików.
+
+Kalendarz pozostaje dostępny podczas ręcznej analizy. Można wybrać kolejny mecz i odczytać jego zapisaną analizę; podglądy i końcowy wynik poprzedniego zlecenia nie nadpiszą nowego wyboru. Wynik poprzedniej analizy nadal trafia do historii właściwego spotkania. Kolejną ręczną analizę można uruchomić po zakończeniu bieżącej.
+
+Poprawka współbieżności z 10 października 2026 wymaga aktualizacji backendu oraz klienta Windows. Panel review pozostaje bez zmian. Dla tej poprawki wykonano kompilację; zgodnie z prośbą użytkownika nie uruchamiano testów.
+
+Ligi i mecze kobiet są wyłączone przed zapisaniem kalendarza i pobieraniem ofert. Oznaczenia nazw oraz znane nazwy lig (np. NWSL, WSL, Frauen, Liga F) są rozpoznawane. Wyłączone ID są pamiętane w `excluded_women_events.json`, żeby odrzucać również ręczne żądania. Wspólny katalog bukmachera może zawierać obie płcie w jednej odpowiedzi; takie wydarzenia są odrzucane przed dalszym przetwarzaniem. Istniejące archiwa badań i oceny pozostają zachowane.
+
+Alavés / Deportivo Alavés i Athletic Bilbao / Athletic Club korzystają z jawnych aliasów. Nadal obowiązuje zgodność płci, sportu oraz kategorii rezerw i juniorów.
+
+Kliknięcie karty z gotową analizą otwiera ten sam zapisany run i bukmachera, z których pochodzą liczniki. Powtórzona oferta tej samej linii, gracza i kierunku u jednego bukmachera jest liczona raz, z najlepszym kursem, zarówno w analizie ręcznej, jak i zapisanej. „Analizuj” wykonuje aktualne obliczenie dla wybranych bukmacherów; zmiana kursów, próbki lub składu może zmienić wyniki.
+
+
+Kalendarze STS, Betclic i Superbet mają cache na dysku. Serwer sam je odświeża co 12 godzin (dwa razy na dobę). Harmonogram działa również przy zamkniętej aplikacji desktopowej. Analiza korzysta ze wspólnego cache kursów i historii zawodników, które mogą być przygotowane wcześniej przez tło.
+
+Uzupełnianie linków korzysta z dopasowania serwera opisanego powyżej. `Palmeiras` pasuje do `SE Palmeiras`, a `Bahia` do `EC Bahia` i `Bahia Salvador BA`. Ogólne słowo, np. Inter, United czy Sporting, nie wystarcza do dopasowania po wspólnym rdzeniu. Detekcja SofaScore rozpoznaje prefiksy SE/EC i alias Bahia Salvador BA, zachowując weryfikację tożsamości drużyny.
+
+Nazwy Werder Brema/Bremen są normalizowane, a detekcja SofaScore obsługuje również skrócone Werder oraz Borussia Dortmun. Te aliasy nie zastępują weryfikacji płci, kategorii i tożsamości drużyny. Dopasowanie nie korzysta z rankingu podobieństwa liter ani z wyboru najlepszego spośród kilku kandydatów.
 
 ### Kursy ważne przez 15 minut
 
 Sprawdzanie rynków, pobieranie statystyk w tle i ręczna analiza używają tej samej sparsowanej oferty dla danego bukmachera i ID meczu. Kursy są ważne przez 15 minut od pierwotnego pobrania. Kliknięcie „Analizuj” w tym czasie nie pobiera ponownie oferty; brakujący albo przeterminowany wpis powoduje pobranie tylko z odpowiedniego źródła. Równoczesne żądania tej samej oferty czekają na jedno pobranie. Odczyt cache nie przedłuża jego ważności.
 
-Oferty są zapisywane w `data/bookmaker_match_odds_cache.json`, więc restart również zachowuje świeże kursy. Odpowiedź bez obsługiwanych rynków jest ważna przez 15 minut, tak samo jak dostępna oferta. Puste oferty nie mają licznika pomijania ani wydłużania TTL. Tło wraca do nich po wygaśnięciu cache, również bez nowego kalendarza, żeby wykrywać pojawiające się rynki. Dotyczy to także meczów z ukończonym przygotowaniem historii lub brakami statystyk SofaScore. Przy identycznej wersji oferty i już przygotowanych albo pominiętych historiach tło sprawdza bukmachera bez ponownego odkrywania kadry. Nieudane lub anulowane pobranie nie zastępuje poprawnej oferty. Archiwum analizy zawiera pierwotny czas pobrania, termin wygaśnięcia i informację o wykorzystaniu cache. Składy SofaScore są nadal sprawdzane przy ręcznej analizie niezależnie od kursów. Stare liczniki bukmacherów są ignorowane; dawne wpisy z TTL 30/60 minut nie są używane jako świeża oferta, a cache dostępności jest ograniczany do 15 minut przy starcie.
+Oferty są zapisywane w `data/bookmaker_match_odds_cache.json`, więc restart również zachowuje świeże kursy. Odpowiedź bez obsługiwanych rynków jest ważna przez 15 minut, tak samo jak dostępna oferta. Puste oferty nie mają licznika pomijania ani wydłużania TTL. Tło wraca do nich po wygaśnięciu cache, również bez nowego kalendarza, żeby wykrywać pojawiające się rynki. Dotyczy to także meczów z ukończonym przygotowaniem historii lub brakami statystyk SofaScore. Dla spotkań z potwierdzonymi rynkami automatyczna analiza odświeża przeterminowane kursy podczas swojego następnego zaplanowanego podejścia, używając ważnych historii i kontekstów z cache oraz sprawdzając aktualny skład. Nieudane lub anulowane pobranie nie zastępuje poprawnej oferty. Archiwum analizy zawiera pierwotny czas pobrania, termin wygaśnięcia i informację o wykorzystaniu cache. Stare liczniki bukmacherów są ignorowane; dawne oferty kursów z TTL 30/60 minut nie są używane jako świeże.
+
+### Zapamiętana dostępność rynków
+
+Plik `data/market_availability_cache.json` na Debianie przechowuje osobno informację o obecności obsługiwanych rynków: bukmachera, ID meczu, listę rynków, czas sprawdzenia, drużyny i termin spotkania. Potwierdzona dostępność jest pamiętana do rozpoczęcia tego meczu i odczytywana po restarcie backendu. Otwarcie klienta Windows nie uruchamia ponownego sprawdzania tych ofert. Zmiana drużyn lub terminu powoduje ponowną kwalifikację. Dla oferty spoza kalendarza potwierdzenie ma limit 24 godzin. Brak rynków jest sprawdzany ponownie po 15 minutach, a błąd nieznanej oferty po minucie.
+
+Ten zapis nie przedłuża ważności cen. Przy wyborze meczu oraz „Analizuj” kursy starsze niż 15 minut są pobierane z priorytetem użytkownika. Tymczasowy błąd sieci nie usuwa wcześniejszego potwierdzenia obecności rynków, ale blokuje analizę bez kompletu aktualnych ofert. Poprawna odpowiedź bez rynków zastępuje wcześniejsze potwierdzenie. Kalendarz pokazuje czas sprawdzenia i informację, że kursy są odświeżane przy analizie.
+
+Podczas aktualizacji stare potwierdzenia są wiązane z aktualnymi kalendarzami; kompletny świeży cache kursów może również odtworzyć brakujący wpis dostępności. Log `[MARKET-CACHE] DISK_LOADED path=... entries=...` pokazuje miejsce zapisu i liczbę odczytanych rekordów, a `KEEP_KNOWN` wskazuje zachowanie potwierdzenia po błędzie odświeżenia. Katalog wskazany przez `-data` musi pozostać ten sam przy kolejnych uruchomieniach i aktualizacjach serwera.
 
 Przy ręcznej weryfikacji sprawdź rynki lub poczekaj na przygotowanie meczu w tle, a następnie uruchom analizę tego samego meczu przed upływem 15 minut. W logu `[ODDS-CACHE] HIT` oznacza użycie zapisanej oferty, `FETCH` nowe pobranie, `JOIN` oczekiwanie na już trwające pobranie, a `STORED` zapis wyniku. Po wygaśnięciu cache kolejna analiza powinna pokazać `FETCH` dla danego bukmachera i ID meczu.
 
-### Statystyki pobierane podczas bezczynności
+### Statystyki pobierane w tle
 
 Serwer automatycznie przegląda zapisane kalendarze i wybiera mecze rozpoczynające się w najbliższych 48 godzinach (ruchome okno dwóch dób). Najpierw obsługuje mecze ze znanymi obsługiwanymi rynkami, w kolejności od najbliższego startu, następnie sprawdza pozostałe oferty również od najbliższego startu. Sama flaga BetBuildera nie wystarcza. Historie są pobierane tylko dla zawodników dopasowanych do obsługiwanych rynków; brak takich zawodników nie uruchamia pobierania całej kadry. Superbet automatycznie pobiera wszystkie polskie daty obejmujące pełne 48 godzin, zwykle dziś, jutro i pojutrze; uwzględnia również zmianę czasu. Dalsze daty pozostają dostępne na żądanie i nie są stale odświeżane w tle. STS i Betclic udostępniają pełne katalogi, z których tło wybiera wydarzenia w tym samym oknie. W logu `[STATS-BACKGROUND] PACING` parametr `horizon=48h0m0s` pokazuje aktywny horyzont.
 
 Tło przygotowuje domyślną próbę 10 ostatnich spotkań, bez filtra rozgrywek (`ALL`). Ręczna analiza z tymi parametrami korzysta z tego samego cache; inna wielkość próby lub filtr rozgrywek mają własny wpis i są uzupełniane na żądanie. Ważność kursów i składów jest niezależna od historii zawodników: kursy korzystają z cache opisanego powyżej, a składy są sprawdzane przy analizie.
 
-Jednocześnie wykonywany jest jeden mecz w tle. Ręczna analiza, detekcja drużyn, pobranie rozgrywek, sprawdzanie rynków oraz odświeżanie kalendarza przerywają tło. Zwykłe odczyty postępu, sprawdzenie zdrowia API i odczyty kalendarza z cache go nie przerywają. Serwer czeka na zakończenie anulowanych żądań przed rozpoczęciem pobierania o wyższym priorytecie. W czasie ponowienia wykorzystuje już zapisane kompletne historie zawodników.
+Jednocześnie wykonywany jest jeden mecz w tle, równolegle z zadaniem ręcznym oraz niezależnym kalendarzem i sprawdzaniem ofert. Ręczna analiza ma pierwszeństwo w kolejkach żądań SofaScore. Odczyty postępu, sprawdzenie zdrowia API i odczyty kalendarza z cache nie zajmują tych kolejek. Kolejne podejścia wykorzystują już zapisane kompletne historie zawodników.
 
-Pobieranie SofaScore w tle jest seryjne: jeden zawodnik i jeden historyczny mecz naraz, najwyżej jedno żądanie sieciowe. W trybie Chromium domyślna przerwa po zakończeniu żądania wynosi 100–200 ms, a pomiędzy zadaniami tła 2–5 sekund. Zwykły transport HTTP zachowuje przerwę 2–4 sekundy po żądaniu i 30–60 sekund pomiędzy zadaniami. Dotyczy to także wyszukiwania drużyn, terminarzy i kontroli statusów spotkań w tle. Odczyty ważnego cache nie czekają na limit sieciowy. Wszystkie oczekiwania można przerwać przez ręczne żądanie lub zatrzymanie procesu. Dotychczasowy limit 20 minut na zadanie tła pozostaje; kolejne podejście korzysta z kompletnych historii już zapisanych w cache.
+Pobieranie SofaScore w tle jest seryjne: jeden zawodnik i jeden historyczny mecz naraz, najwyżej jedno żądanie sieciowe. W trybie Chromium tło ma dodatkową przerwę 500–1000 ms po zakończeniu żądania, a pomiędzy zadaniami 5–10 sekund. Zwykły transport HTTP zachowuje przerwę 2–4 sekundy po żądaniu i 30–60 sekund pomiędzy zadaniami. Dotyczy to także wyszukiwania drużyn, terminarzy i kontroli statusów spotkań w tle. Odczyty ważnego cache nie czekają na limit sieciowy. Oczekiwania tła są przerywane przy zatrzymaniu procesu, a jego kolejki ustępują pierwszeństwa użytkownikowi. Dotychczasowy limit 20 minut na zadanie tła pozostaje; kolejne podejście korzysta z kompletnych historii już zapisanych w cache.
 
 Tylko odpowiedź SofaScore HTTP 429, także podczas ręcznej analizy, uruchamia wspólną przerwę w nowych żądaniach do tego źródła. Pierwsza trwa 15 minut, następne 30 i 60 minut; 60 minut to maksymalna automatyczna eskalacja. Po 24 godzinach bez nowej blokady licznik zaczyna od początku. Dłuższe `Retry-After` jest uwzględniane do 24 godzin. Odpowiedzi z żądań już wysłanych przed blokadą nie zwiększają licznika w tej samej przerwie. Stan jest zapisany w `data/sofa_request_backoff.json` i przetrwa restart. Podczas przerwy tło nie wysyła kolejnych żądań do SofaScore, a ręczne pobranie SofaScore zwraca komunikat z terminem ponowienia. Sprawdzanie ofert bukmacherów w tle pozostaje aktywne. Lokalny cache oraz pozostałe źródła danych pozostają dostępne. Logi `[STATS-BACKGROUND] PACING` oraz `[SOFA-BACKOFF] PAUSE`/`LOADED` pokazują konfigurację i termin wznowienia. HTTP 403 nie uruchamia wspólnej przerwy ani 15-minutowej przerwy danego endpointu kontekstu; ręczne próby można powtarzać od razu. Stare zapisane przerwy bez jawnego statusu 429 są ignorowane po aktualizacji, bez usuwania plików. Tło zachowuje zwykłe odstępy i harmonogram ponawiania nieudanych zadań. Spowolnienie ogranicza obciążenie, lecz nie gwarantuje, że źródło nie zwróci kolejnego challenge.
 
@@ -101,11 +140,11 @@ Licznik kolejnych braków dotyczy wyłącznie historii statystycznej SofaScore: 
 
 W logach szukaj `[STATS-BACKGROUND] START`, `END`, `REUSE`, `YIELD`, `[SOFA-STATS-MISS]` oraz `[STATS-CACHE] FIXTURE_ENDED`. `unavailable` oznacza brak rynków bukmachera; `sofa-unavailable` oznacza brak wszystkich historii SofaScore, `sofa-partial` — dostępność części historii i oczekiwanie na kolejne próby brakujących, a `sofa-missing` — osiągnięcie limitu braków przy wszystkich nadal niedostępnych historiach. `sofa-paused` oznacza przerwę SofaScore po 429, podczas której oferty bukmacherów nadal są sprawdzane. Błędy i niepełne pobrania pozostają `error`/`partial`, a przerwanie przez pracę ręczną — `paused`. Przy ręcznej weryfikacji sprawdź ponowne `ODDS-CACHE FETCH` po wygaśnięciu pustej oferty oraz `SOFA-STATS-MISS SKIP` po trzech rzeczywistych brakach. Agent nie uruchamiał kodu ani testów.
 
-Filtr „Tylko mecze z obsługiwanymi rynkami” sprawdza rzeczywistą ofertę meczu tymi samymi parserami co analiza. Sama flaga BetBuildera nie kwalifikuje meczu. Potrzebny jest przynajmniej jeden obsługiwany rynek zawodnika z poprawnym kursem; gole i asysty nie wystarczają. Sprawdzanie obejmuje mecze wybranego bukmachera i dnia pasujące do wyszukiwania oraz rozgrywek, najwyżej trzy równolegle. Do zakończenia sprawdzania lista wyników może być niepełna; licznik pokazuje postęp. Błąd źródła jest osobnym stanem i nie oznacza braku rynków.
+Filtr „Tylko mecze z obsługiwanymi rynkami” korzysta z wyników odczytu rzeczywistych ofert tymi samymi parserami co analiza. Sama flaga BetBuildera nie kwalifikuje meczu. Każdy z trzech bukmacherów musi mieć przynajmniej jeden obsługiwany rynek zawodnika z poprawnym kursem; gole i asysty nie wystarczają. Klient odczytuje kwalifikację z kalendarza serwera, a skaner serwera sprawdza po jednej nieznanej lub wygasłej ofercie naraz. Do zakończenia pierwszego sprawdzania lista wyników może być niepełna; licznik pokazuje postęp. Błąd źródła jest osobnym stanem i nie oznacza braku rynków.
 
-Filtr jest domyślnie włączony. Karty spotkań pokazują wiek sprawdzenia oraz godzinę wygaśnięcia wyniku. Świeża dostępność jest zielona, potwierdzony brak czerwony (widoczny po wyłączeniu filtra), a wygasły lub nieznany wynik szary. Wiek danych na widocznych kartach aktualizuje się co 30 sekund bez pobierania ofert. Nowy wygląd wymaga przebudowania klienta Wails.
+Filtr jest domyślnie włączony. Karty spotkań pokazują wiek sprawdzenia oraz informację o odświeżeniu kursów przy analizie albo terminie ponowienia pustej oferty. Potwierdzona dostępność jest zielona, potwierdzony brak czerwony (widoczny po wyłączeniu filtra), a wygasły lub nieznany wynik szary. Wiek danych na widocznych kartach aktualizuje się co 30 sekund bez pobierania ofert. Nowy wygląd wymaga przebudowania klienta Wails.
 
-Wyniki sprawdzeń trafiają do `data/market_availability_cache.json` i archiwum. Cache dostępnej oferty i braku rynków jest ważny 15 minut od pobrania kursów, a błędu minutę. Każdy wpis dotyczy konkretnego bukmachera i ID meczu. Ponowne wczytanie kalendarza lub przełączenie filtra korzysta z ważnych wpisów zapisanych na serwerze; log `[MARKET-CACHE] HIT` potwierdza odczyt bez ponownego pobrania oferty. W trakcie przeglądania zachowywany jest wynik danego skanowania; ponowne wczytanie kalendarza lub przełączenie filtra ponawia sprawdzenia, których cache już wygasł. Sparsowana oferta użyta do sprawdzenia rynków trafia również do wspólnego cache kursów i może być od razu wykorzystana przez analizę. Oba cache zachowują oryginalny czas obserwacji i ten sam termin następnego sprawdzenia, także po restarcie. Bukmacherzy nie mają limitu kolejnych pustych odpowiedzi.
+Wyniki sprawdzeń trafiają do `data/market_availability_cache.json` i archiwum. Potwierdzona dostępność jest pamiętana do rozpoczęcia meczu, brak rynków przez 15 minut, a błąd nieznanej oferty przez minutę. Każdy wpis dotyczy konkretnego bukmachera, ID meczu, drużyn i terminu. Ponowne wczytanie kalendarza lub przełączenie filtra korzysta z zapisanych potwierdzeń; log `[MARKET-CACHE] HIT` oznacza odczyt bez ponownego pobrania oferty. Klient jedynie odczytuje stan, a ponowienia nieznanych lub pustych ofert obsługuje skaner serwera. Sparsowana oferta użyta do sprawdzenia rynków trafia również do wspólnego cache kursów i może być wykorzystana przez analizę przez 15 minut. Cache cen i dostępności zachowują oryginalny czas obserwacji, lecz mają niezależne terminy ważności, również po restarcie. Bukmacherzy nie mają limitu kolejnych pustych odpowiedzi.
 
 Analiza jest niezależnym zadaniem serwera. Klient odczytuje jej postęp krótkimi zapytaniami, dzięki czemu całe obliczenie nie zajmuje jednego długiego połączenia przez Cloudflare. Parametry, wyniki i status zadań są zapisywane w `data/analysis-jobs`.
 
@@ -113,7 +152,7 @@ Składy SofaScore są odczytywane także przed potwierdzeniem. Oznaczenie `XI` t
 
 Automatyczne dopasowanie drużyn wymaga zgodnej nazwy lub sluga, dyscypliny i kategorii. Nazwy bez oznaczenia płci domyślnie dotyczą drużyn męskich; oznaczenia kobiet w nazwie albo rozgrywkach z cache kalendarza przełączają wyszukiwanie na drużyny żeńskie. Prefiks `RB` jest zachowywany jako `Red Bull`, aby nie łączyć różnych klubów. Brazylijskie oznaczenia stanów, np. `-rs` w Internacionalu i Grêmio, mogą być pominięte przy porównaniu z drużyną z Brazylii; nie są usuwane z kluczy cache. Wyszukiwarka nie wysyła zapytań o samą końcówkę `rs`. Drużyny młodzieżowe i rezerwy nie zastępują pierwszej drużyny.
 
-Jeśli kilka zespołów nadal ma tę samą nazwę, serwer sprawdza terminarze kandydatów i wymaga jednej pasującej pary przeciwników. Termin wybranego meczu jest odczytywany z istniejącego cache kalendarza, bez ponownego pobierania oferty; jeśli jest dostępny, dopuszczalna różnica czasu wynosi godzinę. Błąd pobrania terminarzy nie pozwala uznać częściowego sprawdzenia za jednoznaczny wynik. Przy braku potwierdzenia serwer nie wybiera pierwszego wyniku wyszukiwania.
+Jeśli kilka zespołów nadal ma tę samą nazwę, serwer sprawdza terminarze kandydatów i wymaga jednej pasującej pary przeciwników. Termin wybranego meczu jest odczytywany z istniejącego cache kalendarza, bez ponownego pobierania oferty; jeśli jest dostępny, dopuszczalna różnica czasu wynosi 10 minut. Błąd pobrania terminarzy nie pozwala uznać częściowego sprawdzenia za jednoznaczny wynik. Przy braku potwierdzenia serwer nie wybiera pierwszego wyniku wyszukiwania.
 
 Stary plik `sofa_team_cache.json` jest zachowany. Automatyczne wpisy bez potwierdzenia wersji 3 i kategorii w `sofa_team_identity_cache.json` są ponownie rozpoznawane przy użyciu; ręczne mapowania pozostają ważne. Poprawione ID trafia do cache. Analiza weryfikuje ID przed pobraniem statystyk. Gdy dopasowanie się powiedzie, zastępuje nieaktualne ID przesłane przez klienta lub zapisane w historii, także po usunięciu cache serwera. Korekta pojawia się w ostrzeżeniach i parametrach zadania, a dalsze obliczenia korzystają z poprawionego ID. W logu `[SOFA-SEARCH] CANDIDATE` zawiera również płeć, dyscyplinę i kraj, a `[SOFA-DETECT] FIXTURE` wskazuje mecz rozstrzygający niejednoznaczność. Wpisy `[SOFA-EVENT]` i `[SOFA-LINEUP]` pokazują wybór meczu, pobranie składów i dopasowane statusy. Gdy nie ma danych o XI, klient wyjaśnia pusty wynik filtra.
 
@@ -131,7 +170,7 @@ Odczyt wybranego pliku JSON:
 gzip -dc /sciezka/do/pliku.json.gz | less
 ```
 
-Automatyczny skaner okazji oraz powiadomienia pozostają kolejnym etapem. Obecnie analiza jest uruchamiana dla wybranego meczu, a tło przygotowuje dane dla najbliższych 48 godzin.
+Analiza ręczna obsługuje wybrany mecz, a tło automatycznie wycenia kwalifikujące się wydarzenia z najbliższych 48 godzin. Automatyczne powiadomienia pozostają kolejnym etapem.
 
 ## SofaScore przez działającą przeglądarkę — Chromium/CDP
 
@@ -188,13 +227,13 @@ journalctl -u value-bets -n 80 --no-pager
 
 W logu startowym pojawia się `[SOFA-BROWSER] CONFIGURED`, a przy pobraniu `ATTACHED`, `REQUEST` i `[SOFA-HTTP] ... protocol="Chromium/CDP"`. Te same zapytania wykorzystują cache i archiwizację stosowane dotychczas. Nie trzeba przebudowywać klienta Wails. Tryb przeglądarkowy ignoruje pliki cURL/captcha oraz `VALUE_BETS_SOFA_CAPTCHA`; korzysta z cookies aktualnej przeglądarki i pobiera z nich `sofa_captcha` także do nagłówka `X-Captcha`. Nie zapisuje ani nie loguje tokenów i cookies. Opcjonalne `VALUE_BETS_SOFA_REQUESTED_WITH` nadal jest przekazywane, jeśli zostało ustawione; bez niego nagłówek jest pomijany.
 
-Wszystkie zapytania przez Chromium są wykonywane pojedynczo, domyślnie z odstępem 100–200 ms po zakończeniu poprzedniego. Tło korzysta z tej samej kolejki bez dodatkowego oczekiwania 2–4 sekund, a przerwa między zadaniami w tle wynosi 2–5 sekund zamiast 30–60. Zwykły transport HTTP zachowuje wcześniejsze wolniejsze tempo. Rozwiązanie CAPTCHA nie gwarantuje, że blokada nie pojawi się ponownie. Przy HTTP 403 nie ma czasowej ani ręcznie zwalnianej blokady: rozwiąż challenge w istniejącej przeglądarce i ponów analizę. Niekompletne historie nie są oznaczane jako kompletne.
+Wszystkie zapytania przez Chromium są wykonywane pojedynczo, domyślnie z odstępem 100–200 ms po zakończeniu poprzedniego. Tło korzysta z tej samej kolejki z niższym priorytetem i dodatkowym odstępem 500–1000 ms, a przerwa między zadaniami tła wynosi 5–10 sekund. Zwykły transport HTTP zachowuje wcześniejsze wolniejsze tempo. Rozwiązanie CAPTCHA nie gwarantuje, że blokada nie pojawi się ponownie. Przy HTTP 403 nie ma czasowej ani ręcznie zwalnianej blokady: rozwiąż challenge w istniejącej przeglądarce i ponów analizę. Niekompletne historie nie są oznaczane jako kompletne.
 
 Minimalny odstęp można ustawić przez `VALUE_BETS_SOFA_BROWSER_GAP_MS` lub flagę `-sofa-browser-gap-ms` (zakres 0–10000, domyślnie 100). Rzeczywista przerwa ma jitter od tej wartości do jej dwukrotności; 0 wyłącza dodatkową przerwę, ale zachowuje jedno zapytanie naraz. Flaga ma pierwszeństwo przed środowiskiem. Zmiana wymaga restartu backendu. Log `CONFIGURED ... gap=100ms-200ms` pokazuje zastosowane tempo. W razie częstych challenge można zwiększyć tę wartość bez edycji kodu.
 
 Pobranie w przeglądarce ma limit 15 sekund, a podłączenie wraz z pobraniem 20 sekund (bez czasu kolejki). Odpowiedź ma limit 32 MiB. Anulowanie zadania przerywa oczekiwanie i wysyła `AbortController.abort()` do przeglądarki; wewnętrzny timeout ogranicza pobranie również przy utracie połączenia z DevTools. HTTP 429 zachowuje dotychczasową przerwę. Błędy podłączenia przeglądarki nie dostają 15-minutowego cache błędów kontekstu.
 
-Do ręcznej weryfikacji sprawdź diagnostykę, następnie jedną analizę, ponowienie korzystające z cache i anulowanie analizy. Sprawdź również komunikat po zamknięciu karty i wznowienie po jej ponownym otwarciu. Agent nie uruchamiał ani nie kompilował kodu.
+Do ręcznej weryfikacji sprawdź diagnostykę, następnie jedną analizę, ponowienie korzystające z cache i anulowanie analizy. Sprawdź również komunikat po zamknięciu karty i wznowienie po jej ponownym otwarciu. W bieżącej aktualizacji skompilowano backend i klienta Windows oraz sprawdzono składnię JavaScript. Testów nie uruchamiano.
 
 ### Automatyczny start Chromium/VNC po restarcie Debiana
 
@@ -266,9 +305,9 @@ Log `[SOFA-SESSION] LOADED` pokazuje liczbę nagłówków i cookies, metodę źr
 
 Po wgraniu i przebudowaniu backendu sprawdź ręcznie analizę oraz logi `LOADED`, `captcha_configured` i rzeczywisty status `SOFA-HTTP`. Diagnostyka `-sofa-diagnose -data ./data` również korzysta z tej konfiguracji. Agent nie uruchamiał zapytań ani testów.
 
-## Fair kurs i podgląd drużyn — context-count-v2
+## Fair kurs i podgląd drużyn — context-hit-v3
 
-Fair kurs i historyczny hit rate są liczone osobno. Nowy model używa rzeczywistych liczności z historii zawodnika, bez per90 i bez przeliczania przez przewidywane minuty. Mechanizm SuperSub, jego dane i przełącznik wykresu zachowują dotychczasowe działanie. Podobnie jak wcześniej fair kurs jest obliczany z bazowych statystyk zawodnika; przełącznik SuperSub zmienia podgląd próbki, bez ponownej wyceny zakładu.
+Fair kurs i historyczny hit rate są liczone osobno. Model wycenia trafienia konkretnej linii w rzeczywistych występach, bez per90 i bez przeliczania przez przewidywane minuty. Liczność ponad linię jest jednym trafieniem, niezależnie od zapasu. Zero z rozegranego występu, również przy 90 minutach, jest pełnym nietrafieniem over. Mechanizm SuperSub, jego dane i przełącznik wykresu zachowują dotychczasowe działanie. Podobnie jak wcześniej fair kurs jest obliczany z bazowych statystyk zawodnika; przełącznik SuperSub zmienia podgląd próbki, bez ponownej wyceny zakładu.
 
 Średnia zawodnika jest ważona według aktualnej pozycji ze składu oraz miejsca meczu SofaScore (home/away, także przy odwróconej kolejności u bukmachera). Inna znana pozycja otrzymuje wagę 0,5, inne znane miejsce 0,7; brak danych nie powoduje kary. Następnie model porównuje profil obecnej drużyny i przeciwnika z profilami drużyn występujących w próbce zawodnika. Porównania matchupu obejmują tylko tę samą ligę i sezon.
 
@@ -276,7 +315,7 @@ Wykorzystywane są liczniki właściwe dla rynku: strzały i strzały dopuszczan
 
 Korekta porównuje aktualną wartość z ważoną średnią profili w próbce. Logarytm ilorazu ma wagę 0,5 na każdy dostępny czynnik, wygładzanie 0,25 i osłabienie `n/(n+8)` zależne od liczby spotkań sezonu. Niepełne pokrycie historii dodatkowo zmniejsza wpływ korekty. Cały mnożnik jest ograniczony do 0,8–1,25. To jawne parametry początkowe, a nie wytrenowane współczynniki. Profile dawnych rywali opisują stan sezonu w momencie obecnej analizy; nie są rekonstrukcją stanu sprzed historycznego meczu.
 
-Zamiast stałego miksu 65% hit rate + 35% Poisson model liczy prawdopodobieństwo z rozkładu liczności. Przy nadmiernym rozproszeniu próbki używa rozkładu ujemnego dwumianowego; oszacowanie dodatkowej wariancji jest osłabiane przez `effectiveSample/(effectiveSample+10)`. W pozostałych przypadkach używa Poissona. Dotychczasowe ograniczenie prawdopodobieństwa do 0,005–0,95 pozostaje. Wynik jest modelem eksperymentalnym, bez potwierdzonej kalibracji; mała efektywna próbka jest oznaczana w szczegółach.
+Prawdopodobieństwo bazowe wynika z ważonego udziału trafień i wygładzenia Jeffreysa: `(udziałTrafień * effectiveSample + 0.5) / (effectiveSample + 1)`. Wagi pozycji i home/away pozostają. Mnożnik matchupu zmienia iloraz szans over: `p/(1-p) * matchupFactor`; under jest dopełnieniem. Ograniczenie 0,005–0,995 jest symetryczne. Średnia i oczekiwana liczność są informacją opisową; duży zapas nie podnosi wyceny. Model jest eksperymentalny i wymaga oceny kalibracji na wynikach; raporty rozdzielają wersję `context-hit-v3` od wcześniejszej `context-count-v2`.
 
 Rating zawodnika pojawia się pod datą każdego meczu na wykresie i w dymku słupka, wraz ze średnią ratingów dostępnych w próbce. Brak ratingu to kreska, nie zero. Rating jest odczytywany ze statystyk meczu albo z `statisticsMap` historii; ocena zmiennika nie zastępuje oceny zawodnika. Rozwijane „Fair kurs i kontekst drużyn” pokazuje średnią, mnożnik matchupu, oczekiwaną liczność, rozkład, efektywną próbkę i wykorzystane czynniki. Osobny podgląd zawiera tabelę ogólną i home/away, formę, posiadanie, xG i rating drużyny. Rating, tabela, forma, posiadanie oraz xG nie wchodzą do wzoru fair. Przy tabeli poniżej 8 meczów widnieje ostrzeżenie o małej próbce.
 
@@ -310,7 +349,7 @@ Do ręcznej weryfikacji wgraj backend i przebuduj klienta. Uruchom nową analiz�
 
 ## Wyświetlanie zawodników przed kontekstem
 
-Serwer najpierw odczytuje składy i pobiera historie zawodników z obsługiwanych rynków należących do predicted / confirmed XI obu drużyn. Korzysta bezpośrednio z ID zawodników w składzie, więc pierwszy podgląd nie czeka na odczyt całej kadry i składów historycznych. Po publikacji statystyk XI pobiera kontekst drużyn, tabele i przebiegi oraz publikuje wycenę XI z fair kursem i EV. Dopiero potem pobiera ławkę i pozostałych zawodników z oferty. Rezerwowi korzystają z przygotowanego kontekstu; dla nowych historycznych rywali uzupełniane są jedynie brakujące profile sezonowe. Tabele, forma i przebiegi nie są pobierane ponownie. Łączny limit wynosi 32 próby pobrania profili na analizę, ze starterami jako pierwszymi. Zawodnik jest pobierany najwyżej raz w danej analizie; cache historii i jego ważność do końca spotkania pozostają bez zmian. Przygotowanie samych historii w tle nadal pobiera XI przed ławką i pozostałymi, bez uruchamiania pełnej wyceny. Jeśli SofaScore nie udostępnia składu lub jego klasyfikacji albo nie ma dostępnych historii XI, analiza przechodzi do uzupełniania kadry, a kontekst pobiera po historiach zawodników.
+Serwer najpierw odczytuje składy i pobiera historie zawodników z obsługiwanych rynków należących do predicted / confirmed XI obu drużyn. Korzysta bezpośrednio z ID zawodników w składzie, więc pierwszy podgląd nie czeka na odczyt całej kadry i składów historycznych. Po publikacji statystyk XI pobiera kontekst drużyn, tabele i przebiegi oraz publikuje wycenę XI z fair kursem i EV. Dopiero potem pobiera ławkę i pozostałych zawodników z oferty. Rezerwowi korzystają z przygotowanego kontekstu; dla nowych historycznych rywali uzupełniane są jedynie brakujące profile sezonowe. Tabele, forma i przebiegi nie są pobierane ponownie. Łączny limit wynosi 32 próby pobrania profili na analizę, ze starterami jako pierwszymi. Zawodnik jest pobierany najwyżej raz w danej analizie; cache historii i jego ważność do końca spotkania pozostają bez zmian. Automatyczna analiza w tle korzysta z tego samego porządku i wzoru wyceny. Jeśli SofaScore nie udostępnia składu lub jego klasyfikacji albo nie ma dostępnych historii XI, analiza przechodzi do uzupełniania kadry, a kontekst pobiera po historiach zawodników.
 
 Klient pokazuje zawodników, kursy bukmacherów, hitrate, próbkę i wykresy już po etapie XI. Do ukończenia kontekstu XI fair kurs, edge, EV i ocena są oczekujące; potem starterzy mają wycenę i mogą zostać zapisani, podczas gdy analiza jeszcze pobiera rezerwę. Kolejne podglądy rozszerzają listę i wycenę, także na otwartym wykresie. Komunikaty postępu rozróżniają XI, kontekst i wycenę XI, rezerwę oraz jej wycenę. Uzupełnianie wyników zachowuje filtry użytkownika, a domyślny zakres kursów rozszerza się wraz z nowymi rynkami. Przerwanie późniejszego etapu zachowuje ostatni opublikowany podgląd z wycenionym XI. Archiwum `kursy-statystyki-sklady-matchup-XI-uzyte-do-obliczen` zapisuje wejścia modelu jeszcze przed pobieraniem rezerwy.
 
@@ -322,10 +361,10 @@ API zwraca `resultRevision` i opcjonalny podgląd `result` w trwającym zadaniu.
 
 | Dane | Miejsce | Ważność |
 | --- | --- | --- |
-| Pełne kalendarze bukmacherów | `bookmaker_calendar_cache.json` | 2 godziny; harmonogram odświeża co 2 godziny ±10 minut. Przy istniejącym starym wpisie API może zwrócić go z ostrzeżeniem. |
+| Pełne kalendarze bukmacherów | `bookmaker_calendar_cache.json` | 12 godzin; harmonogram odświeża dwa razy na dobę. Przy istniejącym starym wpisie API może zwrócić go z ostrzeżeniem. |
 | Sparsowane kursy pojedynczego meczu | `bookmaker_match_odds_cache.json` | 15 minut także dla pustych ofert, bez limitu ponowień. Trafienie w cache nie przedłuża TTL. |
 | Potwierdzone braki historii zawodnika SofaScore | `sofa_player_stats_cache.json` | Pierwsze dwa braki: ponowienie w tle po 15 minutach. Od trzeciego: pomijanie do końca powiązanego meczu; ręczna analiza może ponowić od razu. |
-| Dostępność obsługiwanych rynków | `market_availability_cache.json` | Czasy sprawdzenia i ważności z tego samego snapshotu kursów; błąd sprawdzenia 1 minuta. |
+| Dostępność obsługiwanych rynków | `market_availability_cache.json` | Potwierdzenie do rozpoczęcia konkretnego meczu; brak rynków 15 minut, błąd nieznanej oferty 1 minuta. Niezależne od ważności cen. |
 | Pełne historie zawodników: statystyki, minuty, pozycje, ratingi, mapy strzałów i dane SuperSub | `sofa_player_stats_cache.json` | Powiązane z nadchodzącym meczem i unieważniane po rozpoznaniu jego zakończenia/anulowania. Awaryjny termin: start +4 godziny; bez powiązanego meczu 24 godziny. Klucz uwzględnia mecz, zawodnika, limit próbki i rozgrywki. Niepełne historie nie są zapisywane jako poprawny cache. |
 | ID i zweryfikowana tożsamość drużyn | `sofa_team_cache.json`, `sofa_team_identity_cache.json` | Bez czasowego TTL; obowiązuje weryfikacja tożsamości i wersja formatu. |
 | Sezonowe profile drużyn do matchupu | `matchup_cache/*.json` | Do kolejnego wykrytego zakończonego meczu drużyny; potem odświeżenie przy kolejnym użyciu. |
@@ -333,9 +372,82 @@ API zwraca `resultRevision` i opcjonalny podgląd `result` w trwającym zadaniu.
 | Lista ostatnich spotkań używana do pobierania przebiegów i kadry | `matchup_cache/druzyna-{id}_stan-po-meczu.json` | Powiązana z zakończonymi meczami, kontrola terminarza według kolejnego spotkania; bez bliskiego terminu najwyżej raz na dobę. |
 | Przebiegi zakończonych spotkań, wykresy i incydenty | `match_flow_cache/` oraz odpowiedzi w `matchup_cache/` | Poprawnie zapisany przebieg bez TTL. Brakujące dane ponownie sprawdzane po zmianie znacznika ostatniego zakończonego meczu. Starsze wersje pozostają dostępne dla wcześniejszych analiz i zakładek. |
 
-Klient dodatkowo przechowuje kalendarze w pamięci do 2 godzin od pobrania u źródła, dostępność rynków według serwerowego `expiresAt` oraz odczytane wersje przebiegów na czas działania aplikacji. Kadry i aktualne składy XI nie mają osobnego trwałego cache i są pobierane ponownie przy analizie. Wyniki wyszukiwania drużyn nie mają osobnego cache odpowiedzi; zachowywane są dopasowane ID.
+Klient dodatkowo przechowuje kalendarze w pamięci przez 10 sekund, dostępność rynków według serwerowego `expiresAt` oraz odczytane wersje przebiegów na czas działania aplikacji. Co 15 sekund odczytuje kalendarz z cache serwera wraz z aktualnym stanem rynków, również podczas analizy i wyboru meczu. Kadry i aktualne składy XI nie mają osobnego trwałego cache i są pobierane ponownie przy analizie. Wyniki wyszukiwania drużyn nie mają osobnego cache odpowiedzi; zachowywane są dopasowane ID.
 
 `player_stats_background.json` przechowuje stan kolejki i powiązania z nadchodzącymi meczami; status rozpoczętego meczu jest sprawdzany co około 5 minut. `analysis-jobs/` zawiera zapisane wyniki zadań, a klient zachowuje osobiste zakłady i historię. To trwałe zapisy, nie cache z TTL. Tak samo `archive/` służy historii, a nie unikaniu kolejnych zapytań: identyczne wersje kursów są deduplikowane, a sprawdzenia zapisywane jako małe obserwacje.
+
+## Automatyczna wycena, prognozy i rozliczenia
+
+Tło wykonuje teraz pełną analizę dla dostępnych obsługiwanych rynków w ruchomym oknie 48 godzin. Używa tej samej wyceny `context-hit-v3` co analiza ręczna, próby 10 meczów i filtra `ALL`. Kolejność pozostaje XI → kontekst → rezerwa. Historie i konteksty korzystają ze swoich dotychczasowych cache; aktualizacja oferty nie oznacza ponownego pobrania wszystkich statystyk. Tło działa przy zamkniętym Wails i ustępuje pobraniom ręcznym. SofaScore 429 wstrzymuje jego pobrania, ale sprawdzanie bukmacherów nadal działa. Automatyczne analizy są zapisywane z `origin=automatic`; ręczne z `origin=manual`.
+
+Kalendarz Wails pokazuje na każdej karcie liczbę **Value** i **Pułapek**, wiek analizy oraz stan pobierania, niepełnych danych lub błędu. Liczniki dotyczą oferty wybranego bukmachera. Brak gotowej analizy nie jest przedstawiany jako zero okazji. Odczyty liczników co 15 sekund nie przerywają pracy tła i nie pobierają danych u źródeł.
+
+`data/predictions.sqlite` przechowuje niezmienne prognozy sprzed startu: kurs i czas jego pobrania, linię, kierunek, ID zawodnika i wydarzenia, fair kurs, prawdopodobieństwo, historyczny hitrate, ocenę VALUE/TRAP/NEUTRAL, kompletność próbki i wersję algorytmu. Ręczne prognozy są zachowywane dla dostępu do szczegółów, lecz nie wchodzą do podstawowego raportu automatu. Prognoza powstaje tylko przy zweryfikowanym przyszłym wydarzeniu SofaScore. Analiza zakończona po starcie nie tworzy prognozy przedmeczowej.
+
+Pełne wejścia modelu są współdzielonymi plikami JSON gzip, zamiast kopiować historie i mapy strzałów do każdego rynku. Zapis zawiera składy, wszystkie historie i kontekst wykorzystany przy danej analizie. Zmiana kursu tworzy nową prognozę; identyczne wejścia wskazują ten sam `evidenceId`. Sukcesy automatycznych pobrań źródłowych są również deduplikowane według treści. Deduplikacja kursów i małe obserwacje sprawdzeń pozostają aktywne. SQLite zawiera metadane kolejnych analiz; to nie jest magazyn o stałej wielkości.
+
+Archiwum ma czytelne katalogi i nazwy, np.:
+
+```text
+data/predictions.sqlite
+data/archive/badanie-algorytmu/dane-przedmeczowe/{druzyny-mecz-id}/wersja-{hash}/{druzyny-mecz-id}_dane-przedmeczowe.json.gz
+data/archive/badanie-algorytmu/wyniki-statystyki/{druzyny-mecz-id}/wersja-{hash}/{druzyny-mecz-id}_wyniki-statystyki.json.gz
+data/archive/badanie-algorytmu/raport-skutecznosci/{data-strategia-wariant}/wersja-{hash}/...
+data/archive/automatyczne-zrodla/{zrodlo}/{druzyny}/{zakres}/wersja-{hash}/...
+data/reports/{data}_prematch-T60-single-v1_standard-v1_30-dni.json
+```
+
+Pierwsza kontrola wyniku następuje około start +110 minut; jeśli spotkanie jeszcze trwa, ponowienie zwykle po 5 minutach. Wykonywane jest jedno zadanie tła naraz; rozliczenia mają pierwszeństwo przed kolejną wyceną. Zakończone wydarzenie uruchamia pobranie wyniku, składów, incydentów, potrzebnych map strzałów i statystyk zawodników z prognoz oraz ich zmienników. Te dane mają własną wersję treści; korekta źródła tworzy nową wersję rozliczenia, zachowując poprzednią. Po kompletnym pobraniu jest jeszcze kontrola po około 24 godzinach. Braki są ponawiane najpierw po 15 minutach, później co godzinę, a po 72 godzinach raz na dobę. Wszystko odbywa się w czasie bezczynności.
+
+Stany rozliczenia: `won`, `lost`, `void`, `unresolved`. Brak pola statystyki, brak potwierdzonego udziału, niekompletna mapa strzałów albo błąd źródła nie są zamieniane w zero ani stratę. Potwierdzona ławka bez udziału oraz odwołane spotkanie dają zwrot. Dogrywka lub karne pozostają nierozliczone, jeśli nie można wydzielić statystyk regulaminowego czasu. Są dwa oddzielne warianty: `standard-v1` i `supersub-v1`. Ten drugi odtwarza dotychczasową logikę programu (pierwszy zmiennik przy mniej niż 85 minutach), a nie potwierdzony regulamin rozliczeń każdego bukmachera.
+
+### Raport porównawczy aktualnego algorytmu
+
+W Wails dostępny jest przycisk **Raport skuteczności algorytmu**. Taki sam raport czyta osobny panel WWW. Oceny ludzi nie zmieniają raportu algorytmu.
+
+- Strategia `prematch-T60-single-v1`: dla każdego bukmachera, wydarzenia i wersji algorytmu wybiera ostatnią automatyczną analizę ukończoną nie później niż godzinę przed startem. Migawka musi pochodzić z 48 godzin przed startem; oferta musi być wtedy ważna i nie starsza niż 15 minut.
+- Uwzględnia wyłącznie wycenione rynki zawodników z kompletną historią minimum 10 meczów. Dostępne historie innych zawodników mogą wejść do raportu nawet wtedy, gdy u części kadry źródło nie udostępnia danych. Niepełna historia danego zawodnika jest wykluczana.
+- Jeden single po 1 jednostce na unikalny typ w tej migawce; kolejne odświeżenia nie są kolejnymi zakładami. Próg historycznego hitrate wynosi co najmniej 0/60/70/80/90/100%; progi są kumulatywne. Wariant SuperSub zachowuje ten sam filtr bazowego hitrate i ocenę algorytmu, zmienia rozliczenie.
+- Osobne grupy VALUE, TRAP, NEUTRAL i ALL, wersje algorytmu oraz bukmacherzy. Dodatkowe BEST_PRICE wybiera jeden najwyższy kurs spośród ich migawek; te ceny nie musiały występować jednocześnie. Podstawowym porównaniem pozostają grupy poszczególnych bukmacherów.
+- Raport pokazuje liczbę typów i różnych spotkań, wygrane/przegrane/zwroty/nierozliczone, rzeczywisty hitrate, stawki, wypłaty, zysk z wygranych, straty, wynik netto oraz ROI. Hitrate i ROI wykluczają zwroty i nierozliczone. Zwrot oddaje stawkę.
+- Mnożnik wypłaty jest jawny, domyślnie 0,88 zgodnie z obecną wyceną. Wypłata wygranego singla = kurs × mnożnik. To symulacja przy wskazanych założeniach, bez kuponów AKO, promocji i rekonstrukcji indywidualnych rozliczeń konta.
+
+Po rozliczeniu zapisywane są domyślne raporty 30-dniowe obu wariantów, z wersjami w archiwum i aktualnym plikiem JSON w `reports`. Interfejs pozwala wybrać 7/30/90/365 dni oraz mnożnik. Dane zaczynają się od uruchomienia tej wersji backendu; dawne analizy nie są importowane jako prognozy sprzed meczu.
+
+### Postęp w journalctl
+
+```sh
+sudo journalctl -u value-bets -f
+```
+
+W logach są etapy `[AUTO-ANALYSIS]`, `ANALYSIS_PROGRESS`, `[PREDICTIONS]`, `[SETTLEMENT]` i `[REPORT]`. Każdy komunikat głównego loggera i wyjścia Betclic do journal ma dopisany ostatni stan kolejki oraz, jeśli trwa działanie, ID i etap. Przy zawodnikach widać licznik pobranych, całość i pozostałych. Co 60 sekund `[PROGRESS]` aktualizuje liczbę ofert kalendarza, dostępnych rynków, gotowych i oczekujących analiz, spotkań z brakami statystyk, błędów i rozliczeń. Liczniki kolejki są migawką z ostatniej minuty; licznik bieżącej analizy jest aktualizowany na każdym etapie. Całość zawodników może rosnąć po odkryciu rezerwy.
+
+Liczniki ofert/analiz dotyczą pary bukmacher + ID, więc jedno spotkanie dostępne u trzech bukmacherów może liczyć się trzy razy. Rozliczenia i liczba różnych spotkań w raporcie używają ID SofaScore. Podgląd postępu nie powoduje nowych zapytań do źródeł.
+
+### API dla oddzielnego panelu i eksportu
+
+Wszystkie poniższe operacje są odczytowe:
+
+- `GET /api/v1/research/summaries` — liczniki i stan automatycznych analiz;
+- `GET /api/v1/research/progress` — kolejka i aktywne zadania;
+- `GET /api/v1/research/candidates` — najnowsze świeże VALUE do 48 godzin;
+- `GET /api/v1/research/predictions/{id}` — zamrożona prognoza, wejścia, rozliczenia i zarchiwizowane dane pomeczowe;
+- `GET /api/v1/research/reports?days=30&payout=0.88&rules=standard-v1` — raport;
+- `GET /api/v1/research/export?kind=predictions|inputs|outcomes&days=365` — JSONL.
+
+Formaty mają `schemaVersion`. `predictionId` ocen/rozliczeń łączy się z `id` prognozy; `evidenceId` z eksportem wejść. `betKey` identyfikuje wspólny typ: mecz + zawodnik + rynek + linia + kierunek, niezależnie od bukmachera. Eksport rozliczeń zawiera wszystkie zachowane rewizje, nie tylko najnowszą. Bazy i archiwa trzeba zachować razem. Backup SQLite wykonuj przy zatrzymanej usłudze albo mechanizmem SQLite backup, nie kopiując samego pliku działającej bazy WAL.
+
+Osobny panel, konta obu osób, eksport ocen i usługa systemd są opisane w `review/README.md`. Cały backend pozostaje w jednym `server/value_bets.go`; panel ma własne `review.go` i osadzany `index.html`.
+
+### Kolejność ręcznej weryfikacji tej wersji
+
+1. Wgraj trzy pliki backendu, zbuduj nową binarkę i zrestartuj istniejącą usługę, zachowując konfigurację Chromium oraz `data`.
+2. Przebuduj Wails. Poczekaj na ukończoną analizę automatyczną meczu z rynkami i sprawdź liczniki Value/Pułapek oraz postęp w journal.
+3. Uruchom panel według jego instrukcji, dodaj konta i hostname tunelu. Oceń propozycję z obu kont; opinie powinny pojawić się po własnym zapisie. Zmiana oceny powinna utworzyć nową wersję.
+4. Po zakończonym meczu sprawdź wynik i statystykę rzeczywistą w historii panelu oraz raport dla danego bukmachera. Brak wymaganych danych powinien pozostać nierozliczony. Zweryfikuj osobno standard i SuperSub na znanej zmianie zawodnika.
+5. Pobierz JSONL prognoz, wejść, wyników i ocen oraz sprawdź ich wspólne identyfikatory. Nie mieszaj linii jednego meczu między treningiem i walidacją.
+
+Po poprawkach uruchomiono testy Go backendu i review, w tym regresje modelu, aliasów, filtrów kobiet, archiwum i zgodności liczników. Sprawdzono składnię JavaScript oraz widok review na lokalnych danych testowych. Zbudowano klienta Wails. Wdrożenie na Debianie i sprawdzenie zewnętrznych źródeł wymagają aktualizacji działających usług.
 
 ## Klient i ręczna weryfikacja
 
@@ -358,4 +470,4 @@ Opcjonalna diagnostyka SofaScore, wykonywana ręcznie na Debianie:
 ./value_bets -sofa-diagnose -data ./data
 ```
 
-Kod nie został uruchomiony, skompilowany ani przetestowany przez agenta; weryfikacja działania pozostaje ręczna zgodnie z ustaleniem.
+Testy Go, kompilacja i lokalny podgląd review zostały wykonane. Po aktualizacji usług pozostaje sprawdzenie działania na rzeczywistych źródłach i danych serwera.

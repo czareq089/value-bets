@@ -1,12 +1,22 @@
 [
   {
-    "timestamp": "2026-10-08 13:43:03",
-    "title": "borussia-dortmund vs werder-bremen",
-    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/borussia-dortmund-vs-werder-bremen-14025546?mdt=o",
-    "betclicUrl": "https://www.betclic.pl/pilka-nozna-s1/borussia-dortmund-vs-werder-m1227192019210240",
-    "stsUrl": "https://www.sts.pl/kursy/pilka-nozna/borussia-dortmund-vs-werder-brema/f3205599",
-    "homeStatsId": "2673",
-    "awayStatsId": "2534",
+    "timestamp": "2026-10-10 12:24:22",
+    "title": "psg vs le-mans",
+    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/psg-vs-le-mans-14025618?mdt=o",
+    "betclicUrl": "https://www.betclic.pl/pilka-nozna-s1/paris-saint-germain-vs-le-mans-fc-m1227191985655808",
+    "stsUrl": "https://www.sts.pl/kursy/pilka-nozna/psg-vs-le-mans-fc/f2868193",
+    "homeStatsId": "1644",
+    "awayStatsId": "1672",
+    "sampleLimit": 10
+  },
+  {
+    "timestamp": "2026-10-10 00:09:39",
+    "title": "barcelona vs getafe",
+    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/barcelona-vs-getafe-14040056?mdt=o",
+    "betclicUrl": "https://www.betclic.pl/pilka-nozna-s1/barcelona-vs-getafe-m1228048091340800",
+    "stsUrl": "https://www.sts.pl/kursy/pilka-nozna/barcelona-vs-getafe/f3067235",
+    "homeStatsId": "2817",
+    "awayStatsId": "2859",
     "sampleLimit": 10
   }
 ]

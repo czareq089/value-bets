@@ -1,5 +1,42 @@
 export namespace main {
 	
+	export class AnalysisEligibility {
+	    status: string;
+	    reason?: string;
+	    links: Record<string, string>;
+	    // Go type: time
+	    expiresAt?: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new AnalysisEligibility(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.status = source["status"];
+	        this.reason = source["reason"];
+	        this.links = source["links"];
+	        this.expiresAt = this.convertValues(source["expiresAt"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ShotCoordinate {
 	    x: number;
 	    y: number;
@@ -327,6 +364,7 @@ export namespace main {
 	    }
 	}
 	export class AnalyzedBet {
+	    playerId: number;
 	    contextPending?: boolean;
 	    sampleRatings: number[];
 	    fairModel?: FairModelDetails;
@@ -364,6 +402,7 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.playerId = source["playerId"];
 	        this.contextPending = source["contextPending"];
 	        this.sampleRatings = source["sampleRatings"];
 	        this.fairModel = this.convertValues(source["fairModel"], FairModelDetails);
@@ -501,6 +540,62 @@ export namespace main {
 	}
 	
 	
+	export class AutomaticSummary {
+	    bookmaker: string;
+	    eventId: string;
+	    fixtureId: string;
+	    match: string;
+	    status: string;
+	    stage: string;
+	    value: number;
+	    traps: number;
+	    total: number;
+	    // Go type: time
+	    analyzedAt: any;
+	    // Go type: time
+	    expiresAt: any;
+	    runId: string;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AutomaticSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.bookmaker = source["bookmaker"];
+	        this.eventId = source["eventId"];
+	        this.fixtureId = source["fixtureId"];
+	        this.match = source["match"];
+	        this.status = source["status"];
+	        this.stage = source["stage"];
+	        this.value = source["value"];
+	        this.traps = source["traps"];
+	        this.total = source["total"];
+	        this.analyzedAt = this.convertValues(source["analyzedAt"], null);
+	        this.expiresAt = this.convertValues(source["expiresAt"], null);
+	        this.runId = source["runId"];
+	        this.error = source["error"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	
 	export class FlowGraphPoint {
 	    minute: number;
@@ -716,6 +811,38 @@ export namespace main {
 		}
 	}
 	
+	export class MatchPreparation {
+	    qualified: boolean;
+	    sources: Record<string, MatchMarketAvailability>;
+	
+	    static createFrom(source: any = {}) {
+	        return new MatchPreparation(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.qualified = source["qualified"];
+	        this.sources = this.convertValues(source["sources"], MatchMarketAvailability, true);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class MyBetItem {
 	    sampleRatings: number[];
 	    fairModel?: FairModelDetails;
@@ -815,6 +942,8 @@ export namespace main {
 	    url: string;
 	    live: boolean;
 	    betBuilder: boolean;
+	    marketAvailability?: MatchMarketAvailability;
+	    analysisEligibility?: AnalysisEligibility;
 	
 	    static createFrom(source: any = {}) {
 	        return new SuperbetCalendarEvent(source);
@@ -831,7 +960,27 @@ export namespace main {
 	        this.url = source["url"];
 	        this.live = source["live"];
 	        this.betBuilder = source["betBuilder"];
+	        this.marketAvailability = this.convertValues(source["marketAvailability"], MatchMarketAvailability);
+	        this.analysisEligibility = this.convertValues(source["analysisEligibility"], AnalysisEligibility);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class SuperbetCalendar {
 	    date: string;

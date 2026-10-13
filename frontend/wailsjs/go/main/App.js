@@ -14,6 +14,10 @@ export function DeleteMatchHistory(arg1) {
   return window['go']['main']['App']['DeleteMatchHistory'](arg1);
 }
 
+export function DetectCalendarEventTeams(arg1, arg2, arg3) {
+  return window['go']['main']['App']['DetectCalendarEventTeams'](arg1, arg2, arg3);
+}
+
 export function DetectCalendarTeams(arg1, arg2) {
   return window['go']['main']['App']['DetectCalendarTeams'](arg1, arg2);
 }
@@ -26,12 +30,24 @@ export function GetAnalysisProgress() {
   return window['go']['main']['App']['GetAnalysisProgress']();
 }
 
+export function GetAutomaticAnalysis(arg1) {
+  return window['go']['main']['App']['GetAutomaticAnalysis'](arg1);
+}
+
+export function GetAutomaticSummaries() {
+  return window['go']['main']['App']['GetAutomaticSummaries']();
+}
+
 export function GetAvailableTournaments(arg1, arg2) {
   return window['go']['main']['App']['GetAvailableTournaments'](arg1, arg2);
 }
 
 export function GetBetclicCalendar(arg1) {
   return window['go']['main']['App']['GetBetclicCalendar'](arg1);
+}
+
+export function GetEvaluationReport(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GetEvaluationReport'](arg1, arg2, arg3);
 }
 
 export function GetMatchFlow(arg1, arg2) {
@@ -52,6 +68,10 @@ export function LoadMatchHistory() {
 
 export function LoadMyBets() {
   return window['go']['main']['App']['LoadMyBets']();
+}
+
+export function PrepareCalendarMatch(arg1, arg2, arg3) {
+  return window['go']['main']['App']['PrepareCalendarMatch'](arg1, arg2, arg3);
 }
 
 export function RefreshBookmakerCalendar(arg1, arg2) {

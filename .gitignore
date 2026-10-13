@@ -1,5 +1,6 @@
 *.md
 !server/README.md
+!review/README.md
 /build/
 /.llm_context/
 /frontend/wailsjs/
@@ -11,3 +12,6 @@
 /server/logs/
 /server/value_bets
 /server/value_bets.exe
+/review/data/
+/review/review
+/review/review.exe

@@ -8,15 +8,23 @@ export function CheckMatchMarkets(arg1:string,arg2:string,arg3:string,arg4:strin
 
 export function DeleteMatchHistory(arg1:number):Promise<Array<main.MatchHistoryEntry>>;
 
+export function DetectCalendarEventTeams(arg1:string,arg2:string,arg3:string):Promise<main.TeamDetectionResult>;
+
 export function DetectCalendarTeams(arg1:string,arg2:string):Promise<main.TeamDetectionResult>;
 
 export function DetectTeamsFromURL(arg1:string):Promise<main.TeamDetectionResult>;
 
 export function GetAnalysisProgress():Promise<main.AnalysisJob>;
 
+export function GetAutomaticAnalysis(arg1:string):Promise<Array<main.AnalyzedBet>>;
+
+export function GetAutomaticSummaries():Promise<Array<main.AutomaticSummary>>;
+
 export function GetAvailableTournaments(arg1:string,arg2:string):Promise<Array<main.LeagueOption>>;
 
 export function GetBetclicCalendar(arg1:string):Promise<main.SuperbetCalendar>;
+
+export function GetEvaluationReport(arg1:number,arg2:number,arg3:string):Promise<Record<string, any>>;
 
 export function GetMatchFlow(arg1:string,arg2:string):Promise<main.HistoricalMatchFlow>;
 
@@ -27,6 +35,8 @@ export function GetSuperbetCalendar(arg1:string):Promise<main.SuperbetCalendar>;
 export function LoadMatchHistory():Promise<Array<main.MatchHistoryEntry>>;
 
 export function LoadMyBets():Promise<Array<main.MyBetItem>>;
+
+export function PrepareCalendarMatch(arg1:string,arg2:string,arg3:string):Promise<main.MatchPreparation>;
 
 export function RefreshBookmakerCalendar(arg1:string,arg2:string):Promise<main.SuperbetCalendar>;
 

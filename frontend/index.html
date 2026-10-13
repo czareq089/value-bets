@@ -327,9 +327,10 @@
         <select class="filter-select" id="calendarLeague" onchange="renderSuperbetCalendar()" aria-label="Rozgrywki kalendarza">
             <option value="">Wszystkie rozgrywki</option>
         </select>
-        <label style="font-size:11px; color:var(--text-muted);"><input type="checkbox" id="calendarMarketsOnly" checked onchange="changeCalendarMarketFilter()"> Tylko mecze z obsługiwanymi rynkami</label>
+        <label style="font-size:11px; color:var(--text-muted);"><input type="checkbox" id="calendarMarketsOnly" checked onchange="changeCalendarMarketFilter()"> Tylko mecze z rynkami u wszystkich bukmacherów</label>
         <div id="calendarStatus" class="calendar-status" role="status"></div>
         <div id="calendarWarnings" class="calendar-status" style="color:var(--sb-color);"></div>
+        <button class="btn-ghost" onclick="openEvaluationReport()">Raport skuteczności algorytmu</button>
         <div id="calendarList" class="calendar-list"></div>
     </div>
 </div>
@@ -387,7 +388,7 @@
             <div class="input-group">
                 <label>Zakres próbki:</label>
                 <div class="slider-wrap">
-                    <input type="range" id="matchSlider" min="1" max="30" value="10" oninput="document.getElementById('sliderVal').innerText = this.value + ' m.'">
+                    <input type="range" id="matchSlider" min="1" max="50" value="10" oninput="document.getElementById('sliderVal').innerText = this.value + ' m.'">
                     <span class="slider-val" id="sliderVal">10 m.</span>
                 </div>
             </div>
@@ -427,8 +428,8 @@
             <label>Próbka (mecze):</label>
             <div class="dual-range" id="sampleRangeWrap">
                 <div class="dual-range-track"><div class="dual-range-fill" id="sampleRangeFill"></div></div>
-                <input type="range" id="sampleMinSlider" min="1" max="30" step="1" value="1" oninput="onSampleRangeInput()">
-                <input type="range" id="sampleMaxSlider" min="1" max="30" step="1" value="30" oninput="onSampleRangeInput()">
+                <input type="range" id="sampleMinSlider" min="1" max="50" step="1" value="1" oninput="onSampleRangeInput()">
+                <input type="range" id="sampleMaxSlider" min="1" max="50" step="1" value="30" oninput="onSampleRangeInput()">
             </div>
             <span class="slider-val" id="sampleRangeVal">1 – 30</span>
         </div>
@@ -501,6 +502,7 @@
         </select>
     </div>
 
+    <p id="resultsMeta" style="font-size:12px;color:var(--text-muted)"></p>
     <div class="stats-row">
         <div class="stat-card">
             <div class="label">Przeanalizowane rynki</div>
@@ -663,13 +665,15 @@
     let calendarSelection = 0;
     const calendarCache = new Map();
     const calendarMarketCache = new Map();
-    const calendarMarketAttempted = new Set();
-    let calendarMarketWorkers = 0;
     const CALENDAR_METHODS = { SUPERBET: 'GetSuperbetCalendar', STS: 'GetSTSCalendar', BETCLIC: 'GetBetclicCalendar' };
     const CALENDAR_INPUTS = { SUPERBET: 'sbInput', STS: 'stsInput', BETCLIC: 'betclicInput' };
     const CALENDAR_LABELS = { SUPERBET: 'Superbet', STS: 'STS', BETCLIC: 'Betclic' };
+    const automaticSummaries = new Map();
+    let automaticSummaryPolling = false;
+    let automaticSummaryError = '';
     let analysisPolling = false;
     let analysisActive = false;
+    let analysisViewRevision = 0;
 
     const MARKET_LABELS = {
         SHOTS_TOTAL: "Strzały",
@@ -698,6 +702,8 @@
         refreshAnalysisProgress();
         setInterval(refreshAnalysisProgress, 1500);
         setInterval(refreshCalendarMarketFreshness, 30000);
+        refreshAutomaticSummaries();
+        setInterval(refreshAutomaticSummaries, 15000);
         renderTableHeaders();
         updateDropdownLabels();
 
@@ -787,6 +793,7 @@
     }
 
     function clearAllInputs() {
+        analysisViewRevision++;
         cancelCalendarSelection();
         const ids = ['sbInput', 'betclicInput', 'stsInput', 'homeIdInput', 'awayIdInput'];
         ids.forEach(id => {
@@ -798,6 +805,8 @@
         currentHomeSlug = "";
         currentAwaySlug = "";
         rawBets = [];
+        document.getElementById('resultsMeta').textContent = '';
+        closeChart();
 
         document.getElementById('leagueSelectorWrap').style.display = 'none';
         document.getElementById('leagueCheckboxes').innerHTML = '';
@@ -946,7 +955,7 @@
         const wasSelecting = calendarSelecting;
         const hadSelection = calendarSelectedID !== null;
         calendarSelection++;
-        if (wasSelecting) document.getElementById('btnAnalyze').disabled = false;
+        if (wasSelecting) document.getElementById('btnAnalyze').disabled = analysisActive;
         calendarSelecting = false;
         calendarSelectedID = null;
         if (wasSelecting || hadSelection) renderSuperbetCalendar();
@@ -958,7 +967,7 @@
         if (cached?.promise) return cached.promise;
         // The server owns source freshness. This short UI cache avoids duplicate API
         // reads while allowing source snapshots refreshed by the scheduler to appear.
-        if (!force && cached?.result && Date.now() - cached.receivedAt < 60 * 1000) {
+        if (!force && cached?.result && Date.now() - cached.receivedAt < 10 * 1000) {
             return Promise.resolve(cached.result);
         }
         const entry = {};
@@ -990,7 +999,6 @@
         const date = document.getElementById('calendarDate').value;
         if (!date) return;
         const bookmaker = document.getElementById('calendarBookmaker').value;
-        calendarMarketAttempted.clear();
         if (force) calendarCache.clear();
         cancelCalendarSelection();
         const request = ++calendarRequest;
@@ -1033,51 +1041,38 @@
     function calendarMarketState(event) {
         const key = `${event.bookmaker}:${event.id}`;
         const state = calendarMarketCache.get(key);
-        // Keep one coherent scan snapshot until the user reloads or toggles the
-        // filter; a long scan must not keep retrying its earliest results.
-        if (state && (state.status === 'checking' || Date.now() < state.expiresAt || calendarMarketAttempted.has(key))) return state;
+        if (state && Date.now() < state.expiresAt) return state;
         return null;
     }
 
     function changeCalendarMarketFilter() {
-        calendarMarketAttempted.clear();
         renderSuperbetCalendar();
     }
 
     function checkCalendarMarkets(events) {
-        // Only check the current calendar selection, with at most three requests
-        // in flight. The server coalesces requests and persists availability cache.
-        if (!document.getElementById('calendarMarketsOnly').checked) return;
-        while (calendarMarketWorkers < 3) {
-            const event = events.find(candidate => !calendarMarketState(candidate));
-            if (!event) break;
-            const key = `${event.bookmaker}:${event.id}`;
-            calendarMarketAttempted.add(key);
-            calendarMarketCache.set(key, { status: 'checking' });
-            calendarMarketWorkers++;
-            Promise.resolve().then(async () => {
-                if (!window.go?.main?.App?.CheckMatchMarkets) {
-                    throw new Error('Zbuduj ponownie klienta, aby sprawdzać dostępność rynków.');
-                }
-                const result = await window.go.main.App.CheckMatchMarkets(event.bookmaker, event.id, event.home, event.away);
-                if (!['available', 'unavailable', 'error'].includes(result.status)) {
-                    throw new Error('Serwer zwrócił nieznany status dostępności rynków.');
-                }
-                calendarMarketCache.set(key, {
-                    ...result,
-                    expiresAt: Date.parse(result.expiresAt) || Date.now() + 60 * 1000
-                });
-            }).catch(error => {
-                calendarMarketCache.set(key, {
-                    status: 'error', error: error?.message || String(error), expiresAt: Date.now() + 60 * 1000
-                });
-            }).finally(() => {
-                calendarMarketWorkers--;
-                // Keep the match-selection status visible while links/IDs load.
-                if (!calendarSelecting) renderSuperbetCalendar();
-            });
+        // Availability comes with the cached server calendar; no browser-driven scan.
+        for (const event of events) {
+            const result = event.marketAvailability;
+            if (!result) continue;
+            calendarMarketCache.set(`${event.bookmaker}:${event.id}`, {...result, expiresAt:Date.parse(result.expiresAt)});
         }
     }
+
+    let calendarServerPolling = false;
+    async function pollCalendarServer() {
+        if (calendarServerPolling || !calendarEvents.length) return;
+        calendarServerPolling = true;
+        const date = document.getElementById('calendarDate').value;
+        const book = document.getElementById('calendarBookmaker').value;
+        try {
+            const result = await fetchBookmakerCalendar(book,date);
+            if (date !== document.getElementById('calendarDate').value || book !== document.getElementById('calendarBookmaker').value) return;
+            calendarEvents = result.events;
+            renderSuperbetCalendar();
+        } catch (err) { console.error('Odczyt kalendarza serwera:',err); }
+        finally { calendarServerPolling = false; }
+    }
+    setInterval(pollCalendarServer,15000);
 
     function updateCalendarMarketFreshness(card) {
         const availability = calendarMarketCache.get(card.dataset.marketKey);
@@ -1100,8 +1095,9 @@
                 : `sprawdzono ${Math.floor(minutes / 60)} godz. ${minutes % 60} min temu`;
         }
         const expiry = fresh
-            ? 'ważne do ' + new Intl.DateTimeFormat('pl-PL', {timeZone: 'Europe/Warsaw', hour: '2-digit', minute: '2-digit'}).format(new Date(expiresAt))
-            : 'wynik wygasł';
+            ? (availability.status === 'available' ? 'kursy odświeżane przy analizie'
+                : 'ponowne sprawdzenie po ' + new Intl.DateTimeFormat('pl-PL', {timeZone: 'Europe/Warsaw', hour: '2-digit', minute: '2-digit'}).format(new Date(expiresAt)))
+            : 'oczekiwanie na odświeżenie dostępności';
         label.textContent = `${age} · ${expiry}`;
         label.title = Number.isFinite(checkedAt)
             ? 'Sprawdzono: ' + new Date(checkedAt).toLocaleString('pl-PL') : '';
@@ -1122,7 +1118,7 @@
             normalize(`${event.home} ${event.away} ${event.competition} ${event.country}`).includes(search));
         checkCalendarMarkets(candidates);
         const events = candidates.filter(event => !marketsOnly ||
-            (calendarMarketState(event)?.status === 'available' && calendarMarketState(event).markets?.length > 0));
+            (event.analysisEligibility?.status === 'available' && Date.parse(event.analysisEligibility.expiresAt) > Date.now()));
         const list = document.getElementById('calendarList');
         list.replaceChildren();
         document.getElementById('calendarStatus').textContent = calendarEvents.length
@@ -1130,20 +1126,17 @@
             : 'Brak meczów w dostępnej ofercie na ten dzień.';
         if (!events.length && calendarEvents.length) document.getElementById('calendarStatus').textContent = 'Brak meczów pasujących do filtrów.';
         if (marketsOnly && candidates.length) {
-            const checked = candidates.filter(event => ['available', 'unavailable'].includes(calendarMarketState(event)?.status)).length;
-            const failed = candidates.filter(event => calendarMarketState(event)?.status === 'error').length;
-            const pending = candidates.length - checked - failed;
+            const checked = candidates.filter(event => ['available', 'unavailable'].includes(event.analysisEligibility?.status)).length;
+            const pending = candidates.length - checked;
             document.getElementById('calendarStatus').textContent =
-                `${events.length} meczów z obsługiwanymi rynkami · sprawdzono ${checked}/${candidates.length}` +
-                (pending ? ` · do sprawdzenia: ${pending}` : '') +
-                (failed ? ` · błędy pobierania: ${failed} (możesz wyłączyć filtr, aby zobaczyć szczegóły)` : '');
+                `${events.length} meczów z ofertą wszystkich bukmacherów · sprawdzono ${checked}/${candidates.length}` +
+                (pending ? ` · oczekiwanie na oferty: ${pending}` : '');
         }
         events.forEach(event => {
             const card = document.createElement('button');
             card.type = 'button';
             card.className = `item-card calendar-card${event.id === calendarSelectedID ? ' selected' : ''}`;
             card.dataset.marketKey = `${event.bookmaker}:${event.id}`;
-            card.disabled = calendarSelecting;
             const time = document.createElement('div');
             time.className = 'card-date';
             time.textContent = new Intl.DateTimeFormat('pl-PL', {timeZone: 'Europe/Warsaw', hour: '2-digit', minute: '2-digit'}).format(new Date(event.startTime));
@@ -1172,162 +1165,132 @@
             } else {
                 builder.textContent = availability?.status === 'checking'
                     ? 'Sprawdzanie oferty na obsługiwane rynki…'
-                    : 'Obsługiwane rynki: nie sprawdzono (włącz filtr rynków)';
+                    : 'Obsługiwane rynki: serwer sprawdza ofertę w tle';
+            }
+            if (event.analysisEligibility?.status !== 'available') {
+                builder.textContent += ' · ' + (event.analysisEligibility?.reason || 'Oczekiwanie na kwalifikację u wszystkich bukmacherów');
             }
             const freshness = document.createElement('div');
             freshness.className = 'calendar-market-freshness';
             card.append(time, title, competition, builder, freshness);
+            const automatic = document.createElement('div');
+            automatic.className = 'card-sub calendar-auto-analysis';
+            card.appendChild(automatic);
+            updateAutomaticCard(card);
             updateCalendarMarketFreshness(card);
             card.onclick = () => selectSuperbetCalendarEvent(event);
             list.appendChild(card);
         });
     }
 
-    function calendarTeamName(name) {
-        const normalized = String(name || '').toLowerCase().replace(/ł/g, 'l').replace(/ß/g, 'ss')
-            .replace(/ø/g, 'o').replace(/đ/g, 'd').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-            .replace(/u\s*[-.]?\s*(\d{2})\b/g, 'u$1').replace(/[^a-z0-9]+/g, ' ').trim();
-        const clubWords = new Set(['fc', 'cf', 'afc', 'fk', 'sk', 'ks', 'sc', 'ac', 'ssc', 'as', 'rc', 'cd', 'se', 'ec', 'sv']);
-        const qualifiers = [];
-        const words = normalized.split(/\s+/).filter(word => {
-            if (/^u\d{2}$/.test(word)) { qualifiers.push(word); return false; }
-            if (['women', 'womens', 'woman', 'ladies', 'female', 'kobiety', 'kobiet', 'fem', 'feminino', 'feminina', 'femenino', 'femenina', 'femminile'].includes(word)) {
-                qualifiers.push('women'); return false;
-            }
-            if (['ii', 'res', 'reserve', 'reserves', 'rezerwy', 'castilla', 'primavera'].includes(word)) {
-                qualifiers.push('reserves'); return false;
-            }
-            if (['iii', 'iv'].includes(word)) { qualifiers.push(word); return false; }
-            return !clubWords.has(word);
-        });
-        while (words.length) {
-            const last = words[words.length - 1];
-            if (['k', 'w', 'f'].includes(last)) qualifiers.push('women');
-            else if (['b', 'ii', 'res', 'reserve', 'reserves', 'rezerwy', 'castilla', 'primavera'].includes(last)) qualifiers.push('reserves');
-            else if (['iii', 'iv'].includes(last)) qualifiers.push(last);
-            else break;
-            words.pop();
+    async function refreshAutomaticSummaries() {
+        if (automaticSummaryPolling || !window.go?.main?.App?.GetAutomaticSummaries) return;
+        automaticSummaryPolling = true;
+        try {
+            const items = await window.go.main.App.GetAutomaticSummaries();
+            automaticSummaries.clear();
+            for (const item of items || []) automaticSummaries.set(`${item.bookmaker}:${item.eventId}`, item);
+            automaticSummaryError = '';
+        } catch (err) { automaticSummaryError = String(err); }
+        finally {
+            automaticSummaryPolling = false;
+            document.querySelectorAll('#calendarList .calendar-card').forEach(updateAutomaticCard);
         }
-        // RB is part of club identity (e.g. Red Bull Bragantino), not a
-        // dispensable club prefix such as FC or EC.
-        if (['rb', 'redbull'].includes(words[0])) words.splice(0, 1, 'red', 'bull');
-        if (words[0] === 'red' && words[1] === 'bull') qualifiers.push('red-bull');
-        let core = words.join(' ');
-        const aliases = {
-            'man utd': 'manchester united', 'manchester utd': 'manchester united', 'man united': 'manchester united',
-            'man city': 'manchester city', 'psg': 'paris saint germain', 'paris sg': 'paris saint germain',
-            'bayern monachium': 'bayern munich', 'bayern munchen': 'bayern munich',
-            'inter mediolan': 'inter', 'inter milan': 'inter', 'internazionale': 'inter',
-            'atletico madryt': 'atletico madrid', 'real madryt': 'real madrid',
-            'sporting lizbona': 'sporting lisboa', 'sporting lisbon': 'sporting lisboa', 'sporting cp': 'sporting lisboa',
-            'juventus turyn': 'juventus', 'ajax amsterdam': 'ajax', 'benfica lizbona': 'benfica',
-            'arsenal londyn': 'arsenal', 'chelsea londyn': 'chelsea', 'tottenham londyn': 'tottenham',
-            'tottenham hotspur': 'tottenham', 'west ham united': 'west ham',
-            'bvb': 'borussia dortmund', 'borussia m gladbach': 'borussia monchengladbach',
-            'borussia moenchengladbach': 'borussia monchengladbach',
-            'werder brema': 'werder bremen'
-        };
-        core = aliases[core] || core;
-        return { core, qualifiers: [...new Set(qualifiers)].sort().join('|') };
     }
 
-    const CALENDAR_GENERIC_TEAM_WORDS = new Set(['real', 'atletico', 'athletic', 'sporting', 'racing', 'nacional', 'national', 'america', 'inter', 'united', 'city', 'town', 'deportivo', 'club', 'de', 'da', 'do', 'the', 'borussia', 'dynamo', 'dinamo', 'olympique', 'olympic', 'hapoel', 'maccabi', 'red', 'bull']);
-
-    function calendarTeamSharesAnchor(leftName, rightName) {
-        const left = calendarTeamName(leftName), right = calendarTeamName(rightName);
-        if (!left.core || !right.core || left.qualifiers !== right.qualifiers) return false;
-        const rightWords = new Set(right.core.split(' '));
-        return left.core.split(' ').some(word => word.length >= 5 && !CALENDAR_GENERIC_TEAM_WORDS.has(word) && rightWords.has(word));
+    function updateAutomaticCard(card) {
+        const element = card.querySelector('.calendar-auto-analysis');
+        if (!element) return;
+        const item = automaticSummaries.get(card.dataset.marketKey);
+        if (!item) {
+            element.textContent = automaticSummaryError ? 'Automatyczna analiza: brak połączenia' : 'Automatyczna analiza: oczekuje na dane';
+            element.style.color = 'var(--text-muted)';
+            element.title = automaticSummaryError;
+            return;
+        }
+        element.replaceChildren();
+        if (item.runId) {
+            const value = document.createElement('span'); value.style.color = 'var(--success)'; value.textContent = `${CALENDAR_LABELS[item.bookmaker] || item.bookmaker} · Value: ${item.value}`;
+            const trap = document.createElement('span'); trap.style.color = 'var(--danger)'; trap.textContent = `Pułapki: ${item.traps}`;
+            element.append(value, document.createTextNode(' · '), trap);
+        }
+        const labels = {waiting:'oczekuje',running:`pobieranie: ${item.stage || 'statystyki'}`,stale:'oferta nieaktualna',error:'błąd pobierania',unavailable:'brak obsługiwanych rynków',partial:'dane częściowe','sofa-partial':'brakuje części historii','sofa-missing':'SofaScore: potwierdzone braki historii','sofa-unavailable':'SofaScore: brak historii','sofa-paused':'SofaScore: oczekuje po 429'};
+        const age = item.runId ? ` · ${Math.max(0, Math.floor((Date.now()-Date.parse(item.analyzedAt))/60000))} min temu` : '';
+        const label = labels[item.status];
+        element.append(document.createTextNode((item.runId ? age : '') + (label ? ` · ${label}` : '')));
+        if (!item.runId && !label) element.textContent = 'Automatyczna analiza: oczekuje';
+        element.title = [item.error, item.runId ? `${item.total} ofert · analiza ${new Date(item.analyzedAt).toLocaleString('pl-PL')}` : ''].filter(Boolean).join('\n');
     }
 
-    function calendarTeamSimilarity(leftName, rightName) {
-        const left = calendarTeamName(leftName), right = calendarTeamName(rightName);
-        if (!left.core || !right.core || left.qualifiers !== right.qualifiers) return 0;
-        if (left.core === right.core) return 1;
-        const leftWords = left.core.split(' '), rightWords = right.core.split(' ');
-        const shorter = leftWords.length <= rightWords.length ? leftWords : rightWords;
-        const longer = leftWords.length <= rightWords.length ? rightWords : leftWords;
-        const informative = shorter.filter(word => word.length >= 4 && !CALENDAR_GENERIC_TEAM_WORDS.has(word));
-        // Compare full tokens, not arbitrary substrings: Bahia is a core of
-        // "Bahia Salvador BA"; "Inter" alone cannot identify Internacional.
-        if (informative.length && (shorter.length > 1 || informative[0].length >= 5) &&
-            longer.length - shorter.length <= 3 && shorter.every(word => longer.includes(word))) {
-            return 0.97;
+    async function openEvaluationReport() {
+        let dialog = document.getElementById('evaluationDialog');
+        if (!dialog) {
+            dialog = document.createElement('dialog'); dialog.id = 'evaluationDialog';
+            dialog.style.cssText = 'width:min(1200px,95vw);max-height:90vh;background:var(--bg-card);color:var(--text-main);border:1px solid var(--border);border-radius:14px;padding:24px;overflow:auto';
+            dialog.innerHTML = '<div style="display:flex;justify-content:space-between;gap:16px"><h2>Skuteczność algorytmu</h2><button class="btn-ghost" id="evaluationClose">Zamknij</button></div><p>Historyczny hitrate jako filtr. Single po 1 jednostce, ostatnia pełna prognoza przed T−60 min, próbka minimum 10 meczów.</p><div style="display:flex;gap:12px;flex-wrap:wrap"><label>Okres <select id="evaluationDays"><option value="7">7 dni</option><option value="30" selected>30 dni</option><option value="90">90 dni</option><option value="365">365 dni</option></select></label><label>Zasady <select id="evaluationRules"><option value="standard-v1">Zawodnik</option><option value="supersub-v1">SuperSub — wariant programu</option></select></label><label>Mnożnik wypłaty <input id="evaluationPayout" type="number" min="0.01" max="1" step="0.01" value="0.88" style="width:80px"></label><label>Propozycje <select id="evaluationVerdict"><option>VALUE</option><option>TRAP</option><option>NEUTRAL</option><option>ALL</option></select></label><button class="btn-ghost" id="evaluationReload">Odśwież</button></div><div id="evaluationContent" style="margin-top:20px;overflow:auto"></div>';
+            document.body.appendChild(dialog);
+            dialog.querySelector('#evaluationClose').onclick = () => dialog.close();
+            dialog.querySelector('#evaluationReload').onclick = loadEvaluationReport;
+            dialog.querySelector('#evaluationVerdict').onchange = loadEvaluationReport;
         }
-        const leftText = left.core.replace(/\s/g, ''), rightText = right.core.replace(/\s/g, '');
-        if (Math.min(leftText.length, rightText.length) < 5) return 0;
-        const pairs = text => {
-            const counts = new Map();
-            for (let i = 0; i < text.length - 1; i++) {
-                const pair = text.slice(i, i + 2);
-                counts.set(pair, (counts.get(pair) || 0) + 1);
-            }
-            return counts;
-        };
-        const a = pairs(leftText), b = pairs(rightText);
-        let common = 0;
-        for (const [pair, count] of a) common += Math.min(count, b.get(pair) || 0);
-        return 2 * common / (leftText.length + rightText.length - 2);
+        if (!dialog.open) dialog.showModal();
+        await loadEvaluationReport();
     }
 
-    function matchCalendarEvent(selected, events) {
-        const selectedTime = Date.parse(selected.startTime);
-        if (!Number.isFinite(selectedTime)) return { reason: 'niepoprawny termin wybranego meczu' };
-        const strictCandidates = [], fallbackCandidates = [];
-        for (const candidate of events) {
-            if (!candidate.url) continue;
-            const difference = Math.abs(Date.parse(candidate.startTime) - selectedTime);
-            if (!Number.isFinite(difference) || difference > 10 * 60 * 1000) continue;
-            // Keep home/away orientation and youth, reserve and women's qualifiers.
-            const home = calendarTeamSimilarity(selected.home, candidate.home);
-            const away = calendarTeamSimilarity(selected.away, candidate.away);
-            const score = (home + away) / 2;
-            const ranked = { event: candidate, score: score - difference / (10 * 60 * 1000) * 0.01 };
-            if (Math.min(home, away) >= 0.88 && score >= 0.94) {
-                strictCandidates.push(ranked);
-            } else if (Math.max(home, away) >= 0.90 &&
-                (home >= 0.90 || calendarTeamSharesAnchor(selected.home, candidate.home)) &&
-                (away >= 0.90 || calendarTeamSharesAnchor(selected.away, candidate.away))) {
-                // Only when full names do not match: one side must have a
-                // strong name match, and the other an exact distinctive word.
-                fallbackCandidates.push(ranked);
+    async function loadEvaluationReport() {
+        const parent = document.getElementById('evaluationContent');
+        parent.textContent = 'Pobieranie raportu…';
+        try {
+            const report = await window.go.main.App.GetEvaluationReport(Number(document.getElementById('evaluationDays').value), Number(document.getElementById('evaluationPayout').value), document.getElementById('evaluationRules').value);
+            parent.replaceChildren();
+            const rows = (report.rows || []).filter(row => row.verdict === document.getElementById('evaluationVerdict').value);
+            const note = document.createElement('p'); note.textContent = `Strategia: ${report.strategy} · stan: ${new Date(report.asOf).toLocaleString('pl-PL')}`; parent.appendChild(note);
+            if (!rows.length) { const empty = document.createElement('p'); empty.textContent = 'Brak kwalifikujących się prognoz. Raport zacznie się wypełniać po spotkaniach z automatyczną analizą wykonaną przed T−60 min.'; parent.appendChild(empty); }
+            else {
+                const table = document.createElement('table'); table.className = 'risk-table';
+                const headings = ['Algorytm / bukmacher','HR ≥','Typy / mecze','W / P / zwroty','Oczekuje','HR rzeczywisty','Stawki','Wypłaty','Zysk wygranych','Straty','Netto','ROI'];
+                const header = table.createTHead().insertRow(); for (const text of headings) { const th = document.createElement('th'); th.textContent = text; header.appendChild(th); }
+                const body = table.createTBody();
+                for (const row of rows) {
+                    const tr = body.insertRow();
+                    const values = [`${row.algorithm} / ${row.bookmaker}`,`${row.minimumHitRate}%`,`${row.bets} / ${row.matches}`,`${row.won} / ${row.lost} / ${row.void}`,row.pending,row.won+row.lost ? `${row.actualHitRate.toFixed(1)}%` : '—',row.stakes.toFixed(2),row.returns.toFixed(2),row.winsProfit.toFixed(2),row.losses.toFixed(2),row.net.toFixed(2),row.won+row.lost ? `${row.roi.toFixed(1)}%` : '—'];
+                    values.forEach((text,index) => { const td = tr.insertCell(); td.textContent = String(text); if (index === 10) td.style.color = row.net >= 0 ? 'var(--success)' : 'var(--danger)'; });
+                }
+                parent.appendChild(table);
             }
-        }
-        const candidates = strictCandidates.length ? strictCandidates : fallbackCandidates;
-        candidates.sort((a, b) => b.score - a.score);
-        if (!candidates.length) return { reason: 'nie znaleziono zgodnego meczu w kalendarzu' };
-        if (candidates.length > 1 && candidates[0].score - candidates[1].score < 0.06) {
-            return { reason: 'kilka podobnych wydarzeń — wybierz link ręcznie' };
-        }
-        return { event: candidates[0].event, strategy: strictCandidates.length ? 'nazwy' : 'wspólny rdzeń' };
+            for (const text of report.notes || []) { const p = document.createElement('p'); p.style.cssText = 'font-size:12px;color:var(--text-muted)'; p.textContent = text; parent.appendChild(p); }
+        } catch (err) { parent.textContent = String(err); }
     }
 
     async function fillCalendarLinks(event, selection) {
-        return Promise.all(BOOKMAKERS.map(async bookmaker => {
-            if (bookmaker === event.bookmaker) return { bookmaker, matched: true };
-            try {
-                const calendar = await fetchBookmakerCalendar(bookmaker, event.calendarDate);
-                if (selection !== calendarSelection) return { bookmaker, cancelled: true };
-                const match = matchCalendarEvent(event, calendar.events);
-                if (!match.event) return { bookmaker, reason: match.reason };
-                const input = document.getElementById(CALENDAR_INPUTS[bookmaker]);
-                // Preserve a link the user typed while calendars were loading.
-                if (!input.value.trim()) input.value = match.event.url;
-                console.info(`Dopasowanie ${CALENDAR_LABELS[bookmaker]}:`, event.id, match.event.id,
-                    `${match.event.home} – ${match.event.away}`, match.event.startTime, match.strategy);
-                return { bookmaker, matched: true };
-            } catch (error) {
-                return { bookmaker, reason: `błąd pobierania: ${error.message || error}` };
-            }
-        }));
+        if (selection !== calendarSelection) return [];
+        const eligibility = event.analysisEligibility;
+        return BOOKMAKERS.map(bookmaker => {
+            const link = eligibility?.links?.[bookmaker];
+            if (!link) return { bookmaker, reason: eligibility?.reason || 'Serwer nie potwierdził dopasowania meczu.' };
+            const input = document.getElementById(CALENDAR_INPUTS[bookmaker]);
+            if (!input.value.trim()) input.value = link;
+            return { bookmaker, matched: true };
+        });
     }
-
-    async function selectSuperbetCalendarEvent(event) {
-        if (calendarSelecting) return;
-        if (document.getElementById('btnAnalyze').disabled) {
-            document.getElementById('calendarStatus').textContent = 'Poczekaj na zakończenie bieżącej analizy.';
-            return;
+    async function prepareSelectedMarkets(selection, linksReady) {
+        const links = await linksReady;
+        if (selection !== calendarSelection || links.filter(link => link.matched).length !== BOOKMAKERS.length) return;
+        const prepared = await window.go.main.App.PrepareCalendarMatch(
+            document.getElementById('sbInput').value.trim(),
+            document.getElementById('betclicInput').value.trim(),
+            document.getElementById('stsInput').value.trim());
+        if (selection !== calendarSelection) return;
+        for (const result of Object.values(prepared.sources || {})) {
+            calendarMarketCache.set(`${result.bookmaker}:${result.eventId}`, {...result, expiresAt:Date.parse(result.expiresAt)});
         }
+        const failures = Object.values(prepared.sources || {}).filter(result => result.status !== 'available');
+        if (failures.length) {
+            document.getElementById('calendarStatus').textContent = failures.map(result => `${CALENDAR_LABELS[result.bookmaker]}: ${result.error || 'brak obsługiwanych rynków'}`).join(' · ');
+        }
+        return prepared;
+    }
+    async function selectSuperbetCalendarEvent(event) {
         clearAllInputs();
         const selection = calendarSelection;
         calendarSelecting = true;
@@ -1339,10 +1302,22 @@
         document.getElementById('calendarStatus').textContent = 'Uzupełnianie linków Superbet, STS i Betclic oraz drużyn SofaScore…';
         let links = [], teamError = '', linkError = '';
         try {
+            const linksReady = fillCalendarLinks(event, selection).then(result => {
+                if (selection === calendarSelection) {
+                    calendarSelecting = false;
+                    analyze.disabled = analysisActive;
+                }
+                return result;
+            });
+            // Start priority market downloads immediately. The form can submit
+            // an analysis while these shared downloads and team detection run.
+            prepareSelectedMarkets(selection, linksReady).catch(error => {
+                if (selection === calendarSelection) document.getElementById('calendarStatus').textContent = 'Pobieranie rynków wybranego meczu: ' + (error.message || error);
+            });
             const results = await Promise.allSettled([
-                fillCalendarLinks(event, selection),
+                linksReady,
                 (async () => {
-                    const detected = await window.go.main.App.DetectCalendarTeams(event.home, event.away);
+                    const detected = await window.go.main.App.DetectCalendarEventTeams(event.home, event.away, event.url);
                     if (selection !== calendarSelection) return;
                     currentHomeSlug = detected.homeSlug || '';
                     currentAwaySlug = detected.awaySlug || '';
@@ -1352,24 +1327,34 @@
                     currentMatchKey = home.value && away.value ? [home.value, away.value].sort().join('|') : null;
                     if (detected.warnings?.length) teamError = 'SofaScore: ' + detected.warnings.join(' · ');
                     else if (!home.value || !away.value) teamError = 'SofaScore: serwer nie rozpoznał obu drużyn.';
+                })(),
+                (async () => {
+                    const summary = automaticSummaries.get(`${event.bookmaker}:${event.id}`);
+                    if (!summary?.runId || !window.go?.main?.App?.GetAutomaticAnalysis) return;
+                    try {
+                        const bets = await window.go.main.App.GetAutomaticAnalysis(summary.runId);
+                        if (selection !== calendarSelection || analysisActive) return;
+                        applyAnalysisResults(bets, true);
+                        document.getElementById('resultsMeta').textContent = `${event.home} – ${event.away} · ${CALENDAR_LABELS[event.bookmaker]} · zapisana analiza z ${new Date(summary.analyzedAt).toLocaleString('pl-PL')} · Analizuj przeliczy aktualną ofertę wybranych bukmacherów`;
+                    } catch (err) { console.error('Odczyt zapisanej analizy:', err); }
                 })()
             ]);
             if (selection !== calendarSelection) return;
             if (results[0].status === 'fulfilled') links = results[0].value;
             else linkError = `Nie udało się uzupełnić linków: ${results[0].reason?.message || results[0].reason}`;
             if (results[1].status === 'rejected') teamError = `SofaScore: ${results[1].reason?.message || results[1].reason}`;
-            await checkAndLoadTournaments();
+            checkAndLoadTournaments();
         } finally {
             if (selection !== calendarSelection) return;
             calendarSelecting = false;
-            analyze.disabled = false;
+            analyze.disabled = analysisActive;
             renderSuperbetCalendar();
             const found = document.getElementById('homeIdInput').value && document.getElementById('awayIdInput').value;
             const matched = links.filter(link => link.matched).map(link => CALENDAR_LABELS[link.bookmaker]);
             const missing = links.filter(link => link.reason).map(link => `${CALENDAR_LABELS[link.bookmaker]}: ${link.reason}`);
             document.getElementById('calendarStatus').textContent = [
                 matched.length ? `Linki: ${matched.join(', ')}.` : '',
-                found ? 'Mecz wybrany. Kliknij Analizuj.' : 'Sprawdź ID drużyn przed analizą.',
+                found ? (analysisActive ? 'Mecz wybrany. Poprzednia analiza trwa w tle.' : 'Mecz wybrany. Kliknij Analizuj.') : 'Sprawdź ID drużyn przed analizą.',
                 ...missing, linkError, teamError
             ].filter(Boolean).join(' ');
         }
@@ -1462,9 +1447,12 @@
 
     async function handleUrlChange(url, source) {
         if (!url || url.length < 15) return;
+        analysisViewRevision++;
         cancelCalendarSelection();
+        const selection = calendarSelection;
         try {
             const detected = await window.go.main.App.DetectTeamsFromURL(url);
+            if (selection !== calendarSelection) return;
             if (!detected.homeSlug && !detected.awaySlug) return;
 
             const key = (detected.homeId && detected.awayId)
@@ -1495,6 +1483,7 @@
 
             checkAndLoadTournaments();
         } catch (e) {
+            if (selection !== calendarSelection) return;
             document.getElementById('calendarStatus').textContent = 'SofaScore: ' + (e?.message || e);
             console.error('Detekcja SofaScore na serwerze:', e);
         }
@@ -1558,6 +1547,8 @@
     }
 
     function analysisStageButton(stage) {
+        if (stage === 'odds') return '⏳ Pobieranie rynków...';
+        if (stage === 'teams') return '⏳ Rozpoznawanie drużyn...';
         if (stage === 'statistics-xi' || stage === 'lineups') return '⏳ Pobieranie XI...';
         if (stage === 'statistics-bench') return '⏳ Uzupełnianie ławki...';
         if (stage === 'statistics-other') return '⏳ Pozostali zawodnicy...';
@@ -1568,12 +1559,20 @@
     }
 
     async function runAnalysis() {
-        if (analysisActive) return;
+        if (analysisActive || calendarSelecting) return;
+        if (['sbInput', 'betclicInput', 'stsInput'].some(id => !document.getElementById(id).value.trim())) {
+            document.getElementById('calendarStatus').textContent = 'Analiza wymaga zgodnego meczu oraz pełnych ofert Superbet, Betclic i STS. Uzupełnij trzy linki.';
+            return;
+        }
         analysisActive = true;
+        const viewRevision = analysisViewRevision;
+        const isCurrentView = () => viewRevision === analysisViewRevision;
+        const requestHomeSlug = currentHomeSlug;
+        const requestAwaySlug = currentAwaySlug;
         let previewReceived = false;
         let finalReceived = false;
         const stopPreview = window.runtime?.EventsOnMultiple?.('analysis:players-ready', job => {
-            if (!analysisActive || finalReceived || !Array.isArray(job.result)) return;
+            if (!analysisActive || finalReceived || !isCurrentView() || !Array.isArray(job.result)) return;
             applyAnalysisResults(job.result, !previewReceived);
             previewReceived = true;
             document.getElementById('btnAnalyze').innerHTML = analysisStageButton(job.stage);
@@ -1600,6 +1599,7 @@
         btn.style.opacity = "0.7";
         btn.innerHTML = `⏳ Analizowanie...`;
         rawBets = [];
+        document.getElementById('resultsMeta').textContent = 'Bieżąca analiza wybranych bukmacherów · próbka ' + limit + ' występów';
         closeChart();
         tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 40px; color: var(--accent);">
             <div style="font-size:16px; font-weight:700; margin-bottom:8px;">Serwer pobiera kursy, składy i statystyki...</div>
@@ -1609,20 +1609,20 @@
         try {
             const finalBets = await window.go.main.App.AnalyzeThreeBookmakers(sb, betclic, sts, home, away, limit, selectedTournaments);
             finalReceived = true;
-            applyAnalysisResults(finalBets, !previewReceived);
+            if (isCurrentView()) applyAnalysisResults(finalBets, !previewReceived);
 
-            if (rawBets.some(b => b.teamSide === 'HOME' && b.teamId)) {
-                home = rawBets.find(b => b.teamSide === 'HOME' && b.teamId).teamId;
-                document.getElementById('homeIdInput').value = home;
+            if (finalBets.some(b => b.teamSide === 'HOME' && b.teamId)) {
+                home = finalBets.find(b => b.teamSide === 'HOME' && b.teamId).teamId;
+                if (isCurrentView()) document.getElementById('homeIdInput').value = home;
             }
-            if (rawBets.some(b => b.teamSide === 'AWAY' && b.teamId)) {
-                away = rawBets.find(b => b.teamSide === 'AWAY' && b.teamId).teamId;
-                document.getElementById('awayIdInput').value = away;
+            if (finalBets.some(b => b.teamSide === 'AWAY' && b.teamId)) {
+                away = finalBets.find(b => b.teamSide === 'AWAY' && b.teamId).teamId;
+                if (isCurrentView()) document.getElementById('awayIdInput').value = away;
             }
 
             let title = "";
-            if (currentHomeSlug && currentAwaySlug) {
-                title = `${currentHomeSlug} vs ${currentAwaySlug}`;
+            if (requestHomeSlug && requestAwaySlug) {
+                title = `${requestHomeSlug} vs ${requestAwaySlug}`;
             } else {
                 const sampleUrl = sb || betclic || sts;
                 if (sampleUrl) {
@@ -1634,8 +1634,8 @@
             }
 
             if (!title) {
-                const homeName = rawBets.find(b => b.teamSide === 'HOME')?.teamName;
-                const awayName = rawBets.find(b => b.teamSide === 'AWAY')?.teamName;
+                const homeName = finalBets.find(b => b.teamSide === 'HOME')?.teamName;
+                const awayName = finalBets.find(b => b.teamSide === 'AWAY')?.teamName;
                 if (homeName && awayName) {
                     title = `${homeName} vs ${awayName}`;
                 } else {
@@ -1652,15 +1652,21 @@
                 renderHistory(hist);
             }
         } catch (e) {
+            if (!isCurrentView()) {
+                console.error('Błąd poprzedniej analizy:', e);
+                return;
+            }
             alert("Błąd analizy: " + e);
             if (!previewReceived) tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--danger);">Nie udało się zakończyć analizy. Szczegóły znajdują się w komunikacie i ostrzeżeniach nad formularzem.</td></tr>`;
         } finally {
             analysisActive = false;
             if (typeof stopPreview === 'function') stopPreview();
             await refreshAnalysisProgress();
-            btn.disabled = false;
-            btn.style.opacity = "1";
-            btn.innerHTML = `Analizuj`;
+            if (!analysisActive) {
+                btn.disabled = calendarSelecting;
+                btn.style.opacity = "1";
+                btn.innerHTML = `Analizuj`;
+            }
         }
     }
 
@@ -1678,7 +1684,7 @@
                 <div class="card-sub">Sofa: ${item.homeStatsId || '-'} / ${item.awayStatsId || '-'}</div>
             `;
             div.onclick = () => {
-                cancelCalendarSelection();
+                clearAllInputs();
                 document.getElementById('sbInput').value = item.sbUrl || '';
                 document.getElementById('betclicInput').value = item.betclicUrl || '';
                 document.getElementById('stsInput').value = item.stsUrl || '';
@@ -1977,9 +1983,9 @@
         panel.appendChild(kpis);
         const computation = contextSection(panel, 'Jak powstała wycena');
         const steps = contextNode('div', 'context-kpis');
-        contextKpi(steps, '1 · ŚREDNIA Z PRÓBKI', contextNumber(model.baseMean), 'Po uwzględnieniu pozycji i home/away');
+        contextKpi(steps, model.version === 'context-hit-v3' ? '1 · POKRYCIE LINII' : '1 · ŚREDNIA Z PRÓBKI', model.version === 'context-hit-v3' ? contextNumber(bet.hitRate,1)+'%' : contextNumber(model.baseMean), model.version === 'context-hit-v3' ? 'Ważone trafienia z wygładzeniem' : 'Po uwzględnieniu pozycji i home/away');
         contextKpi(steps, '2 · KOREKTA MATCHUPU', '×' + contextNumber(model.matchupFactor, 3), 'Dane właściwe dla wybranego rynku');
-        contextKpi(steps, '3 · OCZEKIWANA LICZBA', contextNumber(model.expectedCount), model.distribution);
+        contextKpi(steps, model.version === 'context-hit-v3' ? '3 · PRAWDOPODOBIEŃSTWO' : '3 · OCZEKIWANA LICZBA', model.version === 'context-hit-v3' ? contextNumber(model.probability*100,1)+'%' : contextNumber(model.expectedCount), model.distribution);
         computation.appendChild(steps);
         const chips = contextNode('div', 'context-chips');
         for (const text of [`Próba: ${bet.matchesSample}`, `Efektywna: ${contextNumber(model.effectiveSample, 1)}`, `Kontekst: ${model.contextMatches}/${bet.matchesSample}`, `Pozycja: ${model.role || 'brak'}`, contextVenue(model.venue), model.distribution]) chips.appendChild(contextNode('span', 'context-chip', text));
