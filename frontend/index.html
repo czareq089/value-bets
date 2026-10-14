@@ -324,9 +324,19 @@
             </div>
         </div>
         <input type="search" id="calendarSearch" class="search-box" style="flex:none; width:100%;" placeholder="Szukaj drużyny lub ligi…" oninput="renderSuperbetCalendar()" aria-label="Szukaj w kalendarzu">
-        <select class="filter-select" id="calendarLeague" onchange="renderSuperbetCalendar()" aria-label="Rozgrywki kalendarza">
-            <option value="">Wszystkie rozgrywki</option>
-        </select>
+        <div style="display:flex; gap:6px; align-items:center;">
+            <select class="filter-select" id="calendarLeague" style="flex:1; min-width:0;" onchange="renderSuperbetCalendar()" aria-label="Rozgrywki kalendarza">
+                <option value="">Wszystkie rozgrywki</option>
+            </select>
+            <button type="button" class="btn-ghost" id="automaticLeagueEdit" style="height:32px; width:32px; padding:6px;" onclick="toggleAutomaticLeagueEditor()" title="Wybierz ligi automatycznych analiz" aria-label="Edytuj ligi automatycznych analiz" aria-expanded="false" aria-controls="automaticLeagueEditor">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z"/></svg>
+            </button>
+        </div>
+        <div id="automaticLeagueEditor" hidden style="padding:8px; border:1px solid var(--border); border-radius:6px;">
+            <div style="font-size:11px; color:var(--text-muted); margin-bottom:6px;">Zaznaczone ligi: analiza i kursy w tle. Analiza ręczna działa dla każdej ligi.</div>
+            <div id="automaticLeagueList" style="max-height:240px; overflow-y:auto;"></div>
+            <div id="automaticLeagueStatus" style="font-size:11px; color:var(--text-muted); margin-top:6px;" role="status" aria-live="polite"></div>
+        </div>
         <label style="font-size:11px; color:var(--text-muted);"><input type="checkbox" id="calendarMarketsOnly" checked onchange="changeCalendarMarketFilter()"> Tylko mecze z rynkami u wszystkich bukmacherów</label>
         <div id="calendarStatus" class="calendar-status" role="status"></div>
         <div id="calendarWarnings" class="calendar-status" style="color:var(--sb-color);"></div>
@@ -394,6 +404,8 @@
             </div>
             <div style="display: flex; gap: 6px;">
                 <button class="btn-primary" id="btnAnalyze" onclick="runAnalysis()">Analizuj</button>
+                <button class="btn-ghost" id="btnCancelAnalysis" onclick="cancelAnalysis()" hidden>Anuluj analizę</button>
+                <button class="btn-ghost" style="height:34px; padding:0 10px;" onclick="openOfferDiagnostics()">Diagnostyka ofert</button>
                 <button class="btn-ghost" style="height:34px; padding:0 12px; border-color:var(--border); color:var(--text-muted);" title="Wyczyść wszystkie pola" onclick="clearAllInputs()">✕</button>
             </div>
         </div>
@@ -477,6 +489,8 @@
                 <label><input type="checkbox" class="market-cb" value="SHOTS_ON_TARGET_OUTSIDE_BOX" checked onchange="handleFilterChange()"> Celne strzały spoza pola karnego</label>
                 <label><input type="checkbox" class="market-cb" value="SHOTS_ON_TARGET_INSIDE_BOX" checked onchange="handleFilterChange()"> Celne strzały z pola karnego</label>
                 <label><input type="checkbox" class="market-cb" value="TACKLES" checked onchange="handleFilterChange()"> Odbiory</label>
+                <label><input type="checkbox" class="market-cb" value="PASSES" checked onchange="handleFilterChange()"> Podania</label>
+                <label><input type="checkbox" class="market-cb" value="ACCURATE_PASSES" checked onchange="handleFilterChange()"> Celne podania</label>
                 <label><input type="checkbox" class="market-cb" value="FOULS_COMMITTED" checked onchange="handleFilterChange()"> Faule popełnione</label>
                 <label><input type="checkbox" class="market-cb" value="FOULS_DRAWN" checked onchange="handleFilterChange()"> Faule wywalczone</label>
                 <label><input type="checkbox" class="market-cb" value="INTERCEPTIONS" checked onchange="handleFilterChange()"> Przechwyty</label>
@@ -662,6 +676,10 @@
     let calendarRequest = 0;
     let calendarSelectedID = null;
     let calendarSelecting = false;
+    let automaticLeagueOptions = [];
+    let automaticLeagueSaving = false;
+    let automaticLeagueRequest = 0;
+    let automaticLeagueError = '';
     let calendarSelection = 0;
     const calendarCache = new Map();
     const calendarMarketCache = new Map();
@@ -673,6 +691,7 @@
     let automaticSummaryError = '';
     let analysisPolling = false;
     let analysisActive = false;
+    let analysisCancelRequested = false;
     let analysisViewRevision = 0;
 
     const MARKET_LABELS = {
@@ -685,6 +704,8 @@
         SHOTS_ON_TARGET_OUTSIDE_BOX: "Celne strzały spoza pola karnego",
         SHOTS_ON_TARGET_INSIDE_BOX: "Celne strzały z pola karnego",
         TACKLES: "Odbiory",
+        PASSES: "Podania",
+        ACCURATE_PASSES: "Celne podania",
         DISPOSSESSED: "Straty piłki",
         FOULS_COMMITTED: "Faule popełnione",
         FOULS_DRAWN: "Faule wywalczone",
@@ -926,6 +947,7 @@
         try {
             const state = await window.go.main.App.GetAnalysisProgress();
             const running = state.status === 'queued' || state.status === 'running';
+            document.getElementById('btnCancelAnalysis').hidden = !analysisActive || !running || !state.id;
             const strip = document.getElementById('analysisStrip');
             const bar = document.getElementById('analysisBar');
             const label = document.getElementById('analysisLabel');
@@ -1030,11 +1052,78 @@
             [...leagues.entries()].sort((a, b) => a[1].localeCompare(b[1], 'pl')).forEach(([value, label]) => select.add(new Option(label, value)));
             select.value = leagues.has(previous) ? previous : '';
             renderSuperbetCalendar();
+            if (!document.getElementById('automaticLeagueEditor').hidden) refreshAutomaticLeagues();
         } catch (error) {
             if (request !== calendarRequest) return;
             status.textContent = `Nie udało się pobrać kalendarza: ${error.message || error}`;
         } finally {
             if (request === calendarRequest) refresh.disabled = false;
+        }
+    }
+
+    async function toggleAutomaticLeagueEditor() {
+        const editor = document.getElementById('automaticLeagueEditor');
+        editor.hidden = !editor.hidden;
+        document.getElementById('automaticLeagueEdit').setAttribute('aria-expanded', String(!editor.hidden));
+        if (!editor.hidden) await refreshAutomaticLeagues();
+    }
+
+    async function refreshAutomaticLeagues() {
+        if (automaticLeagueSaving) return;
+        const request = ++automaticLeagueRequest;
+        document.getElementById('automaticLeagueStatus').textContent = 'Odczytywanie wyboru lig…';
+        try {
+            const result = await window.go.main.App.GetAutomaticLeagues();
+            if (request !== automaticLeagueRequest) return;
+            automaticLeagueOptions = result.leagues || [];
+            automaticLeagueError = '';
+            document.getElementById('automaticLeagueStatus').textContent = 'Wybór zapisuje się automatycznie na serwerze.';
+        } catch (err) {
+            if (request !== automaticLeagueRequest) return;
+            automaticLeagueError = String(err);
+            document.getElementById('automaticLeagueStatus').textContent = 'Nie udało się odczytać wyboru: ' + automaticLeagueError;
+        }
+        renderAutomaticLeagueEditor();
+    }
+
+    function renderAutomaticLeagueEditor() {
+        if (document.getElementById('automaticLeagueEditor').hidden) return;
+        const parent = document.getElementById('automaticLeagueList'); parent.replaceChildren();
+        const book = document.getElementById('calendarBookmaker').value;
+        const leagues = new Map();
+        for (const event of calendarEvents) if (event.competition) leagues.set(JSON.stringify([event.country || '',event.competition]),event);
+        const rows = [...leagues.values()].sort((a,b) => `${a.country} ${a.competition}`.localeCompare(`${b.country} ${b.competition}`,'pl'));
+        if (!rows.length) { parent.textContent = 'Brak lig w tym kalendarzu.'; return; }
+        const same = (a,b) => normalizeSearchText(a).trim() === normalizeSearchText(b).trim();
+        for (const league of rows) {
+            const option = automaticLeagueOptions.find(item => item.sources?.some(source => source.bookmaker === book && same(source.country,league.country) && same(source.competition,league.competition)));
+            const label = document.createElement('label'); label.style.cssText = 'display:flex;align-items:center;gap:7px;padding:5px 0;font-size:12px;cursor:pointer';
+            const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.checked = option?.enabled === true;
+            checkbox.disabled = automaticLeagueSaving || !!automaticLeagueError || !option;
+            checkbox.onchange = () => saveAutomaticLeague(option.key,checkbox.checked);
+            label.append(checkbox,document.createTextNode([league.country,league.competition].filter(Boolean).join(' · ')));
+            if (!option) label.title = 'Oczekiwanie na ligę w kalendarzu serwera.';
+            parent.appendChild(label);
+        }
+    }
+
+    async function saveAutomaticLeague(key,enabled) {
+        if (automaticLeagueSaving) return;
+        automaticLeagueSaving = true; ++automaticLeagueRequest;
+        // Keep checkbox changes serialized and show only the saved server state.
+        renderAutomaticLeagueEditor();
+        document.getElementById('automaticLeagueStatus').textContent = 'Zapisywanie…';
+        try {
+            const result = await window.go.main.App.SetAutomaticLeague(key,enabled);
+            automaticLeagueOptions = result.leagues || [];
+            automaticLeagueError = '';
+            document.getElementById('automaticLeagueStatus').textContent = 'Zapisano. Nowe ligi są domyślnie odznaczone.';
+            refreshAutomaticSummaries();
+        } catch (err) {
+            document.getElementById('automaticLeagueStatus').textContent = 'Nie zapisano zmiany: ' + String(err);
+        } finally {
+            automaticLeagueSaving = false;
+            renderAutomaticLeagueEditor();
         }
     }
 
@@ -1109,6 +1198,7 @@
     }
 
     function renderSuperbetCalendar() {
+        renderAutomaticLeagueEditor();
         const normalize = text => String(text || '').toLowerCase().replace(/ł/g, 'l').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
         const search = normalize(document.getElementById('calendarSearch').value.trim());
         const league = document.getElementById('calendarLeague').value;
@@ -1126,17 +1216,27 @@
             : 'Brak meczów w dostępnej ofercie na ten dzień.';
         if (!events.length && calendarEvents.length) document.getElementById('calendarStatus').textContent = 'Brak meczów pasujących do filtrów.';
         if (marketsOnly && candidates.length) {
-            const checked = candidates.filter(event => ['available', 'unavailable'].includes(event.analysisEligibility?.status)).length;
-            const pending = candidates.length - checked;
+            const checked = candidates.filter(event => ['available', 'unavailable', 'error'].includes(event.analysisEligibility?.status)).length;
+            const errors = candidates.filter(event => event.analysisEligibility?.status === 'error').length;
+            const pending = candidates.filter(event => !event.analysisEligibility || event.analysisEligibility.status === 'pending').length;
+            const skipped = candidates.filter(event => event.analysisEligibility?.status === 'skipped').length;
+            const deferred = candidates.filter(event => event.analysisEligibility?.status === 'deferred').length;
+            const inactive = candidates.filter(event => event.analysisEligibility?.status === 'inactive').length;
             document.getElementById('calendarStatus').textContent =
-                `${events.length} meczów z ofertą wszystkich bukmacherów · sprawdzono ${checked}/${candidates.length}` +
-                (pending ? ` · oczekiwanie na oferty: ${pending}` : '');
+                `${events.length} meczów z ofertą wszystkich bukmacherów · sprawdzono ${checked}/${checked + pending}` +
+                (pending ? ` · oczekiwanie na oferty: ${pending}` : '') +
+                (errors ? ` · błędy do ponowienia: ${errors}` : '') +
+                (skipped ? ` · pominięte ligi: ${skipped}` : '') +
+                (deferred ? ` · poza oknem 48 h: ${deferred}` : '') +
+                (inactive ? ` · rozpoczęte mecze: ${inactive}` : '');
         }
         events.forEach(event => {
             const card = document.createElement('button');
             card.type = 'button';
             card.className = `item-card calendar-card${event.id === calendarSelectedID ? ' selected' : ''}`;
             card.dataset.marketKey = `${event.bookmaker}:${event.id}`;
+            card.dataset.eligibilityStatus = event.analysisEligibility?.status || 'pending';
+            card.dataset.eligibilityReason = event.analysisEligibility?.reason || '';
             const time = document.createElement('div');
             time.className = 'card-date';
             time.textContent = new Intl.DateTimeFormat('pl-PL', {timeZone: 'Europe/Warsaw', hour: '2-digit', minute: '2-digit'}).format(new Date(event.startTime));
@@ -1155,6 +1255,7 @@
             const builder = document.createElement('div');
             builder.className = 'card-sub calendar-market-details';
             const availability = calendarMarketState(event) || calendarMarketCache.get(card.dataset.marketKey);
+            const staleAvailability = availability && Date.now() >= availability.expiresAt;
             if (availability?.checkedAt) builder.title = 'Sprawdzono: ' + new Date(availability.checkedAt).toLocaleString('pl-PL');
             if (availability?.status === 'available') {
                 builder.textContent = 'Rynki: ' + (availability.markets || []).map(market => MARKET_LABELS[market] || market).join(', ');
@@ -1166,6 +1267,9 @@
                 builder.textContent = availability?.status === 'checking'
                     ? 'Sprawdzanie oferty na obsługiwane rynki…'
                     : 'Obsługiwane rynki: serwer sprawdza ofertę w tle';
+            }
+            if (staleAvailability && ['available','unavailable'].includes(availability.status)) {
+                builder.textContent = 'Ostatnie sprawdzenie: ' + builder.textContent + ' · wynik wymaga odświeżenia';
             }
             if (event.analysisEligibility?.status !== 'available') {
                 builder.textContent += ' · ' + (event.analysisEligibility?.reason || 'Oczekiwanie na kwalifikację u wszystkich bukmacherów');
@@ -1188,38 +1292,106 @@
         automaticSummaryPolling = true;
         try {
             const items = await window.go.main.App.GetAutomaticSummaries();
+            const summaries = items ?? [];
+            if (!Array.isArray(summaries)) throw new Error('Serwer zwrócił niepoprawną listę podsumowań.');
+            const next = new Map();
+            for (const item of summaries) {
+                if (!item?.bookmaker || !item.eventId) throw new Error('Podsumowanie nie zawiera bukmachera lub ID meczu.');
+                next.set(`${item.bookmaker}:${item.eventId}`, item);
+            }
             automaticSummaries.clear();
-            for (const item of items || []) automaticSummaries.set(`${item.bookmaker}:${item.eventId}`, item);
+            for (const [key,item] of next) automaticSummaries.set(key,item);
             automaticSummaryError = '';
-        } catch (err) { automaticSummaryError = String(err); }
+        } catch (err) { automaticSummaryError = String(err?.message || err); }
         finally {
             automaticSummaryPolling = false;
             document.querySelectorAll('#calendarList .calendar-card').forEach(updateAutomaticCard);
         }
     }
 
+    function automaticMatchSummary(source) {
+        if (!source?.runId) return source;
+        const analysisId = source.runId.slice(0, 24);
+        const sources = new Map();
+        for (const item of automaticSummaries.values()) {
+            if (item.runId?.slice(0, 24) === analysisId) sources.set(item.bookmaker, item);
+        }
+        const result = {...source, value:0, traps:0, total:0, improved:0, newSelections:0, missing:0};
+        for (const item of sources.values()) {
+            for (const key of ['value','traps','total','improved','newSelections','missing']) result[key] += Number(item[key] || 0);
+        }
+        result.sources = [...sources.values()];
+        result.error = [...new Set(result.sources.map(item => item.error).filter(Boolean))].join('\n');
+        if (result.sources.some(item => item.status === 'stale')) result.status = 'stale';
+        if (result.sources.some(item => item.status === 'error')) result.status = 'error';
+        return result;
+    }
+
     function updateAutomaticCard(card) {
         const element = card.querySelector('.calendar-auto-analysis');
         if (!element) return;
-        const item = automaticSummaries.get(card.dataset.marketKey);
-        if (!item) {
-            element.textContent = automaticSummaryError ? 'Automatyczna analiza: brak połączenia' : 'Automatyczna analiza: oczekuje na dane';
+        const item = automaticMatchSummary(automaticSummaries.get(card.dataset.marketKey));
+        const blocked = {unavailable:'brak pełnej oferty wszystkich bukmacherów',skipped:'automatyka wyłączona dla tej ligi',deferred:'oczekuje na okno 48 h przed meczem',inactive:'mecz już rozpoczęty',error:'oczekuje na ponowne sprawdzenie ofert'}[card.dataset.eligibilityStatus];
+        if (!item || (!item.runId && item.status === 'waiting' && blocked)) {
+            element.textContent = blocked ? 'Automatyczna analiza: ' + blocked : automaticSummaryError
+                ? 'Nie udało się odczytać podsumowania analiz: ' + automaticSummaryError.slice(0, 180)
+                : 'Automatyczna analiza: oczekuje na dane';
             element.style.color = 'var(--text-muted)';
-            element.title = automaticSummaryError;
+            element.title = [card.dataset.eligibilityReason,automaticSummaryError].filter(Boolean).join('\n');
             return;
         }
         element.replaceChildren();
         if (item.runId) {
-            const value = document.createElement('span'); value.style.color = 'var(--success)'; value.textContent = `${CALENDAR_LABELS[item.bookmaker] || item.bookmaker} · Value: ${item.value}`;
+            const value = document.createElement('span'); value.style.color = 'var(--success)'; value.textContent = `Wszyscy bukmacherzy · Value: ${item.value}`;
             const trap = document.createElement('span'); trap.style.color = 'var(--danger)'; trap.textContent = `Pułapki: ${item.traps}`;
             element.append(value, document.createTextNode(' · '), trap);
         }
-        const labels = {waiting:'oczekuje',running:`pobieranie: ${item.stage || 'statystyki'}`,stale:'oferta nieaktualna',error:'błąd pobierania',unavailable:'brak obsługiwanych rynków',partial:'dane częściowe','sofa-partial':'brakuje części historii','sofa-missing':'SofaScore: potwierdzone braki historii','sofa-unavailable':'SofaScore: brak historii','sofa-paused':'SofaScore: oczekuje po 429'};
+        const labels = {disabled:'automatyka wyłączona dla tej ligi',waiting:'oczekuje',running:`pobieranie: ${item.stage || 'statystyki'}`,monitoring:'monitorowanie kursów',stale:'oferta nieaktualna',error:'analiza nie powiodła się',unavailable:'brak obsługiwanych rynków',partial:'dane częściowe','sofa-teams':'SofaScore: nie potwierdzono drużyn','sofa-partial':'brakuje części historii','sofa-missing':'SofaScore: potwierdzone braki historii','sofa-unavailable':'SofaScore: brak historii','sofa-paused':'SofaScore: oczekuje po 429'};
         const age = item.runId ? ` · ${Math.max(0, Math.floor((Date.now()-Date.parse(item.analyzedAt))/60000))} min temu` : '';
         const label = labels[item.status];
         element.append(document.createTextNode((item.runId ? age : '') + (label ? ` · ${label}` : '')));
+        if (item.improved) element.append(document.createTextNode(` · lepszy kurs: ${item.improved}`));
+        if (item.newSelections) element.append(document.createTextNode(` · nowe bez modelu: ${item.newSelections}`));
+        if (item.missing) element.append(document.createTextNode(` · niedostępne: ${item.missing}`));
+        if (automaticSummaryError) element.append(document.createTextNode(' · nie udało się odświeżyć podsumowania'));
         if (!item.runId && !label) element.textContent = 'Automatyczna analiza: oczekuje';
-        element.title = [item.error, item.runId ? `${item.total} ofert · analiza ${new Date(item.analyzedAt).toLocaleString('pl-PL')}` : ''].filter(Boolean).join('\n');
+        element.title = [automaticSummaryError, item.error, item.runId ? `${item.total} ofert · analiza bazowa ${new Date(item.analyzedAt).toLocaleString('pl-PL')}` : '', item.quoteCheckedAt && Date.parse(item.quoteCheckedAt) > 0 ? `Kursy sprawdzono: ${new Date(item.quoteCheckedAt).toLocaleString('pl-PL')}. Wycenę zaktualizowano na podstawie tego samego modelu.` : '', item.newSelections ? 'Nowe linie lub zawodnicy nie mają prognozy bazowej; można wykonać analizę ręczną.' : ''].filter(Boolean).join('\n');
+    }
+
+    async function openOfferDiagnostics() {
+        let dialog = document.getElementById('offerDiagnosticsModal');
+        if (!dialog) {
+            dialog = document.createElement('dialog'); dialog.id = 'offerDiagnosticsModal';
+            dialog.style.cssText = 'width:min(1000px,95vw);max-height:90vh;background:var(--bg-card);color:var(--text-main);border:1px solid var(--border);border-radius:14px;padding:24px;overflow:auto';
+            dialog.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center"><h2>Diagnostyka ofert</h2><button class="btn-ghost" id="offerDiagnosticsClose">Zamknij</button></div><p>Raport z ostatniego pobrania ofert. Odczyt nie uruchamia analizy ani pobierania kursów.</p><div id="offerDiagnosticsContent"></div>';
+            dialog.querySelector('#offerDiagnosticsClose').onclick = () => dialog.close();
+            document.body.appendChild(dialog);
+        }
+        if (!dialog.open) dialog.showModal();
+        const parent = dialog.querySelector('#offerDiagnosticsContent'); parent.textContent = 'Odczytywanie raportów…';
+        const reasons = {'unsupported-period-or-method':'Nieobsługiwany okres lub wariant','unsupported-market':'Rynek poza obsługiwanym zakresem','inactive-selection':'Selekcja nieaktywna','unsupported-selection':'Nieobsługiwany wariant selekcji','missing-player':'Brak rozpoznanej nazwy zawodnika','missing-line':'Brak rozpoznanej linii','missing-market-label':'Brak etykiety rynku','missing-market-details':'Brak szczegółów rynku','unsupported-period':'Nieobsługiwany okres','unsupported-or-unrecognized-player-market':'Nieobsługiwany rynek lub nierozpoznany zawodnik','unusable-odds':'Niepoprawny kurs','detected-label-check-parser-coverage':'Wykryta etykieta — sprawdź pokrycie parsera'};
+        try {
+            const items = await window.go.main.App.GetOfferDiagnostics(document.getElementById('sbInput').value.trim(), document.getElementById('betclicInput').value.trim(), document.getElementById('stsInput').value.trim());
+            parent.replaceChildren();
+            if (!items?.length) { parent.textContent = 'Najpierw wybierz mecz lub wpisz linki bukmacherów.'; return; }
+            for (const item of items) {
+                const section = document.createElement('section'); section.style.marginBottom = '20px'; parent.appendChild(section);
+                const title = document.createElement('h3'); title.textContent = CALENDAR_LABELS[item.bookmaker] || item.bookmaker; section.appendChild(title);
+                const audit = item.audit;
+                const note = document.createElement('p'); section.appendChild(note);
+                if (!audit) { note.textContent = item.message || 'Brak audytu.'; continue; }
+                const heuristic = audit.coverage === 'heuristic-protobuf';
+                note.textContent = `${heuristic ? 'Wykryte etykiety / kandydaci' : 'Rynki / selekcje'}: ${audit.rawMarkets} / ${audit.rawSelections} · odczytane: ${audit.parsedSelections} · użyteczne: ${audit.usableSelections} · pobrano ${new Date(item.observedAt).toLocaleString('pl-PL')}${item.fresh ? '' : ' · oferta wygasła'}`;
+                if (audit.fullState === true) { const p = document.createElement('p'); p.textContent = 'Potwierdzony pełny snapshot.'; section.appendChild(p); }
+                for (const warning of audit.warnings || []) { const p = document.createElement('p'); p.style.color = 'var(--sb-color)'; p.textContent = warning; section.appendChild(p); }
+                const summary = document.createElement('p'); summary.textContent = Object.entries(audit.reasons || {}).map(([key,count]) => `${reasons[key] || key}: ${count}`).join(' · '); section.appendChild(summary);
+                const table = document.createElement('table'); table.className = 'context-table'; section.appendChild(table);
+                const head = table.createTHead().insertRow(); for (const label of ['Rynek','Powód / kontrola','Liczba']) { const th = document.createElement('th'); th.textContent = label; head.appendChild(th); }
+                const body = table.createTBody();
+                for (const omitted of audit.omissions || []) { const row = body.insertRow(); for (const value of [omitted.label,reasons[omitted.reason] || omitted.reason,omitted.count]) { row.insertCell().textContent = String(value); } }
+                if (audit.unlistedOmissions) { const p = document.createElement('p'); p.textContent = `Lista etykiet jest ograniczona do 200 grup; ${audit.unlistedOmissions} pozycji uwzględniono tylko w licznikach powodów.`; section.appendChild(p); }
+            }
+        } catch (err) { parent.textContent = String(err); }
     }
 
     async function openEvaluationReport() {
@@ -1334,8 +1506,9 @@
                     try {
                         const bets = await window.go.main.App.GetAutomaticAnalysis(summary.runId);
                         if (selection !== calendarSelection || analysisActive) return;
+                        document.querySelectorAll('.bm-cb').forEach(checkbox => { checkbox.checked = true; });
                         applyAnalysisResults(bets, true);
-                        document.getElementById('resultsMeta').textContent = `${event.home} – ${event.away} · ${CALENDAR_LABELS[event.bookmaker]} · zapisana analiza z ${new Date(summary.analyzedAt).toLocaleString('pl-PL')} · Analizuj przeliczy aktualną ofertę wybranych bukmacherów`;
+                        document.getElementById('resultsMeta').textContent = `${event.home} – ${event.away} · Superbet, Betclic i STS · zapisana analiza z ${new Date(summary.analyzedAt).toLocaleString('pl-PL')} · Analizuj przeliczy aktualną ofertę trzech bukmacherów`;
                     } catch (err) { console.error('Odczyt zapisanej analizy:', err); }
                 })()
             ]);
@@ -1546,7 +1719,22 @@
         }
     }
 
+    async function cancelAnalysis() {
+        const button = document.getElementById('btnCancelAnalysis');
+        button.disabled = true;
+        analysisCancelRequested = true;
+        try {
+            await window.go.main.App.CancelAnalysis();
+        } catch (error) {
+            analysisCancelRequested = false;
+            alert('Nie udało się anulować analizy: ' + String(error));
+        } finally {
+            button.disabled = false;
+        }
+    }
+
     function analysisStageButton(stage) {
+        if (stage?.startsWith('saving-')) return '⏳ Zapisywanie analizy...';
         if (stage === 'odds') return '⏳ Pobieranie rynków...';
         if (stage === 'teams') return '⏳ Rozpoznawanie drużyn...';
         if (stage === 'statistics-xi' || stage === 'lineups') return '⏳ Pobieranie XI...';
@@ -1565,6 +1753,7 @@
             return;
         }
         analysisActive = true;
+        analysisCancelRequested = false;
         const viewRevision = analysisViewRevision;
         const isCurrentView = () => viewRevision === analysisViewRevision;
         const requestHomeSlug = currentHomeSlug;
@@ -1656,10 +1845,12 @@
                 console.error('Błąd poprzedniej analizy:', e);
                 return;
             }
-            alert("Błąd analizy: " + e);
+            if (!analysisCancelRequested) alert("Błąd analizy: " + e);
             if (!previewReceived) tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--danger);">Nie udało się zakończyć analizy. Szczegóły znajdują się w komunikacie i ostrzeżeniach nad formularzem.</td></tr>`;
         } finally {
             analysisActive = false;
+            analysisCancelRequested = false;
+            document.getElementById('btnCancelAnalysis').hidden = true;
             if (typeof stopPreview === 'function') stopPreview();
             await refreshAnalysisProgress();
             if (!analysisActive) {
@@ -1767,7 +1958,8 @@
                 });
             }
             groups.get(key).books[b.bookmaker] = {
-                odds: b.bookmakerOdds, edgePercent: b.edgePercent, evWithTax: b.evWithTax, verdict: b.verdict, hitRate: b.hitRate
+                odds: b.bookmakerOdds, edgePercent: b.edgePercent, evWithTax: b.evWithTax, verdict: b.verdict, hitRate: b.hitRate,
+                analysisOdds: b.analysisOdds, quoteObservedAt: b.quoteObservedAt, priceImproved: b.priceImproved
             };
         }
         return Array.from(groups.values()).map(group => {
@@ -1944,9 +2136,9 @@
 
         document.getElementById('chartTitle').textContent = `${bet.playerName} — ${marketLabel}`;
         document.getElementById('chartSubtitle').textContent = `Ostatnie ${values.length} meczów z aktualnej próbki; mecz 1 (od lewej) jest najnowszy.` +
-            (useSuperSub
+            (useSuperSub && hasSuperSubSample
                 ? ' SuperSub jest wliczony do słupków; plakietka "+N" pokazuje wkład zmiennika.'
-                : '');
+                : (useSuperSub ? ' Brak kompletnej próbki zmienników; pokazano statystyki zawodnika.' : ''));
         document.getElementById('chartSummary').innerHTML = `
             <span>Linia: <b>${bet.isUnder ? 'under' : 'over'} ${bet.line}</b></span>
             <span>Średnia: <b>${average.toFixed(2)}</b></span>
@@ -2635,7 +2827,7 @@
                 const cls = (bmKey === bestBm && selectedBMs.includes(bmKey)) ? "best-odds" : "";
                 const edgeColor = o.edgePercent >= 0 ? "var(--success)" : "var(--danger)";
                 return `<td class="${cls} bm-cell" data-bm="${bmKey}">
-                    <b>${o.odds.toFixed(2)}</b>
+                    <b>${o.odds.toFixed(2)}${o.priceImproved ? ' <span style="color:var(--success)">↑</span>' : ''}</b>
                     <div style="font-size:10px; color:${g.contextPending ? 'var(--text-muted)' : edgeColor};">${g.contextPending ? 'kontekst…' : (o.edgePercent > 0 ? '+' : '') + o.edgePercent + '%'}</div>
                 </td>`;
             }).join("");
@@ -2660,6 +2852,7 @@
                 const bmKey = cell.dataset.bm;
                 const o = g.books[bmKey];
                 if (!o) return;
+                if (o.analysisOdds && Date.parse(o.quoteObservedAt) > 0) cell.title = `Kurs bazowy: ${o.analysisOdds.toFixed(2)} · ostatnio sprawdzony: ${o.odds.toFixed(2)} · ${new Date(o.quoteObservedAt).toLocaleString('pl-PL')}\nWycenę zaktualizowano na podstawie modelu z analizy bazowej.`;
                 cell.oncontextmenu = (e) => {
                     e.preventDefault();
                     e.stopPropagation();

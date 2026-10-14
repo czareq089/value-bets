@@ -364,6 +364,10 @@ export namespace main {
 	    }
 	}
 	export class AnalyzedBet {
+	    analysisOdds?: number;
+	    // Go type: time
+	    quoteObservedAt?: any;
+	    priceImproved?: boolean;
 	    playerId: number;
 	    contextPending?: boolean;
 	    sampleRatings: number[];
@@ -402,6 +406,9 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.analysisOdds = source["analysisOdds"];
+	        this.quoteObservedAt = this.convertValues(source["quoteObservedAt"], null);
+	        this.priceImproved = source["priceImproved"];
 	        this.playerId = source["playerId"];
 	        this.contextPending = source["contextPending"];
 	        this.sampleRatings = source["sampleRatings"];
@@ -541,6 +548,11 @@ export namespace main {
 	
 	
 	export class AutomaticSummary {
+	    // Go type: time
+	    quoteCheckedAt?: any;
+	    improved?: number;
+	    newSelections?: number;
+	    missing?: number;
 	    bookmaker: string;
 	    eventId: string;
 	    fixtureId: string;
@@ -563,6 +575,10 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.quoteCheckedAt = this.convertValues(source["quoteCheckedAt"], null);
+	        this.improved = source["improved"];
+	        this.newSelections = source["newSelections"];
+	        this.missing = source["missing"];
 	        this.bookmaker = source["bookmaker"];
 	        this.eventId = source["eventId"];
 	        this.fixtureId = source["fixtureId"];

@@ -41,7 +41,7 @@
 'use strict';
 let user = null, current = null, busy = false;
 const $ = id => document.getElementById(id);
-const labels = {SHOTS_TOTAL:'Strzały',SHOTS_ON_TARGET:'Celne',SHOTS_BLOCKED:'Zablokowane',SHOTS_OFF_TARGET:'Niecelne',SHOTS_INSIDE_BOX:'Z pola karnego',SHOTS_OUTSIDE_BOX:'Spoza pola karnego',SHOTS_ON_TARGET_INSIDE_BOX:'Celne z pola',SHOTS_ON_TARGET_OUTSIDE_BOX:'Celne spoza pola',TACKLES:'Odbiory',FOULS_COMMITTED:'Faule popełnione',FOULS_DRAWN:'Faule wywalczone',INTERCEPTIONS:'Przechwyty',OFFSIDES:'Spalone',DISPOSSESSED:'Straty'};
+const labels = {SHOTS_TOTAL:'Strzały',SHOTS_ON_TARGET:'Celne',SHOTS_BLOCKED:'Zablokowane',SHOTS_OFF_TARGET:'Niecelne',SHOTS_INSIDE_BOX:'Z pola karnego',SHOTS_OUTSIDE_BOX:'Spoza pola karnego',SHOTS_ON_TARGET_INSIDE_BOX:'Celne z pola',SHOTS_ON_TARGET_OUTSIDE_BOX:'Celne spoza pola',TACKLES:'Odbiory',PASSES:'Podania',ACCURATE_PASSES:'Celne podania',FOULS_COMMITTED:'Faule popełnione',FOULS_DRAWN:'Faule wywalczone',INTERCEPTIONS:'Przechwyty',OFFSIDES:'Spalone',DISPOSSESSED:'Straty'};
 const date = value => value ? new Date(value).toLocaleString('pl-PL') : '—';
 const number = value => value!==null&&value!==undefined&&value!==''&&Number.isFinite(Number(value)) ? Number(value).toFixed(2) : '—';
 function el(tag,text,className){const node=document.createElement(tag);if(text!==undefined)node.textContent=String(text);if(className)node.className=className;return node;}
@@ -75,9 +75,20 @@ function drawShots(history,index){
     parent.appendChild(svg);parent.appendChild(el('p','Kierunek ataku → · zielone: celne · niebieskie: pozostałe · żółte: zmiennik.','muted'));
     if(!shots.length)parent.appendChild(el('p','Brak zapisanych strzałów w tym występie.','muted'));
 }
+function metricSampleHistory(source,market){
+    if(!source)return source;
+    const values=source.metricValues?.[market]||[],mask=source.metricAvailability?.[market];
+    const indexes=values.map((_,i)=>i).filter(i=>!mask||mask[i]===true),h={...source};
+    for(const field of ['dates','opponents','minutes','positions','ratings','matchContexts','eventIds','matchStartedAt','matchShots'])if(Array.isArray(source[field]))h[field]=indexes.map(i=>source[field][i]);
+    for(const [field,masks]of [['metricValues',source.metricAvailability],['metricValuesWithSuperSub',source.superSubAvailability]]){
+        h[field]={};for(const [key,data]of Object.entries(source[field]||{}))h[field][key]=indexes.map(i=>!masks?.[key]||masks[key][i]===true?data[i]:null);
+    }
+    h.incomplete=source.incomplete||indexes.length<values.length;
+    return h;
+}
 function renderHistory(detail,extended){
     const p=detail.prediction,e=detail.evidence||{},bet=p.bet;
-    const h=extended||[...(e.homePlayers||[]),...(e.awayPlayers||[])].find(item=>item.id===bet.playerId);
+    const h=metricSampleHistory(extended||[...(e.homePlayers||[]),...(e.awayPlayers||[])].find(item=>item.id===bet.playerId),bet.marketType);
     const parent=$('playerHistory');parent.replaceChildren();$('shotSelection').replaceChildren();
     if(!h){parent.textContent='Brak historii zawodnika.';$('historyChart').replaceChildren();$('shotChart').replaceChildren();$('historySummary').textContent='';return;}
     const market=bet.marketType,values=h.metricValues?.[market]||[],hit=v=>bet.isUnder?v<=bet.line:v>bet.line;
@@ -136,6 +147,7 @@ async function showPrediction(id){
     $('player').textContent=bet.playerName;$('market').textContent=`${bet.marketLabel||labels[bet.marketType]||bet.marketType} · ${bet.isUnder?'under':'over'} ${bet.line}`;
     $('odds').textContent=number(bet.bookmakerOdds);$('book').textContent=bet.bookmaker;$('algorithm').textContent=p.algorithm;$('lineup').textContent=({STARTER:'Potwierdzony skład XI',PREDICTED_STARTER:'Przewidywany skład XI',BENCH:'Ławka rezerwowych',PREDICTED_BENCH:'Przewidywana ławka',UNKNOWN:'Skład nieznany'})[bet.lineupStatus]||'Skład nieznany';
     $('freshness').textContent=`Kurs z ${date(p.observedAt)} · analiza ${date(p.analyzedAt)}${Date.now()>Date.parse(p.expiresAt)?' · termin świeżości minął — oceniasz zapisaną ofertę, nie aktualną cenę.':''}`;
+    if(detail.currentQuote){const quote=detail.currentQuote;$('odds').textContent=quote.available?number(quote.bet.bookmakerOdds):'—';$('freshness').textContent=`Kurs bazowy ${number(bet.bookmakerOdds)} · analiza ${date(p.analyzedAt)} · monitor ${date(quote.observedAt)}${!quote.available?' · selekcja niedostępna':Date.now()>Date.parse(quote.expiresAt)?' · ostatni kurs wygasł':''}. Model i próbka pochodzą z analizy bazowej.`;}
     $('coverage').textContent=`Próbka: ${bet.matchesSample} meczów · ${p.historyComplete?'kompletna':'niepełna'} historia`;
     $('historyStatus').textContent='';$('historyLimit').value='10';
     renderHistory(detail);renderContexts(detail);populateForm(detail);renderComparison(detail);renderOutcomes(detail);

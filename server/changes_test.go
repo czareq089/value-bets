@@ -258,7 +258,7 @@ func TestSavedCalendarRunReproducesCountersAndHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.db.Close()
+	defer store.close()
 	s := &calendarServer{research: store}
 	now := time.Now().UTC()
 	h := &PlayerStatHistory{ID: 1, Matches: 10, MetricValues: map[CanonicalMarket][]int{MarketTackles: {0, 1}}, Minutes: []int{90, 80}, Dates: []string{"09.10", "01.10"}}

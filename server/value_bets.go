@@ -56,25 +56,32 @@ const researchSchema = 1
 const evaluationStrategy = "prematch-T60-single-v1"
 
 var errNoPlayerHistory = errors.New("SofaScore nie zwrócił historii zawodników; sprawdź ostrzeżenia")
+var errSofaTeamVerification = errors.New("nie potwierdzono drużyn w SofaScore")
+
+const teamDetectionRevision = "fixture-identity-v4"
+const tacklesStatsField = "wonTackle"
+const settlementMetricsVersion = "stats-v2-tackles-won"
 
 type researchStore struct {
-	db  *sql.DB
-	dir string
-	mu  sync.Mutex // serialize report exports, never shared with the review service
+	db        *sql.DB
+	summaryDB *sql.DB // Dedicated read-only connections; writers and exports cannot occupy them.
+	dir       string
+	mu        sync.Mutex // serialize report exports, never shared with the review service
 }
 
 type predictionEvidence struct {
-	LineupDetails    *SofaLineupResponse  `json:"lineupDetails,omitempty"`
-	SchemaVersion    int                  `json:"schemaVersion"`
-	Fixture          statsFixture         `json:"fixture"`
-	Request          AnalysisRequest      `json:"request"`
-	HomePlayers      []*PlayerStatHistory `json:"homePlayers"`
-	AwayPlayers      []*PlayerStatHistory `json:"awayPlayers"`
-	HomeLineup       map[string]bool      `json:"homeLineup"`
-	AwayLineup       map[string]bool      `json:"awayLineup"`
-	LineupsConfirmed bool                 `json:"lineupsConfirmed"`
-	Context          analysisMatchContext `json:"matchContext"`
-	OddsSources      map[string]any       `json:"oddsSources"`
+	BookmakerStartTime time.Time            `json:"bookmakerStartTime,omitempty"`
+	LineupDetails      *SofaLineupResponse  `json:"lineupDetails,omitempty"`
+	SchemaVersion      int                  `json:"schemaVersion"`
+	Fixture            statsFixture         `json:"fixture"`
+	Request            AnalysisRequest      `json:"request"`
+	HomePlayers        []*PlayerStatHistory `json:"homePlayers"`
+	AwayPlayers        []*PlayerStatHistory `json:"awayPlayers"`
+	HomeLineup         map[string]bool      `json:"homeLineup"`
+	AwayLineup         map[string]bool      `json:"awayLineup"`
+	LineupsConfirmed   bool                 `json:"lineupsConfirmed"`
+	Context            analysisMatchContext `json:"matchContext"`
+	OddsSources        map[string]any       `json:"oddsSources"`
 }
 
 type predictionRecord struct {
@@ -98,19 +105,23 @@ type predictionRecord struct {
 }
 
 type automaticSummary struct {
-	Bookmaker  string    `json:"bookmaker"`
-	EventID    string    `json:"eventId"`
-	FixtureID  string    `json:"fixtureId"`
-	Match      string    `json:"match"`
-	Status     string    `json:"status"`
-	Stage      string    `json:"stage"`
-	Value      int       `json:"value"`
-	Traps      int       `json:"traps"`
-	Total      int       `json:"total"`
-	AnalyzedAt time.Time `json:"analyzedAt"`
-	ExpiresAt  time.Time `json:"expiresAt"`
-	RunID      string    `json:"runId"`
-	Error      string    `json:"error,omitempty"`
+	QuoteCheckedAt time.Time `json:"quoteCheckedAt,omitempty"`
+	Improved       int       `json:"improved,omitempty"`
+	NewSelections  int       `json:"newSelections,omitempty"`
+	Missing        int       `json:"missing,omitempty"`
+	Bookmaker      string    `json:"bookmaker"`
+	EventID        string    `json:"eventId"`
+	FixtureID      string    `json:"fixtureId"`
+	Match          string    `json:"match"`
+	Status         string    `json:"status"`
+	Stage          string    `json:"stage"`
+	Value          int       `json:"value"`
+	Traps          int       `json:"traps"`
+	Total          int       `json:"total"`
+	AnalyzedAt     time.Time `json:"analyzedAt"`
+	ExpiresAt      time.Time `json:"expiresAt"`
+	RunID          string    `json:"runId"`
+	Error          string    `json:"error,omitempty"`
 }
 
 func openResearchStore(dir string) (*researchStore, error) {
@@ -125,6 +136,8 @@ func openResearchStore(dir string) (*researchStore, error) {
 		`CREATE TABLE IF NOT EXISTS prediction_runs (id TEXT PRIMARY KEY, analysis_id TEXT NOT NULL, origin TEXT NOT NULL, bookmaker TEXT NOT NULL, event_id TEXT NOT NULL, fixture_id TEXT NOT NULL, match_name TEXT NOT NULL, start_at INTEGER NOT NULL, analyzed_at INTEGER NOT NULL, observed_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, algorithm TEXT NOT NULL, value_count INTEGER NOT NULL, trap_count INTEGER NOT NULL, total INTEGER NOT NULL, evidence_path TEXT NOT NULL)`,
 		`CREATE INDEX IF NOT EXISTS prediction_runs_event ON prediction_runs(bookmaker,event_id,analyzed_at)`,
 		`CREATE INDEX IF NOT EXISTS prediction_runs_fixture ON prediction_runs(fixture_id,origin,analyzed_at)`,
+		`CREATE TABLE IF NOT EXISTS automatic_price_checks (run_id TEXT PRIMARY KEY REFERENCES prediction_runs(id), payload TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS automatic_analysis_identity (analysis_id TEXT PRIMARY KEY, bookmaker_start_at INTEGER NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS predictions (id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES prediction_runs(id), bet_key TEXT NOT NULL, player_id INTEGER NOT NULL, verdict TEXT NOT NULL, payload TEXT NOT NULL)`,
 		`CREATE INDEX IF NOT EXISTS predictions_run ON predictions(run_id)`,
 		`CREATE TABLE IF NOT EXISTS fixture_results (fixture_id TEXT PRIMARY KEY, match_name TEXT NOT NULL, start_at INTEGER NOT NULL, next_check INTEGER NOT NULL, checked_at INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'scheduled', revision TEXT NOT NULL DEFAULT '', data_path TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT '', attempts INTEGER NOT NULL DEFAULT 0)`,
@@ -147,8 +160,40 @@ func openResearchStore(dir string) (*researchStore, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("nieobsługiwany schemat bazy %q: %v", schema, err)
 	}
+	path, err := filepath.Abs(filepath.Join(dir, "predictions.sqlite"))
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	uriPath := filepath.ToSlash(path)
+	if !strings.HasPrefix(uriPath, "/") {
+		uriPath = "/" + uriPath // Windows drive path in a file URI.
+	}
+	uri := url.URL{Scheme: "file", Path: uriPath}
+	uri.RawQuery = url.Values{"mode": {"ro"}, "_pragma": {"busy_timeout(1000)", "query_only(1)"}}.Encode()
+	summaryDB, err := sql.Open("sqlite", uri.String())
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	summaryDB.SetMaxOpenConns(2)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := summaryDB.PingContext(ctx); err != nil {
+		_ = summaryDB.Close()
+		_ = db.Close()
+		return nil, fmt.Errorf("połączenie do odczytu podsumowań: %w", err)
+	}
 	log.Printf("[PREDICTIONS] stage=loaded database=%q schema=%d", filepath.Join(dir, "predictions.sqlite"), researchSchema)
-	return &researchStore{db: db, dir: dir}, nil
+	return &researchStore{db: db, summaryDB: summaryDB, dir: dir}, nil
+}
+
+func (store *researchStore) close() error {
+	var readErr error
+	if store.summaryDB != nil {
+		readErr = store.summaryDB.Close()
+	}
+	return errors.Join(readErr, store.db.Close())
 }
 
 func researchHash(value any) string {
@@ -198,7 +243,7 @@ func (store *researchStore) readDocument(rel string, target any) error {
 	return json.NewDecoder(io.LimitReader(reader, 64<<20)).Decode(target)
 }
 
-func (s *calendarServer) savePredictions(job AnalysisJob, evidence *predictionEvidence) error {
+func (s *calendarServer) savePredictions(job AnalysisJob, evidence *predictionEvidence, parents ...context.Context) error {
 	if len(evidence.OddsSources) != len(serverBookmakers) {
 		return fmt.Errorf("zapis prognoz wymaga pełnej oferty wszystkich trzech bukmacherów")
 	}
@@ -230,13 +275,30 @@ func (s *calendarServer) savePredictions(job AnalysisJob, evidence *predictionEv
 	for _, h := range append(append([]*PlayerStatHistory{}, evidence.HomePlayers...), evidence.AwayPlayers...) {
 		histories[h.ID] = h
 	}
-	tx, err := store.db.Begin()
+	saveParent := s.ctx
+	if len(parents) > 0 {
+		saveParent = parents[0]
+	}
+	if saveParent == nil {
+		saveParent = context.Background()
+	}
+	saveCtx, cancel := context.WithTimeout(saveParent, time.Minute)
+	defer cancel()
+	tx, err := store.db.BeginTx(saveCtx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err = tx.Exec(`INSERT INTO fixture_results(fixture_id,match_name,start_at,next_check) VALUES(?,?,?,?) ON CONFLICT(fixture_id) DO UPDATE SET start_at=excluded.start_at WHERE fixture_results.status IN ('scheduled','postponed')`, evidence.Fixture.ID, job.Match, evidence.Fixture.StartTime.Unix(), evidence.Fixture.StartTime.Add(110*time.Minute).Unix()); err != nil {
+	if _, err = tx.ExecContext(saveCtx, `INSERT INTO fixture_results(fixture_id,match_name,start_at,next_check) VALUES(?,?,?,?) ON CONFLICT(fixture_id) DO UPDATE SET start_at=excluded.start_at WHERE fixture_results.status IN ('scheduled','postponed')`, evidence.Fixture.ID, job.Match, evidence.Fixture.StartTime.Unix(), evidence.Fixture.StartTime.Add(110*time.Minute).Unix()); err != nil {
 		return err
+	}
+	if job.Origin == "automatic" {
+		if evidence.BookmakerStartTime.IsZero() {
+			return fmt.Errorf("brak terminu bukmachera dla analizy bazowej")
+		}
+		if _, err = tx.ExecContext(saveCtx, `INSERT OR IGNORE INTO automatic_analysis_identity(analysis_id,bookmaker_start_at) VALUES(?,?)`, job.ID, evidence.BookmakerStartTime.Unix()); err != nil {
+			return err
+		}
 	}
 	for book, rawSource := range evidence.OddsSources {
 		var source struct {
@@ -280,12 +342,15 @@ func (s *calendarServer) savePredictions(job AnalysisJob, evidence *predictionEv
 				trapCount++
 			}
 		}
-		if _, err = tx.Exec(`INSERT OR IGNORE INTO prediction_runs VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, runID, job.ID, job.Origin, book, source.EventID, evidence.Fixture.ID, job.Match, evidence.Fixture.StartTime.Unix(), job.FinishedAt.Unix(), source.ObservedAt.Unix(), source.ExpiresAt.Unix(), fairModelVersion, valueCount, trapCount, len(bets), path); err != nil {
+		if _, err = tx.ExecContext(saveCtx, `INSERT OR IGNORE INTO prediction_runs VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, runID, job.ID, job.Origin, book, source.EventID, evidence.Fixture.ID, job.Match, evidence.Fixture.StartTime.Unix(), job.FinishedAt.Unix(), source.ObservedAt.Unix(), source.ExpiresAt.Unix(), fairModelVersion, valueCount, trapCount, len(bets), path); err != nil {
 			return err
 		}
 		for _, bet := range bets {
 			key := researchHash([]any{evidence.Fixture.ID, bet.PlayerID, bet.MarketType, bet.Line, bet.IsUnder})
 			h := histories[bet.PlayerID]
+			if h != nil {
+				h = metricHistory(h, bet.MarketType)
+			}
 			complete := h != nil && !h.Incomplete && h.Matches >= job.Request.MatchLimit
 			// Histories, shots and team overviews live once in the compressed evidence.
 			bet.MatchOverview, bet.SampleValues, bet.SampleValuesSuperSub = nil, nil, nil
@@ -295,7 +360,7 @@ func (s *calendarServer) savePredictions(job AnalysisJob, evidence *predictionEv
 			if err != nil {
 				return err
 			}
-			if _, err = tx.Exec(`INSERT OR IGNORE INTO predictions VALUES(?,?,?,?,?,?)`, p.ID, runID, key, bet.PlayerID, bet.Verdict, string(raw)); err != nil {
+			if _, err = tx.ExecContext(saveCtx, `INSERT OR IGNORE INTO predictions VALUES(?,?,?,?,?,?)`, p.ID, runID, key, bet.PlayerID, bet.Verdict, string(raw)); err != nil {
 				return err
 			}
 		}
@@ -358,6 +423,11 @@ func (s *calendarServer) autoAnalyze(ctx context.Context, candidate statsWarmupC
 	log.Printf("[AUTO-ANALYSIS] id=%s match=%q stage=start bookmaker=%s event_id=%s odds_age=%s", task.job.ID, task.job.Match, candidate.Bookmaker, candidate.Event.ID, time.Since(odds.ObservedAt).Round(time.Second))
 	engine := analysisEngine{client: client, task: task, server: s}
 	result, err := engine.analyze(query)
+	task.mu.Lock()
+	if task.evidence != nil {
+		task.evidence.BookmakerStartTime = candidate.StartTime
+	}
+	task.mu.Unlock()
 	err = errors.Join(err, client.archiveError(), ctx.Err())
 	s.finishAnalysisTask(task, result, err)
 	state := task.snapshot()
@@ -365,6 +435,9 @@ func (s *calendarServer) autoAnalyze(ctx context.Context, candidate statsWarmupC
 	unavailable, pending := client.state.statsUnavailable, client.state.statsMissingPending
 	client.state.mu.Unlock()
 	if state.Status != "completed" {
+		if errors.Is(err, errSofaTeamVerification) {
+			return 0, "sofa-teams", err
+		}
 		if errors.Is(err, errNoPlayerHistory) && unavailable > 0 && ctx.Err() == nil && client.archiveError() == nil {
 			if pending == 0 {
 				return 0, "sofa-missing", nil
@@ -387,6 +460,258 @@ func (s *calendarServer) autoAnalyze(ctx context.Context, candidate statsWarmupC
 		return len(players), "sofa-partial", nil
 	}
 	return len(players), "completed", nil
+}
+
+// Quotes are an overlay on immutable predictions, not another model run.
+// The original run and evidence remain the source for evaluation and samples.
+type automaticPriceCheck struct {
+	OfferVersion  string             `json:"offerVersion"`
+	CheckedAt     time.Time          `json:"checkedAt"`
+	ExpiresAt     time.Time          `json:"expiresAt"`
+	Bets          []AnalyzedBet      `json:"bets"`
+	BestOdds      map[string]float64 `json:"bestOdds"`
+	Improved      int                `json:"improved"`
+	NewSelections int                `json:"newSelections"`
+	Missing       int                `json:"missing"`
+}
+
+// Calendar cards need counts and timestamps, not histories, shotmaps and
+// match context attached to every priced bet in the archived quote overlay.
+type automaticPriceSummary struct {
+	CheckedAt     time.Time `json:"checkedAt"`
+	ExpiresAt     time.Time `json:"expiresAt"`
+	Improved      int       `json:"improved"`
+	NewSelections int       `json:"newSelections"`
+	Missing       int       `json:"missing"`
+	Bets          []struct {
+		Verdict string `json:"verdict"`
+	} `json:"bets"`
+}
+
+func automaticBetKey(bet AnalyzedBet) string {
+	return researchHash([]any{bet.Bookmaker, bet.PlayerID, bet.MarketType, bet.Line, bet.IsUnder})
+}
+
+func (store *researchStore) priceCheck(runID string) (*automaticPriceCheck, error) {
+	var raw string
+	err := store.db.QueryRow(`SELECT payload FROM automatic_price_checks WHERE run_id=?`, runID).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var check automaticPriceCheck
+	if err = json.Unmarshal([]byte(raw), &check); err != nil {
+		return nil, err
+	}
+	return &check, nil
+}
+
+func registerHistoryAliases(target map[string]string, history *PlayerStatHistory) {
+	id := strconv.Itoa(history.ID)
+	norm := NormalizePlayerName(history.FullName)
+	if norm == "" {
+		return
+	}
+	target[norm] = id
+	parts := strings.Fields(norm)
+	if len(parts) >= 2 {
+		first, last := parts[0], parts[len(parts)-1]
+		target[last+" "+strings.Join(parts[:len(parts)-1], " ")] = id
+		target[string(first[0])+" "+last] = id
+		target[last+" "+string(first[0])] = id
+	}
+}
+
+func (store *researchStore) runPredictions(runID string) ([]predictionRecord, error) {
+	rows, err := store.db.Query(`SELECT payload FROM predictions WHERE run_id=? ORDER BY bet_key`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []predictionRecord{}
+	for rows.Next() {
+		var raw string
+		var p predictionRecord
+		if err = rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		if err = json.Unmarshal([]byte(raw), &p); err != nil {
+			return nil, err
+		}
+		result = append(result, p)
+	}
+	return result, rows.Err()
+}
+
+func (s *calendarServer) monitorAutomaticPrices(ctx context.Context, candidate statsWarmupCandidate) (int, bool, error) {
+	var analysisID string
+	// A new algorithm or changed fixture identity needs one new baseline.
+	err := s.research.db.QueryRow(`SELECT r.analysis_id FROM prediction_runs r JOIN automatic_analysis_identity i ON i.analysis_id=r.analysis_id WHERE r.origin='automatic' AND r.bookmaker='STS' AND r.event_id=? AND i.bookmaker_start_at=? AND r.match_name=? AND r.algorithm=? ORDER BY r.analyzed_at DESC,r.id DESC LIMIT 1`, candidate.Event.ID, candidate.StartTime.Unix(), candidate.Event.Home+" vs "+candidate.Event.Away, fairModelVersion).Scan(&analysisID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, true, err
+	}
+	type run struct{ id, book, event, path string }
+	rows, err := s.research.db.Query(`SELECT id,bookmaker,event_id,evidence_path FROM prediction_runs WHERE analysis_id=? AND origin='automatic'`, analysisID)
+	if err != nil {
+		return 0, true, err
+	}
+	runs := []run{}
+	for rows.Next() {
+		var item run
+		if err = rows.Scan(&item.id, &item.book, &item.event, &item.path); err != nil {
+			_ = rows.Close()
+			return 0, true, err
+		}
+		runs = append(runs, item)
+	}
+	err = rows.Err()
+	_ = rows.Close() // SQLite uses one connection; close before another query.
+	if err != nil {
+		return 0, true, err
+	}
+	if len(runs) != len(serverBookmakers) {
+		return 0, true, fmt.Errorf("niekompletna analiza bazowa %s", analysisID)
+	}
+	for _, item := range runs {
+		if candidate.Matches[item.book].ID != item.event {
+			return 0, false, nil
+		}
+	}
+	var aliases map[string]string
+	updates := map[string]automaticPriceCheck{}
+	players := map[int]bool{}
+	newImprovements := 0
+	for _, item := range runs {
+		if !s.automaticLeagueEnabled(candidate.Matches) {
+			return len(players), true, context.Canceled
+		}
+		previous, err := s.research.priceCheck(item.id)
+		if err != nil {
+			return 0, true, err
+		}
+		odds, err := s.matchOdds(ctx, item.book, item.event)
+		if ctx.Err() == nil && !errors.Is(err, context.Canceled) {
+			s.rememberMarketAvailability(marketAvailabilityFromOdds(item.book, item.event, odds, err))
+		}
+		if err != nil {
+			return 0, true, err
+		}
+		if previous != nil && previous.OfferVersion == odds.ArchiveVersion {
+			previous.CheckedAt, previous.ExpiresAt = odds.ObservedAt, odds.ExpiresAt
+			for i := range previous.Bets {
+				previous.Bets[i].QuoteObservedAt = odds.ObservedAt
+				players[previous.Bets[i].PlayerID] = true
+			}
+			updates[item.id] = *previous
+			continue
+		}
+		base, err := s.research.runPredictions(item.id)
+		if err != nil {
+			return 0, true, err
+		}
+		if aliases == nil {
+			var evidence predictionEvidence
+			if err = s.research.readDocument(runs[0].path, &evidence); err != nil {
+				return 0, true, err
+			}
+			aliases = map[string]string{}
+			for _, history := range append(append([]*PlayerStatHistory{}, evidence.HomePlayers...), evidence.AwayPlayers...) {
+				registerHistoryAliases(aliases, history)
+			}
+		}
+		check := automaticPriceCheck{OfferVersion: odds.ArchiveVersion, CheckedAt: odds.ObservedAt, ExpiresAt: odds.ExpiresAt, Bets: []AnalyzedBet{}, BestOdds: map[string]float64{}}
+		if previous != nil {
+			for key, price := range previous.BestOdds {
+				check.BestOdds[key] = price
+			}
+		}
+		current := map[string]float64{}
+		for _, prop := range odds.Props {
+			id, _ := strconv.Atoi(matchPlayerStrict(prop.PlayerName, aliases))
+			key := automaticBetKey(AnalyzedBet{Bookmaker: prop.Bookmaker, PlayerID: id, MarketType: prop.MarketType, Line: prop.Line, IsUnder: prop.IsUnder})
+			if id == 0 {
+				key = researchHash([]any{prop.Bookmaker, "unmatched", NormalizePlayerName(prop.PlayerName), prop.MarketType, prop.Line, prop.IsUnder})
+			}
+			if prop.Odds > current[key] {
+				current[key] = prop.Odds
+			}
+		}
+		modeled := map[string]bool{}
+		for _, prediction := range base {
+			bet := prediction.Bet
+			players[bet.PlayerID] = true
+			key := automaticBetKey(bet)
+			modeled[key] = true
+			price, available := current[key]
+			if !available {
+				check.Missing++
+				continue
+			}
+			if check.BestOdds[key] == 0 {
+				check.BestOdds[key] = bet.BookmakerOdds
+			}
+			if price > check.BestOdds[key]+1e-9 {
+				newImprovements++
+				check.BestOdds[key] = price
+			}
+			if price > bet.BookmakerOdds+1e-9 {
+				check.Improved++
+			}
+			bet.AnalysisOdds, bet.QuoteObservedAt = bet.BookmakerOdds, odds.ObservedAt
+			bet.PriceImproved = price > bet.BookmakerOdds+1e-9
+			bet.BookmakerOdds = price
+			// Use the exact frozen probability, not the rounded display fair odds.
+			if bet.FairModel != nil && bet.FairModel.Probability > 0 {
+				p := bet.FairModel.Probability
+				bet.EdgePercent = math.Round((price*p-1)*1000) / 10
+				evTax := (p*price*.88 - 1) * 100
+				bet.EVWithTax = math.Round(evTax*10) / 10
+				bet.Verdict = "NEUTRAL"
+				if evTax > 0 {
+					bet.Verdict = "VALUE"
+				} else if evTax < -15 {
+					bet.Verdict = "TRAP"
+				}
+			}
+			check.Bets = append(check.Bets, bet)
+		}
+		for key := range current {
+			if !modeled[key] {
+				check.NewSelections++
+			}
+		}
+		updates[item.id] = check
+	}
+	if err = ctx.Err(); err != nil {
+		return len(players), true, err
+	}
+	if !s.automaticLeagueEnabled(candidate.Matches) {
+		return len(players), true, context.Canceled
+	}
+	tx, err := s.research.db.BeginTx(ctx, nil)
+	if err != nil {
+		return len(players), true, err
+	}
+	defer tx.Rollback()
+	for runID, check := range updates {
+		raw, err := json.Marshal(check)
+		if err != nil {
+			return len(players), true, err
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO automatic_price_checks(run_id,payload) VALUES(?,?) ON CONFLICT(run_id) DO UPDATE SET payload=excluded.payload`, runID, string(raw)); err != nil {
+			return len(players), true, err
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return len(players), true, err
+	}
+	log.Printf("[AUTO-ODDS] analysis_id=%s event_id=%s new_improvements=%d model_reused=true sofa_requests=0", analysisID, candidate.Event.ID, newImprovements)
+	return len(players), true, nil
 }
 
 func (store *researchStore) predictionsForFixture(id string) ([]predictionRecord, error) {
@@ -424,7 +749,17 @@ func (store *researchStore) prediction(id string) (predictionRecord, error) {
 }
 
 func (store *researchStore) summaries() ([]automaticSummary, error) {
-	rows, err := store.db.Query(`SELECT r.id,r.bookmaker,r.event_id,r.fixture_id,r.match_name,r.analyzed_at,r.expires_at,r.value_count,r.trap_count,r.total FROM prediction_runs r WHERE r.origin='automatic' AND r.start_at>? AND r.id=(SELECT r2.id FROM prediction_runs r2 WHERE r2.origin='automatic' AND r2.bookmaker=r.bookmaker AND r2.event_id=r.event_id ORDER BY r2.analyzed_at DESC,r2.id DESC LIMIT 1)`, time.Now().Unix())
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	return store.summariesContext(ctx)
+}
+
+func (store *researchStore) summariesContext(ctx context.Context) ([]automaticSummary, error) {
+	db := store.summaryDB
+	if db == nil {
+		db = store.db
+	}
+	rows, err := db.QueryContext(ctx, `SELECT r.id,r.bookmaker,r.event_id,r.fixture_id,r.match_name,r.analyzed_at,r.expires_at,r.value_count,r.trap_count,r.total,COALESCE(q.payload,'') FROM prediction_runs r LEFT JOIN automatic_price_checks q ON q.run_id=r.id WHERE r.origin='automatic' AND r.algorithm=? AND r.start_at>? AND r.id=(SELECT r2.id FROM prediction_runs r2 WHERE r2.origin='automatic' AND r2.algorithm=r.algorithm AND r2.bookmaker=r.bookmaker AND r2.event_id=r.event_id ORDER BY r2.analyzed_at DESC,r2.id DESC LIMIT 1)`, fairModelVersion, time.Now().Unix())
 	if err != nil {
 		return nil, err
 	}
@@ -433,12 +768,33 @@ func (store *researchStore) summaries() ([]automaticSummary, error) {
 	for rows.Next() {
 		var item automaticSummary
 		var analyzed, expires int64
-		if err := rows.Scan(&item.RunID, &item.Bookmaker, &item.EventID, &item.FixtureID, &item.Match, &analyzed, &expires, &item.Value, &item.Traps, &item.Total); err != nil {
+		var quoteRaw string
+		if err := rows.Scan(&item.RunID, &item.Bookmaker, &item.EventID, &item.FixtureID, &item.Match, &analyzed, &expires, &item.Value, &item.Traps, &item.Total, &quoteRaw); err != nil {
 			return nil, err
 		}
 		item.AnalyzedAt = time.Unix(analyzed, 0).UTC()
 		item.ExpiresAt = time.Unix(expires, 0).UTC()
 		item.Status = "completed"
+		if quoteRaw != "" {
+			var check automaticPriceSummary
+			if err := json.Unmarshal([]byte(quoteRaw), &check); err != nil {
+				item.Status, item.Error = "error", "Nie udało się odczytać aktualizacji kursów: "+err.Error()
+				log.Printf("ERROR Podsumowanie meczu %q: %s", item.Match, item.Error)
+				result = append(result, item)
+				continue // Keep this baseline and every other match's counters.
+			}
+			item.Status, item.ExpiresAt, item.QuoteCheckedAt = "monitoring", check.ExpiresAt, check.CheckedAt
+			item.Improved, item.NewSelections, item.Missing = check.Improved, check.NewSelections, check.Missing
+			item.Total, item.Value, item.Traps = len(check.Bets), 0, 0
+			for _, bet := range check.Bets {
+				if bet.Verdict == "VALUE" {
+					item.Value++
+				}
+				if bet.Verdict == "TRAP" {
+					item.Traps++
+				}
+			}
+		}
 		if !time.Now().Before(item.ExpiresAt) {
 			item.Status = "stale"
 		}
@@ -447,8 +803,8 @@ func (store *researchStore) summaries() ([]automaticSummary, error) {
 	return result, rows.Err()
 }
 
-func (s *calendarServer) researchSummaries() ([]automaticSummary, error) {
-	items, err := s.research.summaries()
+func (s *calendarServer) researchSummaries(ctx context.Context) ([]automaticSummary, error) {
+	items, err := s.research.summariesContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -474,11 +830,20 @@ func (s *calendarServer) researchSummaries() ([]automaticSummary, error) {
 		if state.Status == "error" || state.Status == "partial" || state.Status == "unavailable" || strings.HasPrefix(state.Status, "sofa-") {
 			items[i].Status = state.Status
 			items[i].Error = state.Error
+			if state.Error != "" && state.NextAttempt.After(time.Now()) {
+				zone, _ := time.LoadLocation("Europe/Warsaw")
+				items[i].Error += "; ponowienie po " + state.NextAttempt.In(zone).Format("15:04")
+			}
 		}
 	}
 	s.prefetchMu.Unlock()
 	s.analysisMu.Lock()
+	tasks := make([]*analysisTask, 0, len(s.jobs))
 	for _, task := range s.jobs {
+		tasks = append(tasks, task)
+	}
+	s.analysisMu.Unlock()
+	for _, task := range tasks {
 		job := task.snapshot()
 		if job.Origin != "automatic" || job.Status != "running" {
 			continue
@@ -497,9 +862,17 @@ func (s *calendarServer) researchSummaries() ([]automaticSummary, error) {
 			}
 			items[i].Status = "running"
 			items[i].Stage = job.Stage
+			items[i].Error = ""
 		}
 	}
-	s.analysisMu.Unlock()
+	offers := s.calendarOffers()
+	for i := range items {
+		if candidate, ok := offers.ByID[items[i].Bookmaker+":"+items[i].EventID]; ok {
+			if matches, err := matchCalendarOffers(candidate.Event, offers); err == nil && !s.automaticLeagueEnabled(matches) {
+				items[i].Status = "disabled"
+			}
+		}
+	}
 	return items, nil
 }
 
@@ -541,8 +914,6 @@ func (s *calendarServer) settlementStep(ctx context.Context) bool {
 		return false
 	}
 	log.Printf("[SETTLEMENT] fixture=%s match=%q stage=event attempt=%d", fixtureID, matchName, attempts+1)
-	currentResearchAction.Store("fixture=" + fixtureID + " stage=settlement-event")
-	defer currentResearchAction.Store("")
 	client, err := newSofaClient(context.WithValue(ctx, archiveContextKey{}, archiveInfo{Bookmaker: "SOFASCORE", Match: matchName, Scope: "rozliczenie-mecz-" + fixtureID, Automatic: true}), nil, nil)
 	if err != nil {
 		s.settlementRetry(fixtureID, err)
@@ -708,7 +1079,6 @@ func (s *calendarServer) settlementStep(ctx context.Context) bool {
 				return true
 			}
 			key := strconv.Itoa(id)
-			currentResearchAction.Store(fmt.Sprintf("fixture=%s stage=settlement-players players=%d/%d remaining=%d", fixtureID, i, len(ids), len(ids)-i))
 			fields := data.Players[key]
 			if data.BenchAbsent[key] {
 				continue
@@ -742,7 +1112,7 @@ func (s *calendarServer) settlementStep(ctx context.Context) bool {
 		s.settlementRetry(fixtureID, err)
 		return true
 	}
-	revision := researchHash(data)
+	revision := researchHash(map[string]any{"metricsVersion": settlementMetricsVersion, "data": data})
 	path, err := s.research.saveDocument("wyniki-statystyki", matchName+"-mecz-"+fixtureID, data)
 	if err != nil {
 		s.settlementRetry(fixtureID, err)
@@ -886,21 +1256,23 @@ func statInteger(fields map[string]json.RawMessage, key string) (int, bool) {
 	if json.Unmarshal(raw, &value) != nil {
 		return 0, false
 	}
-	return value, true
+	return value, value >= 0
 }
 
 func settlementMetric(fields map[string]json.RawMessage, market CanonicalMarket, shots SofaShotmapResponse, playerID int, hasShots bool) (int, bool) {
 	keys := map[CanonicalMarket]string{MarketShotsTotal: "totalShots", MarketShotsOnTarget: "onTargetScoringAttempt", MarketShotsBlocked: "blockedScoringAttempt", MarketShotsOffTarget: "shotOffTarget", MarketFoulsCommitted: "fouls", MarketFoulsDrawn: "wasFouled", MarketInterceptions: "interceptionWon", MarketOffsides: "totalOffside", MarketDispossessed: "dispossessed"}
 	if market == MarketTackles {
-		won, ok := statInteger(fields, "wonTackle")
-		if ok && won != 0 {
-			return won, true
+		return statInteger(fields, tacklesStatsField)
+	}
+	if market == MarketPasses {
+		return statInteger(fields, "totalPass")
+	}
+	if market == MarketAccuratePasses {
+		value, valid := statInteger(fields, "accuratePass")
+		if total, known := statInteger(fields, "totalPass"); known && value > total {
+			return 0, false
 		}
-		total, has := statInteger(fields, "totalTackle")
-		if has {
-			return total, true
-		}
-		return won, ok
+		return value, valid
 	}
 	if key, ok := keys[market]; ok {
 		value, valid := statInteger(fields, key)
@@ -1162,22 +1534,85 @@ type researchProgress struct {
 	Active             []map[string]any `json:"active"`
 }
 
-var currentResearchProgress atomic.Value
-var currentResearchAction atomic.Value
+type readableLogWriter struct{ output io.Writer }
 
-type progressLogWriter struct{ output io.Writer }
+var logDatePrefix = regexp.MustCompile(`^\d{4}[/-]\d{2}[/-]\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?\s+`)
+var logModuleTag = regexp.MustCompile(`^\[(?:[A-Z][A-Z0-9_-]*|Betclic)\]\s*`)
+var logExplicitLevel = regexp.MustCompile(`^(INFO|WARNING|WARN|ERROR|FATAL|DEBUG)(?:\s+|:\s*)`)
+var logEmptyError = regexp.MustCompile(`(?i)\b[a-z0-9_-]*error=(?:"?(?:<nil>|nil|null|none|false)"?|""|0)(?:\s|$)`)
+var logErrorField = regexp.MustCompile(`(?i)\b[a-z0-9_-]*error=\S`)
+var logErrorMarker = regexp.MustCompile(`(?i)(?:\b(?:error|fatal|failed|panic)(?:_[a-z0-9_-]+)?\b|\b[a-z0-9_-]+_(?:error|failed)\b|stage=[a-z0-9_-]*(?:error|failed)|status=(?:error|failed)|błąd|blad\b|nie można|niepopraw|nieprawidł)`)
+var logCanceledError = regexp.MustCompile(`(?i)\b[a-z0-9_-]*error=(?:"context canceled"|context canceled)(?:\s|$)`)
+var logTimeoutSetting = regexp.MustCompile(`(?i)\b(?:[a-z0-9_-]+_)?timeout=(?:\d+(?:\.\d+)?(?:ns|us|µs|ms|s|m|h))+(?:\s|$)`)
+var logWarningMarker = regexp.MustCompile(`(?i)(?:\b(?:warning|warn|timeout|pause|paused|cooldown)\b|\b[a-z0-9_-]+_(?:warning|timeout)\b|ostrzeż|niejednoznacz|niekompletn)`)
+var logProgressSuffix = regexp.MustCompile(`\s+\|\s+(?:analysis_ready|analysis_waiting|stats_missing|settlement_waiting)=.*$`)
 
-func (w progressLogWriter) Write(data []byte) (int, error) {
-	suffix := ""
-	if value := currentResearchProgress.Load(); value != nil {
-		suffix = " | " + value.(string)
+// Adapt existing call sites to one readable format. Severity is evaluated
+// before internal tags are removed; error=<nil> is not an error.
+func readableLogLine(message string) string {
+	message = strings.TrimSpace(logDatePrefix.ReplaceAllString(strings.TrimSpace(message), ""))
+	message = logProgressSuffix.ReplaceAllString(message, "")
+	level := "INFO"
+	clean := message
+	for logModuleTag.MatchString(clean) {
+		clean = strings.TrimSpace(logModuleTag.ReplaceAllString(clean, ""))
 	}
-	if value := currentResearchAction.Load(); value != nil && value.(string) != "" {
-		suffix += " | " + value.(string)
+	if match := logExplicitLevel.FindStringSubmatch(clean); len(match) > 0 {
+		level = match[1]
+		if level == "WARN" {
+			level = "WARNING"
+		}
+		if level == "FATAL" {
+			level = "ERROR"
+		}
+		if level == "DEBUG" {
+			level = "INFO"
+		}
+		clean = strings.TrimSpace(clean[len(match[0]):])
+	} else {
+		classification := logEmptyError.ReplaceAllString(message, " ")
+		// A configured request budget is not a timeout event. Keep the value
+		// in the output, but exclude it from automatic severity inference.
+		classification = logTimeoutSetting.ReplaceAllString(classification, " ")
+		switch {
+		case logCanceledError.MatchString(classification):
+			level = "WARNING"
+		case logErrorField.MatchString(classification), logErrorMarker.MatchString(classification):
+			level = "ERROR"
+		case logWarningMarker.MatchString(classification):
+			level = "WARNING"
+		}
 	}
-	_, err := fmt.Fprintln(w.output, strings.TrimRight(string(data), "\r\n")+suffix)
-	if err != nil {
+	clean = strings.TrimSpace(logEmptyError.ReplaceAllString(clean, " "))
+	return level + " " + clean
+}
+
+func (w readableLogWriter) Write(data []byte) (int, error) {
+	entry := readableLogLine(strings.TrimRight(string(data), "\r\n"))
+	level, body, _ := strings.Cut(entry, " ")
+	for _, line := range strings.Split(body, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if _, err := fmt.Fprintln(w.output, level+" "+strings.TrimRight(line, "\r")); err != nil {
+			return 0, err
+		}
+	}
+	return len(data), nil
+}
+
+// Protocol details remain available on disk. The main stream receives their
+// warnings and errors, alongside ordinary application INFO events.
+type diagnosticLogWriter struct{ file io.Writer }
+
+func (w diagnosticLogWriter) Write(data []byte) (int, error) {
+	if _, err := w.file.Write(data); err != nil {
 		return 0, err
+	}
+	if bytes.HasPrefix(data, []byte("ERROR ")) || bytes.HasPrefix(data, []byte("WARNING ")) {
+		if _, err := os.Stderr.Write(data); err != nil {
+			return 0, err
+		}
 	}
 	return len(data), nil
 }
@@ -1210,6 +1645,9 @@ func (s *calendarServer) progressSnapshot() researchProgress {
 		if err != nil {
 			continue
 		}
+		if !s.automaticLeagueEnabled(matches) {
+			continue
+		}
 		if _, complete := s.bundleOddsVersion(matches, p.At); !complete {
 			continue
 		}
@@ -1234,7 +1672,7 @@ func (s *calendarServer) progressSnapshot() researchProgress {
 	if s.research != nil {
 		items, _ := s.research.summaries()
 		for _, item := range items {
-			if qualified[item.Bookmaker+":"+item.EventID] && item.Status == "completed" {
+			if qualified[item.Bookmaker+":"+item.EventID] && (item.Status == "completed" || item.Status == "monitoring") {
 				p.AnalysesReady++
 			}
 		}
@@ -1253,28 +1691,16 @@ func (s *calendarServer) progressSnapshot() researchProgress {
 	return p
 }
 
-func (s *calendarServer) progressWorker() {
-	ticker := time.NewTicker(60 * time.Second)
-	defer ticker.Stop()
-	for {
-		p := s.progressSnapshot()
-		currentResearchProgress.Store(fmt.Sprintf("analysis_ready=%d analysis_waiting=%d stats_missing=%d settlement_waiting=%d", p.AnalysesReady, p.AnalysesWaiting, p.StatisticsMissing, p.SettlementsWaiting))
-		log.Printf("[PROGRESS] stage=summary calendar_offers=%d markets_available=%d analyses_ready=%d analyses_waiting=%d stats_missing=%d errors=%d settlements_waiting=%d settlements_missing=%d active=%v", p.CalendarOffers, p.MarketsAvailable, p.AnalysesReady, p.AnalysesWaiting, p.StatisticsMissing, p.Errors, p.SettlementsWaiting, p.SettlementsMissing, p.Active)
-		select {
-		case <-s.ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
-}
-
 func (s *calendarServer) registerResearchAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/research/runs/{id}", s.automaticRun)
 	mux.HandleFunc("POST /api/v1/research/predictions/{id}/history", s.extendedPredictionHistory)
 	mux.HandleFunc("GET /api/v1/research/predictions/{id}/history", s.extendedPredictionHistory)
 	mux.HandleFunc("GET /api/v1/research/summaries", func(w http.ResponseWriter, r *http.Request) {
-		items, err := s.researchSummaries()
+		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+		defer cancel()
+		items, err := s.researchSummaries(ctx)
 		if err != nil {
+			log.Printf("ERROR Odczyt podsumowań analiz: %v", err)
 			apiError(w, 500, err)
 			return
 		}
@@ -1282,23 +1708,49 @@ func (s *calendarServer) registerResearchAPI(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("GET /api/v1/research/progress", func(w http.ResponseWriter, r *http.Request) { jsonResponse(w, 200, s.progressSnapshot()) })
 	mux.HandleFunc("GET /api/v1/research/candidates", func(w http.ResponseWriter, r *http.Request) {
-		rows, err := s.research.db.Query(`SELECT p.payload FROM predictions p JOIN prediction_runs r ON r.id=p.run_id WHERE r.origin='automatic' AND p.verdict='VALUE' AND r.start_at>? AND r.start_at<=? AND r.expires_at>? AND r.id=(SELECT r2.id FROM prediction_runs r2 WHERE r2.origin='automatic' AND r2.bookmaker=r.bookmaker AND r2.event_id=r.event_id ORDER BY r2.analyzed_at DESC,r2.id DESC LIMIT 1) ORDER BY r.start_at,p.bet_key,r.bookmaker`, time.Now().Unix(), time.Now().Add(statsWarmupHorizon).Unix(), time.Now().Unix())
+		rows, err := s.research.db.Query(`SELECT p.payload,COALESCE(q.payload,'') FROM predictions p JOIN prediction_runs r ON r.id=p.run_id LEFT JOIN automatic_price_checks q ON q.run_id=r.id WHERE r.origin='automatic' AND r.algorithm=? AND r.start_at>? AND r.start_at<=? AND r.id=(SELECT r2.id FROM prediction_runs r2 WHERE r2.origin='automatic' AND r2.algorithm=r.algorithm AND r2.bookmaker=r.bookmaker AND r2.event_id=r.event_id ORDER BY r2.analyzed_at DESC,r2.id DESC LIMIT 1) ORDER BY r.start_at,p.bet_key,r.bookmaker`, fairModelVersion, time.Now().Unix(), time.Now().Add(statsWarmupHorizon).Unix())
 		if err != nil {
 			apiError(w, 500, err)
 			return
 		}
 		defer rows.Close()
 		items := []predictionRecord{}
+		quotes := map[string]*automaticPriceCheck{}
 		for rows.Next() {
-			var raw string
+			var raw, quoteRaw string
 			var p predictionRecord
-			if err := rows.Scan(&raw); err != nil {
+			if err := rows.Scan(&raw, &quoteRaw); err != nil {
 				apiError(w, 500, err)
 				return
 			}
 			if err := json.Unmarshal([]byte(raw), &p); err != nil {
 				apiError(w, 500, err)
 				return
+			}
+			if quoteRaw != "" {
+				check := quotes[p.RunID]
+				if check == nil {
+					check = &automaticPriceCheck{}
+					if err := json.Unmarshal([]byte(quoteRaw), check); err != nil {
+						apiError(w, 500, err)
+						return
+					}
+					quotes[p.RunID] = check
+				}
+				found := false
+				for _, bet := range check.Bets {
+					if automaticBetKey(bet) == automaticBetKey(p.Bet) {
+						p.Bet, found = bet, true
+						break
+					}
+				}
+				if !found {
+					continue
+				}
+				p.ObservedAt, p.ExpiresAt = check.CheckedAt, check.ExpiresAt
+			}
+			if p.Bet.Verdict != "VALUE" || !time.Now().Before(p.ExpiresAt) {
+				continue
 			}
 			items = append(items, p)
 		}
@@ -1362,7 +1814,24 @@ func (s *calendarServer) registerResearchAPI(mux *http.ServeMux) {
 				return
 			}
 		}
-		jsonResponse(w, 200, map[string]any{"prediction": p, "evidence": evidence, "outcomes": outcomes, "postMatch": finalData})
+		var currentQuote map[string]any
+		if p.Origin == "automatic" {
+			check, err := s.research.priceCheck(p.RunID)
+			if err != nil {
+				apiError(w, 500, err)
+				return
+			}
+			if check != nil {
+				currentQuote = map[string]any{"available": false, "observedAt": check.CheckedAt, "expiresAt": check.ExpiresAt}
+				for _, bet := range check.Bets {
+					if automaticBetKey(bet) == automaticBetKey(p.Bet) {
+						currentQuote["available"], currentQuote["bet"] = true, bet
+						break
+					}
+				}
+			}
+		}
+		jsonResponse(w, 200, map[string]any{"prediction": p, "evidence": evidence, "currentQuote": currentQuote, "outcomes": outcomes, "postMatch": finalData})
 	})
 	mux.HandleFunc("GET /api/v1/research/reports", func(w http.ResponseWriter, r *http.Request) {
 		days := 30
@@ -1656,10 +2125,11 @@ func readBetclicSnapshot(ctx context.Context, reader io.ReadCloser, idle time.Du
 				timer.Stop()
 			}
 			if next.err != nil {
-				betclicDebugf(ctx, "STREAM_READ_END received_bytes=%d error=%v", len(snapshot), next.err)
 				if next.err == io.EOF && len(snapshot) > 0 {
+					betclicDebugf(ctx, "STREAM_COMPLETE received_bytes=%d", len(snapshot))
 					return snapshot, nil
 				}
+				betclicDebugf(ctx, "STREAM_READ_END received_bytes=%d error=%v", len(snapshot), next.err)
 				return nil, fmt.Errorf("Betclic odczyt strumienia: %w", next.err)
 			}
 			flags := next.frame[0]
@@ -1711,7 +2181,7 @@ func initBetclicDebug() {
 			dir = "."
 		}
 		betclicDebug.path = filepath.Join(dir, "logs", "betclic-debug.log")
-		betclicDebug.logger = log.New(progressLogWriter{output: os.Stderr}, "[Betclic] ", log.Ldate|log.Ltime|log.Lmicroseconds)
+		betclicDebug.logger = log.New(readableLogWriter{output: os.Stderr}, "", 0)
 		if err := os.MkdirAll(filepath.Dir(betclicDebug.path), 0755); err != nil {
 			betclicDebug.logger.Printf("Nie można utworzyć katalogu logów: %v", err)
 			return
@@ -1722,8 +2192,8 @@ func initBetclicDebug() {
 			return
 		}
 		// Kept open for the process lifetime; log.Logger serializes concurrent writes.
-		betclicDebug.logger.SetOutput(io.MultiWriter(progressLogWriter{output: os.Stderr}, file))
-		betclicDebug.logger.Printf("SESSION pid=%d log=%q", os.Getpid(), betclicDebug.path)
+		betclicDebug.logger.SetOutput(readableLogWriter{output: diagnosticLogWriter{file: file}})
+		log.Printf("INFO Szczegółowa diagnostyka Betclic: %s", betclicDebug.path)
 	})
 }
 
@@ -1745,8 +2215,7 @@ func betclicTrace(ctx context.Context, stage string) context.Context {
 
 func betclicDebugf(ctx context.Context, format string, args ...any) {
 	initBetclicDebug()
-	trace, _ := ctx.Value(betclicTraceKey{}).(string)
-	betclicDebug.logger.Printf("trace=%q %s", trace, fmt.Sprintf(format, args...))
+	betclicDebug.logger.Printf(format, args...)
 }
 
 func betclicPreview(raw []byte) string {
@@ -2744,8 +3213,11 @@ func archiveResponse(ctx context.Context, kind string, raw []byte, extension str
 		}
 	}()
 	info := archiveInfoFrom(ctx)
-	if archiveRoot == "" || info.Bookmaker == "" {
-		return fmt.Errorf("archiwum nie zostało skonfigurowane")
+	if archiveRoot == "" {
+		return fmt.Errorf("nie ustawiono katalogu archiwum")
+	}
+	if info.Bookmaker == "" {
+		return fmt.Errorf("brak oznaczenia bukmachera w kontekście zapisu archiwum")
 	}
 	if info.Automatic && fetchErr == nil && (strings.HasPrefix(kind, "kursy-statystyki-sklady-matchup") || strings.HasPrefix(kind, "historia-zawodnika-statystyki-proba-") || strings.HasPrefix(kind, "wynik-analizy-algorytm-")) {
 		// Canonical evidence and predictions are retained in the research store.
@@ -2939,6 +3411,8 @@ type collectorSchedule struct {
 }
 
 type calendarServer struct {
+	leaguesMu        sync.RWMutex
+	leagues          automaticLeaguePolicy
 	research         *researchStore
 	excludedMu       sync.Mutex
 	excludedOffers   map[string]bool
@@ -2947,6 +3421,7 @@ type calendarServer struct {
 	historyWG        sync.WaitGroup
 	workMu           sync.Mutex
 	foregroundWork   int
+	qualifiedWork    bool
 	backgroundCancel context.CancelFunc
 	backgroundFlight chan struct{}
 	backgroundDone   chan struct{}
@@ -2963,6 +3438,7 @@ type calendarServer struct {
 	persistMu        sync.Mutex
 	oddsDirty        bool
 	marketsDirty     bool
+	statsDirty       bool
 	persistStop      chan struct{}
 	persistDone      chan struct{}
 	marketMu         sync.Mutex
@@ -2983,6 +3459,218 @@ type calendarServer struct {
 }
 
 var serverBookmakers = []string{"STS", "BETCLIC", "SUPERBET"}
+
+type automaticLeaguePolicy struct {
+	Configured bool            `json:"configured"`
+	Choices    map[string]bool `json:"choices"`
+}
+
+type automaticLeagueSource struct {
+	Key         string `json:"key"`
+	Bookmaker   string `json:"bookmaker"`
+	Country     string `json:"country"`
+	Competition string `json:"competition"`
+}
+
+type automaticLeagueOption struct {
+	Key     string                  `json:"key"`
+	Label   string                  `json:"label"`
+	Enabled bool                    `json:"enabled"`
+	Sources []automaticLeagueSource `json:"sources"`
+}
+
+func automaticLeagueKey(book string, event CalendarEvent) string {
+	normalize := func(text string) string {
+		return strings.Join(strings.Fields(removeDiacritics(strings.ToLower(text))), " ")
+	}
+	return researchHash([]string{book, normalize(event.Country), normalize(event.Competition)})
+}
+
+func (policy automaticLeaguePolicy) enabled(keys []string) bool {
+	if !policy.Configured {
+		return true
+	}
+	allowed := false
+	for _, key := range keys {
+		if enabled, known := policy.Choices[key]; known {
+			if !enabled {
+				return false
+			}
+			allowed = true
+		}
+	}
+	return allowed
+}
+
+func (s *calendarServer) automaticLeagueEnabled(matches map[string]CalendarEvent) bool {
+	keys := []string{}
+	for book, event := range matches {
+		keys = append(keys, automaticLeagueKey(book, event))
+	}
+	s.leaguesMu.RLock()
+	defer s.leaguesMu.RUnlock()
+	return s.leagues.enabled(keys)
+}
+
+// Join provider league names only through already verified fixture matches.
+// Unmatched leagues remain selectable; their choices survive later matching.
+func (s *calendarServer) automaticLeagues() []automaticLeagueOption {
+	offers := s.calendarOffers()
+	nodes := map[string]automaticLeagueSource{}
+	parents := map[string]string{}
+	var root func(string) string
+	root = func(key string) string {
+		if parents[key] != key {
+			parents[key] = root(parents[key])
+		}
+		return parents[key]
+	}
+	for book, candidates := range offers.ByBook {
+		for _, candidate := range candidates {
+			e := candidate.Event
+			if strings.TrimSpace(e.Competition) == "" {
+				continue
+			}
+			key := automaticLeagueKey(book, e)
+			nodes[key] = automaticLeagueSource{Key: key, Bookmaker: book, Country: e.Country, Competition: e.Competition}
+			parents[key] = key
+		}
+	}
+	for _, candidate := range offers.ByBook["STS"] {
+		matches, err := matchCalendarOffers(candidate.Event, offers)
+		if err != nil {
+			continue
+		}
+		anchor := automaticLeagueKey("STS", candidate.Event)
+		if _, ok := nodes[anchor]; !ok {
+			continue
+		}
+		for book, event := range matches {
+			key := automaticLeagueKey(book, event)
+			if _, ok := nodes[key]; ok {
+				parents[root(key)] = root(anchor)
+			}
+		}
+	}
+	groups := map[string][]automaticLeagueSource{}
+	for key, source := range nodes {
+		groups[root(key)] = append(groups[root(key)], source)
+	}
+	result := []automaticLeagueOption{}
+	s.leaguesMu.RLock()
+	defer s.leaguesMu.RUnlock()
+	for _, sources := range groups {
+		sort.Slice(sources, func(i, j int) bool {
+			if sources[i].Bookmaker != sources[j].Bookmaker {
+				if sources[i].Bookmaker == "STS" {
+					return true
+				}
+				if sources[j].Bookmaker == "STS" {
+					return false
+				}
+				return sources[i].Bookmaker < sources[j].Bookmaker
+			}
+			return sources[i].Key < sources[j].Key
+		})
+		keys := []string{}
+		for _, source := range sources {
+			keys = append(keys, source.Key)
+		}
+		label := strings.Trim(strings.TrimSpace(sources[0].Country)+" · "+strings.TrimSpace(sources[0].Competition), " ·")
+		result = append(result, automaticLeagueOption{Key: sources[0].Key, Label: label, Enabled: s.leagues.enabled(keys), Sources: sources})
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Label != result[j].Label {
+			return result[i].Label < result[j].Label
+		}
+		return result[i].Key < result[j].Key
+	})
+	return result
+}
+
+func (s *calendarServer) registerAutomaticLeagueAPI(mux *http.ServeMux) {
+	response := func(w http.ResponseWriter) { jsonResponse(w, 200, map[string]any{"leagues": s.automaticLeagues()}) }
+	mux.HandleFunc("GET /api/v1/automatic/leagues", func(w http.ResponseWriter, r *http.Request) { response(w) })
+	mux.HandleFunc("PATCH /api/v1/automatic/leagues", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Key     string `json:"key"`
+			Enabled *bool  `json:"enabled"`
+		}
+		if err := decodeAPIRequest(w, r, &request); err != nil {
+			apiError(w, 400, err)
+			return
+		}
+		if len(request.Key) != 64 || request.Enabled == nil {
+			apiError(w, 400, fmt.Errorf("wymagana liga i stan checkboxa"))
+			return
+		}
+		options := s.automaticLeagues()
+		var selected *automaticLeagueOption
+		for i := range options {
+			if options[i].Key == request.Key {
+				selected = &options[i]
+				break
+			}
+		}
+		if selected == nil {
+			apiError(w, 404, fmt.Errorf("liga nie występuje w zapisanych kalendarzach"))
+			return
+		}
+		s.leaguesMu.Lock()
+		next := automaticLeaguePolicy{Configured: true, Choices: map[string]bool{}}
+		for key, enabled := range s.leagues.Choices {
+			next.Choices[key] = enabled
+		}
+		if !s.leagues.Configured {
+			for _, option := range options {
+				for _, source := range option.Sources {
+					next.Choices[source.Key] = true
+				}
+			}
+		}
+		for _, source := range selected.Sources {
+			next.Choices[source.Key] = *request.Enabled
+		}
+		err := atomicJSON(filepath.Join(s.dataDir, "automatic_leagues.json"), next)
+		if err == nil {
+			s.leagues = next
+		}
+		s.leaguesMu.Unlock()
+		if err != nil {
+			apiError(w, 500, err)
+			return
+		}
+		s.cancelDisabledAutomaticAnalyses()
+		log.Printf("[AUTO-LEAGUES] key=%s league=%q enabled=%t", request.Key, selected.Label, *request.Enabled)
+		response(w)
+	})
+}
+
+func (s *calendarServer) cancelDisabledAutomaticAnalyses() {
+	s.analysisMu.Lock()
+	tasks := []*analysisTask{}
+	for _, task := range s.jobs {
+		job := task.snapshot()
+		if job.Origin == "automatic" && (job.Status == "running" || job.Status == "queued") {
+			tasks = append(tasks, task)
+		}
+	}
+	s.analysisMu.Unlock()
+	offers := s.calendarOffers()
+	for _, task := range tasks {
+		job := task.snapshot()
+		matches := map[string]CalendarEvent{}
+		for book, input := range map[string]string{"STS": job.Request.STSURL, "SUPERBET": job.Request.SuperbetURL, "BETCLIC": job.Request.BetclicURL} {
+			id, _, _ := extractIDAndSlug(input)
+			if candidate, ok := offers.ByID[book+":"+id]; ok {
+				matches[book] = candidate.Event
+			}
+		}
+		if len(matches) == len(serverBookmakers) && !s.automaticLeagueEnabled(matches) {
+			task.cancel()
+		}
+	}
+}
 
 // Background analyses keep their progress. Request queues give manual analysis
 // priority without canceling an entire fixture on each interactive request.
@@ -3027,6 +3715,7 @@ type statsFixture struct {
 }
 
 type statsWarmupState struct {
+	Algorithm         string    `json:"algorithm,omitempty"`
 	Match             string    `json:"match"`
 	StartTime         time.Time `json:"startTime"`
 	CalendarFetchedAt time.Time `json:"calendarFetchedAt"`
@@ -3053,9 +3742,11 @@ func (s *calendarServer) saveStatsBackgroundLocked() {
 			delete(s.prefetch.Fixtures, key)
 		}
 	}
-	if err := atomicJSON(filepath.Join(s.dataDir, "player_stats_background.json"), s.prefetch); err != nil {
-		log.Printf("STATS_BACKGROUND_WRITE_ERROR: %v", err)
-	}
+	// Readers of summaries share prefetchMu. Never serialize or fsync the
+	// growing background state while holding that lock.
+	s.persistMu.Lock()
+	s.statsDirty = true
+	s.persistMu.Unlock()
 }
 
 func (s *calendarServer) rememberStatsFixture(fixture statsFixture) {
@@ -3236,6 +3927,9 @@ func (s *calendarServer) nextStatsWarmup() (statsWarmupCandidate, bool) {
 		if err != nil {
 			continue
 		}
+		if !s.automaticLeagueEnabled(matches) {
+			continue
+		}
 		s.marketMu.Lock()
 		known := true
 		for _, book := range serverBookmakers {
@@ -3252,8 +3946,8 @@ func (s *calendarServer) nextStatsWarmup() (statsWarmupCandidate, bool) {
 		s.prefetchMu.Lock()
 		state, exists := s.prefetch.Events[key]
 		s.prefetchMu.Unlock()
-		if exists && now.Before(state.NextAttempt) {
-			if !complete || (state.Status != "completed" && state.Status != "sofa-missing") || state.OddsVersion == version {
+		if exists && state.Algorithm == fairModelVersion && now.Before(state.NextAttempt) {
+			if !complete || (state.Status != "completed" && state.Status != "monitoring" && state.Status != "sofa-missing") || state.OddsVersion == version {
 				continue
 			}
 		}
@@ -3275,6 +3969,18 @@ func (s *calendarServer) nextStatsWarmup() (statsWarmupCandidate, bool) {
 }
 
 func (s *calendarServer) warmupPlayerStats(ctx context.Context, candidate statsWarmupCandidate) (int, string, error) {
+	if !s.automaticLeagueEnabled(candidate.Matches) {
+		return 0, "paused", context.Canceled
+	}
+	if s.research != nil {
+		players, handled, err := s.monitorAutomaticPrices(ctx, candidate)
+		if handled {
+			if err != nil {
+				return players, "error", err
+			}
+			return players, "monitoring", nil
+		}
+	}
 	event, book := candidate.Event, candidate.Bookmaker
 	ctx = context.WithValue(ctx, archiveContextKey{}, archiveInfo{Bookmaker: book, Match: event.Home + " vs " + event.Away, Scope: "tlo-statystyki-" + event.Home + "-vs-" + event.Away + "-mecz-" + event.ID, Automatic: true})
 	odds, err := s.matchOdds(ctx, book, event.ID)
@@ -3394,7 +4100,7 @@ func (s *calendarServer) warmupPlayerStats(ctx context.Context, candidate statsW
 	return len(players), "completed", nil
 }
 
-func (s *calendarServer) statsBackgroundStep(ctx context.Context) bool {
+func (s *calendarServer) statsMaintenanceStep(ctx context.Context) bool {
 	if s.research != nil && sofaCooldownUntil().IsZero() && s.settlementStep(ctx) {
 		return true
 	}
@@ -3425,18 +4131,35 @@ func (s *calendarServer) statsBackgroundStep(ctx context.Context) bool {
 		}
 		return ctx.Err() == nil
 	}
+	return false
+}
+
+func (s *calendarServer) statsBackgroundStep(ctx context.Context) bool {
 	candidate, ok := s.nextStatsWarmup()
 	if !ok {
-		return false
+		return s.statsMaintenanceStep(ctx)
 	}
+	// This is the same three-bookmaker qualification as the calendar filter.
+	// Finish its analysis/price check before discovering additional offers.
+	s.workMu.Lock()
+	s.qualifiedWork = true
+	s.workMu.Unlock()
+	defer func() {
+		s.workMu.Lock()
+		s.qualifiedWork = false
+		s.workMu.Unlock()
+	}()
 	key := candidate.Bookmaker + ":" + candidate.Event.ID
 	log.Printf("[STATS-BACKGROUND] START bookmaker=%s event_id=%s match=%q", candidate.Bookmaker, candidate.Event.ID, candidate.Event.Home+" vs "+candidate.Event.Away)
 	players, status, err := s.warmupPlayerStats(ctx, candidate)
-	if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
+		status = "error"
+		err = errors.Join(err, ctx.Err())
+	} else if errors.Is(ctx.Err(), context.Canceled) || errors.Is(err, context.Canceled) {
 		status = "paused"
 	}
 	start, _ := time.Parse(time.RFC3339, candidate.Event.StartTime)
-	state := statsWarmupState{Match: candidate.Event.Home + " vs " + candidate.Event.Away, StartTime: start, CalendarFetchedAt: candidate.FetchedAt, Status: status, Players: players, OddsVersion: candidate.OddsVersion}
+	state := statsWarmupState{Algorithm: fairModelVersion, Match: candidate.Event.Home + " vs " + candidate.Event.Away, StartTime: start, CalendarFetchedAt: candidate.FetchedAt, Status: status, Players: players, OddsVersion: candidate.OddsVersion}
 	if version, complete := s.bundleOddsVersion(candidate.Matches, time.Now()); complete {
 		state.OddsVersion = version
 	}
@@ -3446,14 +4169,14 @@ func (s *calendarServer) statsBackgroundStep(ctx context.Context) bool {
 	switch status {
 	case "paused":
 		state.NextAttempt = time.Now().Add(15 * time.Second)
-	case "partial", "error":
+	case "partial", "error", "sofa-teams":
 		state.NextAttempt = time.Now().Add(15 * time.Minute)
-	case "completed", "unavailable", "sofa-unavailable", "sofa-partial", "sofa-missing", "sofa-paused":
+	case "completed", "monitoring", "unavailable", "sofa-unavailable", "sofa-partial", "sofa-missing", "sofa-paused":
 		state.NextAttempt = time.Now().Add(matchOddsTTL)
 	}
 	s.oddsMu.Lock()
 	if offer, ok := s.oddsCache[key]; ok {
-		if status == "unavailable" || status == "completed" || strings.HasPrefix(status, "sofa-") {
+		if status == "unavailable" || status == "completed" || status == "monitoring" || (strings.HasPrefix(status, "sofa-") && status != "sofa-teams") {
 			state.NextAttempt = offer.ExpiresAt
 			for _, book := range serverBookmakers {
 				if other, ok := s.oddsCache[book+":"+candidate.Matches[book].ID]; ok && other.ExpiresAt.Before(state.NextAttempt) {
@@ -3562,6 +4285,13 @@ func newCalendarServer(ctx context.Context, dir string) (*calendarServer, error)
 		return nil, err
 	}
 	s := &calendarServer{cache: NewCalendarCache(filepath.Join(dir, "bookmaker_calendar_cache.json")), client: &http.Client{Timeout: 30 * time.Second}, dataDir: dir, ctx: ctx, schedule: map[string]collectorSchedule{}, running: map[string]bool{}, slots: make(chan struct{}, 3)}
+	if raw, err := os.ReadFile(filepath.Join(dir, "automatic_leagues.json")); err == nil {
+		if err = json.Unmarshal(raw, &s.leagues); err != nil {
+			return nil, fmt.Errorf("ustawienia lig automatycznych: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
 	defaultCalendarCache = s.cache
 	s.excludedOffers = map[string]bool{}
 	if raw, err := os.ReadFile(filepath.Join(dir, "excluded_women_events.json")); err == nil {
@@ -3703,6 +4433,23 @@ func newCalendarServer(ctx context.Context, dir string) (*calendarServer, error)
 	if s.prefetch.Fixtures == nil {
 		s.prefetch.Fixtures = map[string]statsFixture{}
 	}
+	// Only obsolete failed attempts are rescheduled. Completed baselines and
+	// archived jobs remain intact; normal offer/league gates still apply.
+	resetFailures := 0
+	for key, state := range s.prefetch.Events {
+		if state.Status != "error" || !state.StartTime.After(time.Now()) || !strings.Contains(state.Error, "nie użyto niezweryfikowanego ID") {
+			continue
+		}
+		state.Status, state.Error, state.NextAttempt = "waiting", "", time.Now().UTC()
+		s.prefetch.Events[key] = state
+		resetFailures++
+	}
+	if resetFailures > 0 {
+		s.prefetchMu.Lock()
+		s.saveStatsBackgroundLocked()
+		s.prefetchMu.Unlock()
+		log.Printf("INFO Ponowienie rozpoznawania drużyn po aktualizacji: %d zapisanych błędów, wersja=%s", resetFailures, teamDetectionRevision)
+	}
 	if err := os.MkdirAll(filepath.Join(dir, "analysis-jobs"), 0750); err != nil {
 		return nil, err
 	}
@@ -3794,9 +4541,30 @@ func (s *calendarServer) markMarketCacheDirty(odds bool) {
 // and copy only the map under its lock; encoding and disk I/O run independently.
 func (s *calendarServer) flushMarketCaches() {
 	s.persistMu.Lock()
-	oddsDirty, marketsDirty := s.oddsDirty, s.marketsDirty
-	s.oddsDirty, s.marketsDirty = false, false
+	oddsDirty, marketsDirty, statsDirty := s.oddsDirty, s.marketsDirty, s.statsDirty
+	s.oddsDirty, s.marketsDirty, s.statsDirty = false, false, false
 	s.persistMu.Unlock()
+	if statsDirty {
+		s.prefetchMu.Lock()
+		copy := statsBackgroundState{Events: make(map[string]statsWarmupState, len(s.prefetch.Events)), Fixtures: make(map[string]statsFixture, len(s.prefetch.Fixtures))}
+		for key, entry := range s.prefetch.Events {
+			copy.Events[key] = entry
+		}
+		for key, entry := range s.prefetch.Fixtures {
+			copy.Fixtures[key] = entry
+		}
+		s.prefetchMu.Unlock()
+		raw, err := json.Marshal(copy)
+		if err == nil {
+			err = atomicJSONBytes(filepath.Join(s.dataDir, "player_stats_background.json"), raw)
+		}
+		if err != nil {
+			log.Printf("STATS_BACKGROUND_WRITE_ERROR: %v", err)
+			s.persistMu.Lock()
+			s.statsDirty = true
+			s.persistMu.Unlock()
+		}
+	}
 	if oddsDirty {
 		s.oddsMu.Lock()
 		copy := make(map[string]matchOddsSnapshot, len(s.oddsCache))
@@ -4010,6 +4778,34 @@ func apiError(w http.ResponseWriter, status int, err error) {
 
 func (s *calendarServer) handler() http.Handler {
 	mux := http.NewServeMux()
+	s.registerAutomaticLeagueAPI(mux)
+	mux.HandleFunc("GET /api/v1/markets/audit", func(w http.ResponseWriter, r *http.Request) {
+		book, id := strings.ToUpper(r.URL.Query().Get("bookmaker")), r.URL.Query().Get("eventId")
+		if input := r.URL.Query().Get("matchUrl"); id == "" && input != "" {
+			if err := validateMatchURL(input, book); err != nil {
+				apiError(w, 400, err)
+				return
+			}
+			var provider string
+			id, _, provider = extractIDAndSlug(input)
+			if provider != book {
+				apiError(w, 400, fmt.Errorf("link wskazuje innego bukmachera"))
+				return
+			}
+		}
+		if (book != "STS" && book != "SUPERBET" && book != "BETCLIC") || !marketEventIDPattern.MatchString(id) {
+			apiError(w, 400, fmt.Errorf("niepoprawny bukmacher lub ID meczu"))
+			return
+		}
+		s.oddsMu.Lock()
+		snapshot, ok := s.oddsCache[book+":"+id]
+		s.oddsMu.Unlock()
+		if !ok || snapshot.Audit == nil {
+			jsonResponse(w, 200, map[string]any{"bookmaker": book, "eventId": id, "status": "pending", "message": "Brak audytu. Wybierz mecz i poczekaj na przygotowanie ofert."})
+			return
+		}
+		jsonResponse(w, 200, map[string]any{"bookmaker": book, "eventId": id, "status": "ready", "observedAt": snapshot.ObservedAt, "expiresAt": snapshot.ExpiresAt, "fresh": snapshot.fresh(time.Now()), "audit": snapshot.Audit})
+	})
 	s.registerResearchAPI(mux)
 	s.registerAnalysisAPI(mux)
 	s.registerMarketAvailabilityAPI(mux)
@@ -4021,7 +4817,7 @@ func (s *calendarServer) handler() http.Handler {
 		}
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		jsonResponse(w, 200, map[string]any{"status": "ok", "apiVersion": 1, "phase": "match-analysis", "collectors": s.schedule, "running": s.running})
+		jsonResponse(w, 200, map[string]any{"status": "ok", "apiVersion": 1, "phase": "match-analysis", "teamDetectionRevision": teamDetectionRevision, "fairModelVersion": fairModelVersion, "bookmakerParserVersion": bookmakerParserVersion, "tacklesStatistic": tacklesStatsField, "collectors": s.schedule, "running": s.running})
 	})
 	mux.HandleFunc("/api/v1/calendars", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -4125,7 +4921,9 @@ func validateCalendarQuery(book, date string) error {
 }
 
 func main() {
-	log.SetOutput(progressLogWriter{output: os.Stderr})
+	log.SetFlags(0)
+	log.SetPrefix("")
+	log.SetOutput(readableLogWriter{output: os.Stderr})
 	listen := flag.String("listen", "127.0.0.1:8090", "adres nasłuchu HTTP API (lokalnie dla Cloudflare Tunnel)")
 	dataDir := flag.String("data", "data", "katalog cache, harmonogramu i archiwum")
 	sofaDiagnose := flag.Bool("sofa-diagnose", false, "porównaj połączenia SofaScore i zakończ bez uruchamiania API")
@@ -4133,29 +4931,28 @@ func main() {
 	sofaBrowserGapMS := flag.String("sofa-browser-gap-ms", sofaBrowserGapSetting(), "minimalny odstęp po żądaniu Chromium w ms (0–10000); jitter do 2x tej wartości")
 	flag.Parse()
 	if err := configureSofaBrowserGap(*sofaBrowserGapMS); err != nil {
-		log.Fatal(err)
+		log.Fatal("ERROR ", err)
 	}
 	if err := configureSofaBrowser(*sofaBrowser); err != nil {
-		log.Fatal(err)
+		log.Fatal("ERROR ", err)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if *sofaDiagnose {
 		if err := runSofaDiagnostics(ctx, *dataDir); err != nil {
-			log.Fatal(err)
+			log.Fatal("ERROR ", err)
 		}
 		return
 	}
 	s, err := newCalendarServer(ctx, *dataDir)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("ERROR ", err)
 	}
 	server := &http.Server{Addr: *listen, Handler: s.handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 180 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
 	go s.scheduler()
 	go s.analysisWorker()
 	go s.statsBackgroundWorker()
 	go s.marketBackgroundWorker()
-	go s.progressWorker()
 	go s.marketCachePersistenceWorker()
 	shutdownDone := make(chan struct{})
 	go func() {
@@ -4165,10 +4962,10 @@ func main() {
 		defer cancel()
 		_ = server.Shutdown(shutdownCtx)
 	}()
-	log.Printf("VALUE_BETS_START listen=%s data=%s calendars=STS,BETCLIC,SUPERBET", *listen, *dataDir)
+	log.Printf("INFO Serwer uruchomiony: adres=%s, katalog danych=%s, detekcja drużyn=%s", *listen, *dataDir, teamDetectionRevision)
 	err = server.ListenAndServe()
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatal(err)
+		log.Fatal("ERROR ", err)
 	}
 	stop()
 	<-shutdownDone
@@ -4198,7 +4995,7 @@ func main() {
 		log.Printf("HISTORY_SHUTDOWN_TIMEOUT")
 	}
 	if s.research != nil {
-		_ = s.research.db.Close()
+		_ = s.research.close()
 	}
 	close(s.persistStop)
 	select {
@@ -4420,6 +5217,8 @@ const (
 	MarketShotsOnTargetOutsideBox CanonicalMarket = "SHOTS_ON_TARGET_OUTSIDE_BOX"
 	MarketShotsOnTargetInsideBox  CanonicalMarket = "SHOTS_ON_TARGET_INSIDE_BOX"
 	MarketTackles                 CanonicalMarket = "TACKLES"
+	MarketPasses                  CanonicalMarket = "PASSES"
+	MarketAccuratePasses          CanonicalMarket = "ACCURATE_PASSES"
 	MarketDispossessed            CanonicalMarket = "DISPOSSESSED"
 	MarketFoulsCommitted          CanonicalMarket = "FOULS_COMMITTED"
 	MarketFoulsDrawn              CanonicalMarket = "FOULS_DRAWN"
@@ -4437,38 +5236,41 @@ type ShotCoordinate struct {
 }
 
 type NormalizedProp struct {
-	Bookmaker   Bookmaker       `json:"bookmaker"`
-	PlayerName  string          `json:"playerName"`
-	MarketType  CanonicalMarket `json:"marketType"`
-	MarketLabel string          `json:"marketLabel"`
-	Line        float64         `json:"line"`
-	IsUnder     bool            `json:"isUnder"`
-	Odds        float64         `json:"odds"`
-	MarketID    string          `json:"marketId"`
-	SelectionID string          `json:"selectionId"`
+	SuperSubEligible *bool           `json:"superSubEligible,omitempty"`
+	Bookmaker        Bookmaker       `json:"bookmaker"`
+	PlayerName       string          `json:"playerName"`
+	MarketType       CanonicalMarket `json:"marketType"`
+	MarketLabel      string          `json:"marketLabel"`
+	Line             float64         `json:"line"`
+	IsUnder          bool            `json:"isUnder"`
+	Odds             float64         `json:"odds"`
+	MarketID         string          `json:"marketId"`
+	SelectionID      string          `json:"selectionId"`
 }
 
 type PlayerStatHistory struct {
-	Ratings                  []*float64                `json:"ratings"`
-	MatchContexts            []PlayerMatchContext      `json:"matchContexts"`
-	EventIDs                 []int                     `json:"eventIds"`
-	MatchStartedAt           []time.Time               `json:"matchStartedAt"`
-	Incomplete               bool                      `json:"incomplete"`
-	FromCache                bool                      `json:"fromCache"`
-	DataFetchedAt            time.Time                 `json:"dataFetchedAt"`
-	ID                       int                       `json:"id"`
-	FullName                 string                    `json:"fullName"`
-	TeamSide                 string                    `json:"teamSide"`
-	TeamID                   string                    `json:"teamId"`
-	TeamName                 string                    `json:"teamName"`
-	Matches                  int                       `json:"matches"`
-	MetricValues             map[CanonicalMarket][]int `json:"metricValues"`
-	MetricValuesWithSuperSub map[CanonicalMarket][]int `json:"metricValuesWithSuperSub"`
-	Minutes                  []int                     `json:"minutes"`
-	Positions                []string                  `json:"positions"`
-	Opponents                []string                  `json:"opponents"`
-	Dates                    []string                  `json:"dates"`
-	MatchShots               [][]ShotCoordinate        `json:"matchShots"`
+	MetricAvailability       map[CanonicalMarket][]bool `json:"metricAvailability,omitempty"`
+	SuperSubAvailability     map[CanonicalMarket][]bool `json:"superSubAvailability,omitempty"`
+	Ratings                  []*float64                 `json:"ratings"`
+	MatchContexts            []PlayerMatchContext       `json:"matchContexts"`
+	EventIDs                 []int                      `json:"eventIds"`
+	MatchStartedAt           []time.Time                `json:"matchStartedAt"`
+	Incomplete               bool                       `json:"incomplete"`
+	FromCache                bool                       `json:"fromCache"`
+	DataFetchedAt            time.Time                  `json:"dataFetchedAt"`
+	ID                       int                        `json:"id"`
+	FullName                 string                     `json:"fullName"`
+	TeamSide                 string                     `json:"teamSide"`
+	TeamID                   string                     `json:"teamId"`
+	TeamName                 string                     `json:"teamName"`
+	Matches                  int                        `json:"matches"`
+	MetricValues             map[CanonicalMarket][]int  `json:"metricValues"`
+	MetricValuesWithSuperSub map[CanonicalMarket][]int  `json:"metricValuesWithSuperSub"`
+	Minutes                  []int                      `json:"minutes"`
+	Positions                []string                   `json:"positions"`
+	Opponents                []string                   `json:"opponents"`
+	Dates                    []string                   `json:"dates"`
+	MatchShots               [][]ShotCoordinate         `json:"matchShots"`
 }
 
 type CachedPlayerHistory struct {
@@ -4482,6 +5284,9 @@ type CachedPlayerHistory struct {
 }
 
 type AnalyzedBet struct {
+	AnalysisOdds         float64            `json:"analysisOdds,omitempty"`
+	QuoteObservedAt      time.Time          `json:"quoteObservedAt,omitempty"`
+	PriceImproved        bool               `json:"priceImproved,omitempty"`
 	PlayerID             int                `json:"playerId"`
 	ContextPending       bool               `json:"contextPending,omitempty"`
 	SampleRatings        []*float64         `json:"sampleRatings"`
@@ -4575,19 +5380,55 @@ func (s *SofaSearchResponse) ExtractTeams() []SofaTeamItem {
 }
 
 type SofaPlayerStats struct {
-	Rating                 *float64 `json:"rating"`
-	MinutesPlayed          int      `json:"minutesPlayed"`
-	TotalShots             int      `json:"totalShots"`
-	OnTargetScoringAttempt int      `json:"onTargetScoringAttempt"`
-	ShotOffTarget          int      `json:"shotOffTarget"`
-	BlockedScoringAttempt  int      `json:"blockedScoringAttempt"`
-	TotalTackle            int      `json:"totalTackle"`
-	WonTackle              int      `json:"wonTackle"`
-	InterceptionWon        int      `json:"interceptionWon"`
-	Fouls                  int      `json:"fouls"`
-	WasFouled              int      `json:"wasFouled"`
-	TotalOffside           int      `json:"totalOffside"`
-	Dispossessed           int      `json:"dispossessed"`
+	Present                map[string]bool `json:"-"`
+	TotalPass              int             `json:"totalPass"`
+	AccuratePass           int             `json:"accuratePass"`
+	Rating                 *float64        `json:"rating"`
+	MinutesPlayed          int             `json:"minutesPlayed"`
+	TotalShots             int             `json:"totalShots"`
+	OnTargetScoringAttempt int             `json:"onTargetScoringAttempt"`
+	ShotOffTarget          int             `json:"shotOffTarget"`
+	BlockedScoringAttempt  int             `json:"blockedScoringAttempt"`
+	TotalTackle            int             `json:"totalTackle"`
+	WonTackle              int             `json:"wonTackle"`
+	InterceptionWon        int             `json:"interceptionWon"`
+	Fouls                  int             `json:"fouls"`
+	WasFouled              int             `json:"wasFouled"`
+	TotalOffside           int             `json:"totalOffside"`
+	Dispossessed           int             `json:"dispossessed"`
+}
+
+func (stats *SofaPlayerStats) UnmarshalJSON(raw []byte) error {
+	type plain SofaPlayerStats
+	var decoded plain
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	decoded.Present = make(map[string]bool, len(fields))
+	for key, value := range fields {
+		decoded.Present[key] = string(value) != "null"
+	}
+	*stats = SofaPlayerStats(decoded)
+	return nil
+}
+
+func (stats SofaPlayerStats) metricPresent(field string) bool {
+	if !stats.Present[field] {
+		return false
+	}
+	switch field {
+	case tacklesStatsField:
+		return stats.WonTackle >= 0
+	case "totalPass":
+		return stats.TotalPass >= 0
+	case "accuratePass":
+		return stats.AccuratePass >= 0 && (!stats.Present["totalPass"] || stats.AccuratePass <= stats.TotalPass)
+	}
+	return true
 }
 
 func excludeBlockedShotsFromOnTarget(stats *SofaPlayerStats, shots []ShotCoordinate, isSub bool) {
@@ -4610,12 +5451,14 @@ type SofaPlayerDetails struct {
 }
 
 type SofaLineupPlayer struct {
-	Player       SofaPlayerDetails `json:"player"`
-	Substitute   *bool             `json:"substitute"`
-	Position     string            `json:"position"`
-	JerseyNumber int               `json:"jerseyNumber,omitempty"`
-	Grid         string            `json:"grid,omitempty"`
-	Statistics   SofaPlayerStats   `json:"statistics"`
+	Player     SofaPlayerDetails `json:"player"`
+	Substitute *bool             `json:"substitute"`
+	Position   string            `json:"position"`
+	// Optional display metadata can be a JSON number, string or null in SofaScore.
+	// Preserve its source representation without blocking lineup classification.
+	JerseyNumber json.RawMessage `json:"jerseyNumber,omitempty"`
+	Grid         string          `json:"grid,omitempty"`
+	Statistics   SofaPlayerStats `json:"statistics"`
 }
 
 type SofaTeamPlayersResponse struct {
@@ -4768,7 +5611,7 @@ var (
 
 // Used only when a specific upcoming fixture cannot be established.
 const playerCacheTTL = 24 * time.Hour
-const playerCacheVersion = 6
+const playerCacheVersion = 8
 
 func initPlayerCache() {
 	playerStatsCacheMu.Lock()
@@ -4902,6 +5745,76 @@ func clearSofaStatsMissing(key string) {
 	}
 }
 
+type sofaHistorySnapshot struct {
+	Endpoint   string          `json:"endpoint"`
+	Scope      string          `json:"scope"`
+	FetchedAt  time.Time       `json:"fetchedAt"`
+	ValidUntil time.Time       `json:"validUntil,omitempty"`
+	Body       json.RawMessage `json:"body"`
+}
+
+// Bound the lock registry, while serializing readers/fetchers of the same raw
+// endpoint across players and analyses. Disk snapshots survive server restarts.
+var sofaHistoryCacheLocks = func() [256]chan struct{} {
+	var locks [256]chan struct{}
+	for i := range locks {
+		locks[i] = make(chan struct{}, 1)
+	}
+	return locks
+}()
+
+func getSofaHistoryData(client *ResilientClient, endpoint, scope string, validUntil time.Time, validate func([]byte) error) ([]byte, bool, error) {
+	if err := errors.Join(client.ctx.Err(), client.archiveError()); err != nil {
+		return nil, false, err
+	}
+	digest := sha256.Sum256([]byte(endpoint + "\n" + scope))
+	lock := sofaHistoryCacheLocks[digest[0]]
+	select {
+	case lock <- struct{}{}:
+	case <-client.ctx.Done():
+		return nil, false, client.ctx.Err()
+	}
+	defer func() { <-lock }()
+	if err := errors.Join(client.ctx.Err(), client.archiveError()); err != nil {
+		return nil, false, err
+	}
+	path := filepath.Join(serverDataDir, "sofa_history_cache", fmt.Sprintf("%x", digest[:1]), archiveName(endpoint)+fmt.Sprintf("_%x.json", digest))
+	now := time.Now().UTC()
+	var cached sofaHistorySnapshot
+	if raw, err := os.ReadFile(path); err == nil && json.Unmarshal(raw, &cached) == nil && cached.Endpoint == endpoint && cached.Scope == scope && !cached.FetchedAt.IsZero() && !cached.FetchedAt.After(now) && (cached.ValidUntil.IsZero() || now.Before(cached.ValidUntil)) {
+		if validate(cached.Body) == nil {
+			return cached.Body, true, nil
+		}
+	}
+	body, err := client.GetSofa(endpoint)
+	if err != nil {
+		return nil, false, err
+	}
+	if err := validate(body); err != nil {
+		err = fmt.Errorf("SofaScore %s: %w", endpoint, err)
+		client.warn(err.Error())
+		return nil, false, err
+	}
+	snapshot := sofaHistorySnapshot{Endpoint: endpoint, Scope: scope, FetchedAt: time.Now().UTC(), ValidUntil: validUntil, Body: body}
+	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
+		log.Printf("WARNING Nie udało się zapisać cache historii %s: %v", endpoint, err)
+	} else if err := atomicJSON(path, snapshot); err != nil {
+		log.Printf("WARNING Nie udało się zapisać cache historii %s: %v", endpoint, err)
+	}
+	return body, false, nil
+}
+
+func validateSofaHistoryStats(body []byte) error {
+	var response SofaPlayerMatchStatResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		return err
+	}
+	if response.Statistics.MinutesPlayed <= 0 {
+		return fmt.Errorf("brak kompletnych statystyk udziału zawodnika")
+	}
+	return nil
+}
+
 func getCacheFilePath(filename string) string {
 	return filepath.Join(serverDataDir, filename)
 }
@@ -4968,7 +5881,6 @@ func saveTeamCache(slug string, team SofaTeamItem, gender string) {
 }
 
 func extractIDAndSlug(rawURL string) (string, string, string) {
-	log.Printf("[EXTRACT] Rozpoczynam ekstrakcję URL: %s", rawURL)
 	clean := strings.TrimSpace(rawURL)
 	if decoded, err := url.PathUnescape(clean); err == nil {
 		clean = decoded
@@ -4986,7 +5898,6 @@ func extractIDAndSlug(rawURL string) (string, string, string) {
 
 	reBetclic := regexp.MustCompile(`^(.*)-m(\d+)$`)
 	if m := reBetclic.FindStringSubmatch(lastSegment); len(m) == 3 {
-		log.Printf("[EXTRACT] Wykryto BETCLIC: ID=%s, Slug=%s", m[2], m[1])
 		return m[2], m[1], "BETCLIC"
 	}
 
@@ -4998,13 +5909,11 @@ func extractIDAndSlug(rawURL string) (string, string, string) {
 		if len(parts) >= 2 {
 			slug = parts[len(parts)-2]
 		}
-		log.Printf("[EXTRACT] Wykryto STS: ID=%s, Slug=%s", id, slug)
 		return id, slug, "STS"
 	}
 
 	reSb := regexp.MustCompile(`^(.*?)-(\d+)$`)
 	if m := reSb.FindStringSubmatch(lastSegment); len(m) == 3 {
-		log.Printf("[EXTRACT] Wykryto SUPERBET: ID=%s, Slug=%s", m[2], m[1])
 		return m[2], m[1], "SUPERBET"
 	}
 
@@ -5102,6 +6011,11 @@ func canonicalTeamCore(s string) string {
 }
 
 var teamSlugAliases = map[string]string{
+	"betis":                "real-betis",
+	"betis-sevilla":        "real-betis",
+	"betis-sewilla":        "real-betis",
+	"real-betis-sevilla":   "real-betis",
+	"real-betis-balompie":  "real-betis",
 	"rb-lipsk":             "rb-leipzig",
 	"lipsk":                "leipzig",
 	"bahia-salvador":       "bahia",
@@ -5228,9 +6142,54 @@ func sofaTeamQualifier(core string) string {
 }
 
 func sofaTeamMatchesSlug(teamSlug string, team SofaTeamItem, gender string) bool {
-	if team.ID <= 0 || (team.Sport.ID != 0 && team.Sport.ID != 1) ||
-		(team.Sport.Slug != "" && team.Sport.Slug != "football") {
+	matched, _ := sofaTeamMatchReason(teamSlug, team, gender, false)
+	return matched
+}
+
+// A shared, distinctive sequence of whole words produces a candidate, not
+// a verified identity. Only the fixture resolver may accept these variants.
+func sofaTeamNameVariant(left, right string) bool {
+	a, aq := calendarTeamIdentity(left)
+	b, bq := calendarTeamIdentity(right)
+	if a == "" || b == "" || aq != bq || a == b {
 		return false
+	}
+	shorter, longer := strings.Split(a, "-"), strings.Split(b, "-")
+	if len(shorter) > len(longer) {
+		shorter, longer = longer, shorter
+	}
+	if len(shorter) == len(longer) || len(longer)-len(shorter) > 3 {
+		return false
+	}
+	anchor := false
+	for _, word := range shorter {
+		anchor = anchor || (len(word) >= 4 && !calendarGenericWords[word])
+	}
+	if !anchor {
+		return false
+	}
+	for start := 0; start+len(shorter) <= len(longer); start++ {
+		equal := true
+		for i, word := range shorter {
+			if word != longer[start+i] {
+				equal = false
+				break
+			}
+		}
+		if equal {
+			return true
+		}
+	}
+	return false
+}
+
+func sofaTeamMatchReason(teamSlug string, team SofaTeamItem, gender string, allowNameVariants bool) (bool, string) {
+	if team.ID <= 0 {
+		return false, "brak poprawnego ID drużyny"
+	}
+	if (team.Sport.ID != 0 && team.Sport.ID != 1) ||
+		(team.Sport.Slug != "" && team.Sport.Slug != "football") {
+		return false, "inna dyscyplina niż piłka nożna"
 	}
 	target, namedGender := sofaTeamNameAndGender(teamSlug)
 	if namedGender != "" {
@@ -5241,16 +6200,25 @@ func sofaTeamMatchesSlug(teamSlug string, team SofaTeamItem, gender string) bool
 		_, actualGender = sofaTeamNameAndGender(team.Name + "-" + team.Slug)
 	}
 	if actualGender != "" && actualGender != gender {
-		return false
+		return false, fmt.Sprintf("inna płeć: %s zamiast %s", actualGender, gender)
 	}
 	if target == "" {
-		return false
+		return false, "pusta nazwa drużyny"
 	}
-	qualifier := sofaTeamQualifier(target)
+	_, qualifiers := calendarTeamIdentity(teamSlug)
 	for _, name := range []string{team.Name, team.Slug} {
-		core, _ := sofaTeamNameAndGender(name)
-		if candidateQualifier := sofaTeamQualifier(core); candidateQualifier != "" && candidateQualifier != qualifier {
-			return false
+		_, nameGender := sofaTeamNameAndGender(name)
+		if nameGender != "" && nameGender != gender {
+			return false, fmt.Sprintf("nazwa wskazuje inną płeć: %s zamiast %s", nameGender, gender)
+		}
+		_, candidateQualifiers := calendarTeamIdentity(name)
+		if candidateQualifiers != "" && candidateQualifiers != qualifiers {
+			wanted := qualifiers
+			if wanted == "" {
+				wanted = "pierwszy zespół"
+			}
+			labels := strings.NewReplacer("reserves", "rezerwy", "women", "kobiety", "|", ", ")
+			return false, fmt.Sprintf("inna kategoria: %s zamiast %s", labels.Replace(candidateQualifiers), labels.Replace(wanted))
 		}
 	}
 	base, hasState := sofaBrazilianCore(target)
@@ -5270,20 +6238,32 @@ func sofaTeamMatchesSlug(teamSlug string, team SofaTeamItem, gender string) bool
 		b, bq := calendarTeamIdentity(target)
 		return a != "" && a == b && aq == bq
 	}
-	for _, name := range []string{team.Name, team.Slug} {
-		if matchesName(name) {
-			return true
-		}
-	}
+	names := []string{team.Name, team.Slug}
 	for _, name := range team.FieldTranslations.NameTranslation {
-		if matchesName(name) {
-			return true
-		}
+		names = append(names, name)
 	}
-	return false
+	variant := false
+	for _, name := range names {
+		if matchesName(name) {
+			return true, "zgodna nazwa po normalizacji"
+		}
+		core, _ := sofaTeamNameAndGender(name)
+		variant = variant || sofaTeamNameVariant(target, core)
+	}
+	if variant {
+		if !allowNameVariants {
+			return false, "krótszy lub dłuższy wariant nazwy wymaga daty i potwierdzenia meczu"
+		}
+		if team.Sport.ID != 1 && team.Sport.Slug != "football" {
+			return false, "wariant nazwy bez potwierdzonej dyscypliny"
+		}
+		return true, "wariant nazwy; wymagane potwierdzenie obu drużyn i godziny meczu"
+	}
+	candidate, _ := sofaTeamNameAndGender(team.Name)
+	return false, fmt.Sprintf("różne nazwy po normalizacji: %q i %q", target, candidate)
 }
 
-func searchSofaTeamCandidates(client *ResilientClient, teamSlug, gender string) ([]SofaTeamItem, error) {
+func searchSofaTeamCandidates(client *ResilientClient, teamSlug, gender string, allowNameVariants bool) ([]SofaTeamItem, error) {
 	log.Printf("[SOFA-SEARCH] Rozpoczynam wyszukiwanie ID drużyny dla sluga: %s", teamSlug)
 	core, _ := sofaTeamNameAndGender(teamSlug)
 	searchCore, _ := sofaBrazilianCore(core)
@@ -5297,10 +6277,25 @@ func searchSofaTeamCandidates(client *ResilientClient, teamSlug, gender string) 
 		queries = append(queries, rawName)
 	}
 	parts := strings.Fields(queryName)
-	if len(parts) > 1 && len(parts[len(parts)-1]) >= 4 && sofaTeamQualifier(parts[len(parts)-1]) == "" {
-		queries = append(queries, parts[len(parts)-1])
+	if len(parts) > 1 {
+		// Bookmakers often append a city. Search the club portion before it,
+		// rather than returning unrelated clubs from a city-only query.
+		shortened := parts[:len(parts)-1]
+		for _, part := range shortened {
+			if len(part) >= 4 && !calendarGenericWords[part] && !calendarClubWords[part] && sofaTeamQualifier(part) == "" {
+				queries = append(queries, strings.Join(shortened, " "))
+				break
+			}
+		}
+		if len(parts[0]) >= 4 && !calendarGenericWords[parts[0]] && sofaTeamQualifier(parts[0]) == "" {
+			queries = append(queries, parts[0])
+		}
 	}
 	seenQueries := map[string]bool{}
+	rejected := []string{}
+	seenRejected := map[int]bool{}
+	matches := []SofaTeamItem{}
+	seenTeams := map[int]bool{}
 	for _, query := range queries {
 		if seenQueries[query] {
 			continue
@@ -5315,21 +6310,27 @@ func searchSofaTeamCandidates(client *ResilientClient, teamSlug, gender string) 
 			return nil, fmt.Errorf("niepoprawna odpowiedź wyszukiwania SofaScore dla %q: %w", query, err)
 		}
 		teams := res.ExtractTeams()
-		matches := []SofaTeamItem{}
-		seenTeams := map[int]bool{}
 		for _, team := range teams {
-			matched := sofaTeamMatchesSlug(teamSlug, team, gender)
-			log.Printf("[SOFA-SEARCH] CANDIDATE query=%q id=%d name=%q slug=%q gender=%q sport=%q sport_id=%d country=%q wanted_gender=%q matches=%v", query, team.ID, team.Name, team.Slug, team.Gender, team.Sport.Slug, team.Sport.ID, team.Country.Name, gender, matched)
+			matched, reason := sofaTeamMatchReason(teamSlug, team, gender, allowNameVariants)
+			if !matched && !seenRejected[team.ID] && len(rejected) < 5 {
+				seenRejected[team.ID] = true
+				rejected = append(rejected, fmt.Sprintf("%s (ID %d, płeć %s): %s", team.Name, team.ID, team.Gender, reason))
+			}
+			log.Printf("INFO SofaScore: %s (ID %d): %s", team.Name, team.ID, reason)
 			if matched && !seenTeams[team.ID] {
 				matches = append(matches, team)
 				seenTeams[team.ID] = true
 			}
 		}
-		if len(matches) > 0 {
-			return matches, nil
-		}
 	}
-	return nil, fmt.Errorf("brak dopasowania nazwy %q i kategorii %s w SofaScore", teamSlug, gender)
+	// Include all relevant queries before resolving ambiguity by the fixture.
+	if len(matches) > 0 {
+		return matches, nil
+	}
+	if len(rejected) > 0 {
+		return nil, fmt.Errorf("brak dopasowania nazwy %q i kategorii %s w SofaScore; odrzucone wyniki: %s", teamSlug, gender, strings.Join(rejected, "; "))
+	}
+	return nil, fmt.Errorf("brak dopasowania nazwy %q i kategorii %s w SofaScore; wyszukiwarka nie zwróciła drużyn", teamSlug, gender)
 }
 
 func fetchSofaTeamSquad(client *ResilientClient, teamID string) ([]SofaPlayerDetails, string, error) {
@@ -5428,10 +6429,15 @@ func isShotInsideBox(x, y float64) bool {
 func fetchSofaPlayerCompleteHistory(client *ResilientClient, playerID int, matchLimit int, allowedTournamentIDs string) (*PlayerStatHistory, error) {
 	var incomplete atomic.Bool
 	var baseStatsFailure atomic.Bool
-	getHistoryData := func(c *ResilientClient, endpoint string) ([]byte, error) {
-		body, err := c.GetSofa(endpoint)
+	var cachedResponses, fetchedResponses atomic.Int32
+	readHistoryData := func(c *ResilientClient, endpoint, scope string, validUntil time.Time, validate func([]byte) error) ([]byte, error) {
+		body, reused, err := getSofaHistoryData(c, endpoint, scope, validUntil, validate)
 		if err != nil {
 			incomplete.Store(true)
+		} else if reused {
+			cachedResponses.Add(1)
+		} else {
+			fetchedResponses.Add(1)
 		}
 		return body, err
 	}
@@ -5453,19 +6459,9 @@ func fetchSofaPlayerCompleteHistory(client *ResilientClient, playerID int, match
 		return nil, errSofaStatsUnavailable
 	}
 
-	log.Printf("[SOFA-PLAYER] Brak w cache. Pobieranie historii z sieci dla playerID=%d (limit: %d)", playerID, matchLimit)
+	log.Printf("[SOFA-PLAYER] Przygotowanie historii player_id=%d limit=%d; ponowne użycie zapisanych danych meczów", playerID, matchLimit)
 
-	endpoint := fmt.Sprintf("/player/%d/events/last/0", playerID)
-	body, err := client.GetSofa(endpoint)
-	if err != nil {
-		log.Printf("[SOFA-PLAYER] Błąd pobierania zdarzeń dla gracza %d: %v", playerID, err)
-		if strings.Contains(err.Error(), "SofaScore HTTP 404") && !isArchiveFailure(err) && client.ctx.Err() == nil {
-			return nil, recordSofaStatsMissing(client, cacheKey, playerID)
-		}
-		return nil, err
-	}
-
-	var pEvents struct {
+	type playerEventsPage struct {
 		HasNextPage bool `json:"hasNextPage"`
 		Events      []struct {
 			ID      int    `json:"id"`
@@ -5501,6 +6497,35 @@ func fetchSofaPlayerCompleteHistory(client *ResilientClient, playerID int, match
 		} `json:"statisticsMap"`
 	}
 
+	// Page contents are independent of league filters and sample size. Freeze
+	// their membership for the fixture; a subsequent fixture gets a new list.
+	pageScope := "fixture-" + client.statsFixture.ID + "-" + strconv.FormatInt(client.statsFixture.StartTime.Unix(), 10)
+	pageValidUntil := client.statsFixture.ValidUntil
+	if pageValidUntil.IsZero() {
+		pageValidUntil = time.Now().UTC().Add(playerCacheTTL)
+	}
+	fetchPage := func(page int) ([]byte, error) {
+		endpoint := fmt.Sprintf("/player/%d/events/last/%d", playerID, page)
+		return readHistoryData(client, endpoint, pageScope, pageValidUntil, func(body []byte) error {
+			var parsed playerEventsPage
+			if err := json.Unmarshal(body, &parsed); err != nil {
+				return err
+			}
+			if parsed.Events == nil {
+				return fmt.Errorf("brak listy events gracza %d", playerID)
+			}
+			return nil
+		})
+	}
+	body, err := fetchPage(0)
+	if err != nil {
+		log.Printf("[SOFA-PLAYER] Błąd pobierania zdarzeń dla gracza %d: %v", playerID, err)
+		if strings.Contains(err.Error(), "SofaScore HTTP 404") && !isArchiveFailure(err) && client.ctx.Err() == nil {
+			return nil, recordSofaStatsMissing(client, cacheKey, playerID)
+		}
+		return nil, err
+	}
+	var pEvents playerEventsPage
 	if err := json.Unmarshal(body, &pEvents); err != nil {
 		log.Printf("[SOFA-PLAYER] Błąd unmarshalu zdarzeń dla gracza %d: %v", playerID, err)
 		return nil, err
@@ -5544,7 +6569,7 @@ func fetchSofaPlayerCompleteHistory(client *ResilientClient, playerID int, match
 			seen[e.ID] = true
 		}
 		for page := 1; page < 20 && pEvents.HasNextPage && eligibleCount() < matchLimit; page++ {
-			pageBody, fetchErr := getHistoryData(client, fmt.Sprintf("/player/%d/events/last/%d", playerID, page))
+			pageBody, fetchErr := fetchPage(page)
 			if fetchErr != nil {
 				break
 			}
@@ -5667,6 +6692,8 @@ func fetchSofaPlayerCompleteHistory(client *ResilientClient, playerID int, match
 	log.Printf("[SOFA-PLAYER] Gracz %d: zakwalifikowano %d meczów do pobrania szczegółów", playerID, len(allPlayedMatches))
 
 	hist := &PlayerStatHistory{
+		MetricAvailability:       make(map[CanonicalMarket][]bool),
+		SuperSubAvailability:     make(map[CanonicalMarket][]bool),
 		DataFetchedAt:            time.Now().UTC(),
 		ID:                       playerID,
 		MetricValues:             make(map[CanonicalMarket][]int),
@@ -5681,6 +6708,8 @@ func fetchSofaPlayerCompleteHistory(client *ResilientClient, playerID int, match
 	}
 
 	type matchStatResult struct {
+		hasSub   bool
+		subKnown bool
 		rating   *float64
 		order    int
 		opp      string
@@ -5717,10 +6746,23 @@ func fetchSofaPlayerCompleteHistory(client *ResilientClient, playerID int, match
 				return
 			}
 			client := client.withScope(archiveInfoFrom(client.ctx).Scope + "-mecz-" + match.Opponent + "-" + time.Unix(match.StartTS, 0).UTC().Format("2006-01-02") + "-event-" + strconv.Itoa(match.EventID))
+			// Only status=100 matches reach this point. Reuse raw data across
+			// fixtures, filters and sample sizes, even if another endpoint failed.
+			// Recent results get one later read for source corrections; mature
+			// snapshots have no time-based expiry. Settlement uses its own reads.
+			var matchValidUntil time.Time
+			if correctionCheck := time.Unix(match.StartTS, 0).UTC().Add(26 * time.Hour); match.StartTS > 0 && time.Now().Before(correctionCheck) {
+				matchValidUntil = correctionCheck
+			} else if match.StartTS <= 0 {
+				matchValidUntil = time.Now().UTC().Add(playerCacheTTL)
+			}
+			getMatchData := func(endpoint string, validate func([]byte) error) ([]byte, error) {
+				return readHistoryData(client, endpoint, "finished-event-v1", matchValidUntil, validate)
+			}
 
 			// 1. Statystyki bazowe zawodnika
 			statURL := fmt.Sprintf("/event/%d/player/%d/statistics", match.EventID, playerID)
-			sBody, err := client.GetSofa(statURL)
+			sBody, err := getMatchData(statURL, validateSofaHistoryStats)
 			if err != nil {
 				incomplete.Store(true)
 				if !strings.Contains(err.Error(), "SofaScore HTTP 404") || isArchiveFailure(err) || client.ctx.Err() != nil {
@@ -5751,11 +6793,22 @@ func fetchSofaPlayerCompleteHistory(client *ResilientClient, playerID int, match
 			// 2. Wyszukiwanie zmiennika (SuperSub) tylko gdy zagrał poniżej pełnych 90 minut
 			var subStats SofaPlayerStats
 			subPlayerID := 0
-			if pStat.Statistics.MinutesPlayed < 85 {
+			subKnown := pStat.Statistics.MinutesPlayed >= 90
+			if pStat.Statistics.MinutesPlayed < 90 {
 				incURL := fmt.Sprintf("/event/%d/incidents", match.EventID)
-				if incBody, err := getHistoryData(client, incURL); err == nil {
+				if incBody, err := getMatchData(incURL, func(body []byte) error {
+					var parsed SofaIncidentResponse
+					if err := json.Unmarshal(body, &parsed); err != nil {
+						return err
+					}
+					if parsed.Incidents == nil {
+						return fmt.Errorf("brak listy incydentów meczu %d", match.EventID)
+					}
+					return nil
+				}); err == nil {
 					var incRes SofaIncidentResponse
 					if decodeHistoryJSON(incBody, &incRes, "incydentów") == nil {
+						subKnown = true
 						for _, inc := range incRes.Incidents {
 							if inc.IncidentType == "substitution" && inc.PlayerOut.ID == playerID {
 								subPlayerID = inc.PlayerIn.ID
@@ -5764,7 +6817,7 @@ func fetchSofaPlayerCompleteHistory(client *ResilientClient, playerID int, match
 						}
 						if subPlayerID > 0 {
 							subURL := fmt.Sprintf("/event/%d/player/%d/statistics", match.EventID, subPlayerID)
-							if subBody, err := getHistoryData(client, subURL); err == nil {
+							if subBody, err := getMatchData(subURL, validateSofaHistoryStats); err == nil {
 								var subStatRes SofaPlayerMatchStatResponse
 								if decodeHistoryJSON(subBody, &subStatRes, "statystyk zmiennika") == nil {
 									subStats = subStatRes.Statistics
@@ -5781,7 +6834,25 @@ func fetchSofaPlayerCompleteHistory(client *ResilientClient, playerID int, match
 
 			if pStat.Statistics.TotalShots > 0 || subStats.TotalShots > 0 {
 				smURL := fmt.Sprintf("/event/%d/shotmap", match.EventID)
-				if smBody, err := getHistoryData(client, smURL); err == nil {
+				if smBody, err := getMatchData(smURL, func(body []byte) error {
+					var parsed SofaShotmapResponse
+					if err := json.Unmarshal(body, &parsed); err != nil {
+						return err
+					}
+					shots := parsed.PlayerShots(playerID, subPlayerID)
+					playerShots, subShots := 0, 0
+					for _, shot := range shots {
+						if shot.IsSub {
+							subShots++
+						} else {
+							playerShots++
+						}
+					}
+					if parsed.Shotmap == nil || playerShots < pStat.Statistics.TotalShots || subShots < subStats.TotalShots {
+						return fmt.Errorf("niekompletna mapa strzałów gracza %d lub zmiennika w meczu %d", playerID, match.EventID)
+					}
+					return nil
+				}); err == nil {
 					var smRes SofaShotmapResponse
 					if decodeHistoryJSON(smBody, &smRes, "mapy strzałów") == nil {
 						matchShots = smRes.PlayerShots(playerID, subPlayerID)
@@ -5818,6 +6889,8 @@ func fetchSofaPlayerCompleteHistory(client *ResilientClient, playerID int, match
 				rating = match.Rating
 			}
 			resultsChan <- matchStatResult{
+				hasSub:   subPlayerID > 0,
+				subKnown: subKnown,
 				rating:   rating,
 				order:    idx,
 				opp:      match.Opponent,
@@ -5859,14 +6932,18 @@ func fetchSofaPlayerCompleteHistory(client *ResilientClient, playerID int, match
 		hist.Dates = append(hist.Dates, c.date)
 		hist.MatchShots = append(hist.MatchShots, c.shots)
 
-		tackles := c.stats.WonTackle
-		if tackles == 0 {
-			tackles = c.stats.TotalTackle
+		// The tackles market uses won tackles only. Missing wonTackle is not
+		// an observed zero and must never fall back to totalTackle.
+		tackles, subTackles := c.stats.WonTackle, c.subStats.WonTackle
+		for market, field := range map[CanonicalMarket]string{MarketTackles: tacklesStatsField, MarketPasses: "totalPass", MarketAccuratePasses: "accuratePass"} {
+			valid := c.stats.metricPresent(field)
+			hist.MetricAvailability[market] = append(hist.MetricAvailability[market], valid)
+			hist.SuperSubAvailability[market] = append(hist.SuperSubAvailability[market], valid && c.subKnown && (!c.hasSub || c.subStats.metricPresent(field)))
 		}
-		subTackles := c.subStats.WonTackle
-		if subTackles == 0 {
-			subTackles = c.subStats.TotalTackle
-		}
+		hist.MetricValues[MarketPasses] = append(hist.MetricValues[MarketPasses], c.stats.TotalPass)
+		hist.MetricValues[MarketAccuratePasses] = append(hist.MetricValues[MarketAccuratePasses], c.stats.AccuratePass)
+		hist.MetricValuesWithSuperSub[MarketPasses] = append(hist.MetricValuesWithSuperSub[MarketPasses], c.stats.TotalPass+c.subStats.TotalPass)
+		hist.MetricValuesWithSuperSub[MarketAccuratePasses] = append(hist.MetricValuesWithSuperSub[MarketAccuratePasses], c.stats.AccuratePass+c.subStats.AccuratePass)
 
 		hist.MetricValues[MarketShotsTotal] = append(hist.MetricValues[MarketShotsTotal], c.stats.TotalShots)
 		hist.MetricValues[MarketShotsOnTarget] = append(hist.MetricValues[MarketShotsOnTarget], c.stats.OnTargetScoringAttempt)
@@ -5902,7 +6979,7 @@ func fetchSofaPlayerCompleteHistory(client *ResilientClient, playerID int, match
 	}
 
 	hist.Incomplete = incomplete.Load()
-	log.Printf("[SOFA-PLAYER] Zebrano historię gracza %d: mecze=%d niepelna=%t", playerID, hist.Matches, hist.Incomplete)
+	log.Printf("[SOFA-PLAYER] Historia player_id=%d mecze=%d niepelna=%t dane_z_cache=%d nowe_odpowiedzi=%d", playerID, hist.Matches, hist.Incomplete, cachedResponses.Load(), fetchedResponses.Load())
 	if hist.Matches == 0 && !baseStatsFailure.Load() {
 		return nil, recordSofaStatsMissing(client, cacheKey, playerID)
 	}
@@ -6330,7 +7407,87 @@ func fetchSofaMatchPlayers(client *ResilientClient, homeID, awayID, homeName, aw
 // 5. PARSERY BUKMACHERSKIE I MAPOWANIE RYNKÓW
 // ==========================================
 
-var numRe = regexp.MustCompile(`(\d+(?:\.\d+)?)`)
+var numRe = regexp.MustCompile(`(\d+(?:[.,]\d+)?)`)
+
+type offerAudit struct {
+	Reasons           map[string]int       `json:"reasons"`
+	UnlistedOmissions int                  `json:"unlistedOmissions"`
+	Bookmaker         string               `json:"bookmaker"`
+	Coverage          string               `json:"coverage"`
+	FullState         *bool                `json:"fullState,omitempty"`
+	RawMarkets        int                  `json:"rawMarkets"`
+	RawSelections     int                  `json:"rawSelections"`
+	ParsedSelections  int                  `json:"parsedSelections"`
+	UsableSelections  int                  `json:"usableSelections"`
+	Omissions         []offerAuditOmission `json:"omissions"`
+	Warnings          []string             `json:"warnings"`
+}
+
+type offerAuditOmission struct {
+	Label  string `json:"label"`
+	Reason string `json:"reason"`
+	Count  int    `json:"count"`
+}
+
+type offerAuditContextKey struct{}
+
+func parserAudit(book string, audits []*offerAudit) *offerAudit {
+	audit := &offerAudit{}
+	if len(audits) > 0 && audits[0] != nil {
+		audit = audits[0]
+	}
+	*audit = offerAudit{Bookmaker: book, Coverage: "structured", Reasons: map[string]int{}, Omissions: []offerAuditOmission{}, Warnings: []string{}}
+	return audit
+}
+
+func (audit *offerAudit) omit(label, reason string, count int) {
+	if count == 0 {
+		return
+	}
+	audit.Reasons[reason] += count
+	for i := range audit.Omissions {
+		if audit.Omissions[i].Label == label && audit.Omissions[i].Reason == reason {
+			audit.Omissions[i].Count += count
+			return
+		}
+	}
+	if len(audit.Omissions) < 200 {
+		audit.Omissions = append(audit.Omissions, offerAuditOmission{Label: label, Reason: reason, Count: count})
+	} else {
+		audit.UnlistedOmissions += count
+	}
+}
+
+func finishParserAudit(audit *offerAudit, props []NormalizedProp) {
+	audit.ParsedSelections = len(props)
+	audit.UsableSelections = len(usableMatchProps(props))
+	if audit.UsableSelections < len(props) {
+		audit.Warnings = append(audit.Warnings, "Część selekcji odrzucono z powodu niepoprawnego kursu, linii lub nazwy zawodnika.")
+	}
+	sort.Slice(audit.Omissions, func(i, j int) bool {
+		if audit.Omissions[i].Reason != audit.Omissions[j].Reason {
+			return audit.Omissions[i].Reason < audit.Omissions[j].Reason
+		}
+		return audit.Omissions[i].Label < audit.Omissions[j].Label
+	})
+	log.Printf("[OFFER-AUDIT] bookmaker=%s coverage=%s markets=%d selections=%d parsed=%d usable=%d omitted_groups=%d", audit.Bookmaker, audit.Coverage, audit.RawMarkets, audit.RawSelections, audit.ParsedSelections, audit.UsableSelections, len(audit.Omissions))
+}
+
+func parsePropLine(text string) (float64, bool) {
+	text = strings.ReplaceAll(strings.TrimSpace(text), ",", ".")
+	match := numRe.FindStringSubmatch(text)
+	if len(match) < 2 {
+		return 0, false
+	}
+	line, err := strconv.ParseFloat(match[1], 64)
+	if err != nil {
+		return 0, false
+	}
+	if strings.Contains(text, match[1]+"+") {
+		line -= .5
+	}
+	return line, line >= 0
+}
 
 func isHalfOrPeriodMarket(s string) bool {
 	low := strings.ToLower(s)
@@ -6349,10 +7506,23 @@ func isHalfOrPeriodMarket(s string) bool {
 
 func isUnsupportedMethodOrZone(s string) bool {
 	low := removeDiacritics(strings.ToLower(s))
+	if strings.Contains(low, "odbior") && (strings.Contains(low, "przegran") || strings.Contains(low, "nieskuteczn") || strings.Contains(low, "nieudan")) {
+		return true
+	}
+	compact := strings.NewReplacer(" ", "", "-", "", "_", "").Replace(low)
+	for _, marker := range []string{"tackleslost", "losttackle", "unsuccessfultackle", "failedtackle"} {
+		if strings.Contains(compact, marker) {
+			return true
+		}
+	}
+	won := strings.Contains(compact, "tackleswon") || strings.Contains(compact, "tacklewon") || strings.Contains(compact, "wontackle") || strings.Contains(compact, "successfultackle")
+	if strings.Contains(compact, "totaltackle") && !won {
+		return true // Total attempts are a different market from won tackles.
+	}
 	markers := []string{
 		"lewa noga", "lewej nogi", "prawa noga", "prawej nogi",
 		"glowa", "glowka", "head",
-		"podania", "podan", "pass",
+		"kluczow", "key pass", "cross", "dlugich podan", "long pass", "celnych dlugich",
 		"kartki", "kartek", "card",
 		"asyst",
 	}
@@ -6410,6 +7580,15 @@ func mapMarketCanonical(raw string) (CanonicalMarket, bool) {
 	if isHalfOrPeriodMarket(raw) {
 		return "", false
 	}
+	if strings.Contains(sd, "podan") || strings.Contains(s, "pass") {
+		if isUnsupportedMethodOrZone(raw) {
+			return "", false
+		}
+		if strings.Contains(sd, "celn") || strings.Contains(s, "accurate") || strings.Contains(s, "completed") {
+			return MarketAccuratePasses, true
+		}
+		return MarketPasses, true
+	}
 
 	if zone, ok := mapZoneShotMarket(raw); ok {
 		return zone, true
@@ -6456,16 +7635,41 @@ func mapMarketCanonical(raw string) (CanonicalMarket, bool) {
 	return "", false
 }
 
-func ParseSuperbetProps(rawJSON string) ([]NormalizedProp, error) {
+// Direction markers describe the outcome, not fragments of a player's name
+// (for example, Gundersen contains "under"). Keep one-sided ladders as overs.
+func propSelectionDirection(selection, playerName string) (isUnder, unambiguous bool) {
+	text := removeDiacritics(strings.ToLower(selection))
+	if name := removeDiacritics(strings.ToLower(strings.TrimSpace(playerName))); name != "" {
+		text = strings.ReplaceAll(text, name, " ")
+	}
+	under, over := false, false
+	for _, word := range strings.FieldsFunc(text, func(r rune) bool { return !unicode.IsLetter(r) }) {
+		switch word {
+		case "under", "ponizej":
+			under = true
+		case "over", "powyzej":
+			over = true
+		}
+	}
+	return under, !(under && over)
+}
+
+func ParseSuperbetProps(rawJSON string, audits ...*offerAudit) ([]NormalizedProp, error) {
+	audit := parserAudit("SUPERBET", audits)
 	log.Printf("[PARSER-SB] Rozpoczynam parsowanie oferty Superbet...")
 	var resp struct {
-		Markets []struct {
+		FullState *bool `json:"isFullState"`
+		Markets   []struct {
+			ID   string `json:"id"`
 			Name string `json:"name"`
 			Odds []struct {
-				Name       string            `json:"name"`
-				Price      float64           `json:"price"`
-				Status     string            `json:"status"`
-				Specifiers map[string]string `json:"specifiers"`
+				UUID             string            `json:"uuid"`
+				MarketUUID       string            `json:"marketUuid"`
+				SuperSubEligible *bool             `json:"superSubEligible"`
+				Name             string            `json:"name"`
+				Price            float64           `json:"price"`
+				Status           string            `json:"status"`
+				Specifiers       map[string]string `json:"specifiers"`
 			} `json:"odds"`
 		} `json:"markets"`
 	}
@@ -6475,21 +7679,31 @@ func ParseSuperbetProps(rawJSON string) ([]NormalizedProp, error) {
 	}
 
 	var props []NormalizedProp
+	audit.FullState = resp.FullState
+	if resp.FullState != nil && !*resp.FullState {
+		return nil, fmt.Errorf("Superbet: odpowiedź jest aktualizacją częściową, a nie pełną ofertą")
+	}
+	audit.RawMarkets = len(resp.Markets)
 	for _, m := range resp.Markets {
+		audit.RawSelections += len(m.Odds)
 		if isHalfOrPeriodMarket(m.Name) || isUnsupportedMethodOrZone(m.Name) {
+			audit.omit(m.Name, "unsupported-period-or-method", len(m.Odds))
 			continue
 		}
 
 		canon, ok := mapMarketCanonical(m.Name)
 		if !ok {
+			audit.omit(m.Name, "unsupported-market", len(m.Odds))
 			continue
 		}
 
 		for _, odd := range m.Odds {
 			if odd.Status != "ACTIVE" && odd.Status != "" {
+				audit.omit(m.Name, "inactive-selection", 1)
 				continue
 			}
 			if isHalfOrPeriodMarket(odd.Name) || isUnsupportedMethodOrZone(odd.Name) {
+				audit.omit(m.Name, "unsupported-selection", 1)
 				continue
 			}
 
@@ -6504,40 +7718,51 @@ func ParseSuperbetProps(rawJSON string) ([]NormalizedProp, error) {
 				pName = strings.TrimSpace(strings.SplitN(odd.Name, " - ", 2)[0])
 			}
 			if pName == "" {
+				audit.omit(m.Name, "missing-player", 1)
 				continue
 			}
 
-			line := 0.5
+			line, lineKnown := 0.0, false
 			if odd.Specifiers != nil {
 				if l, exists := odd.Specifiers["total"]; exists {
-					line, _ = strconv.ParseFloat(l, 64)
+					line, lineKnown = parsePropLine(l)
 				}
 			}
-			if line == 0.5 {
-				if match := numRe.FindStringSubmatch(odd.Name); len(match) > 1 {
-					line, _ = strconv.ParseFloat(match[1], 64)
-				}
+			if !lineKnown {
+				line, lineKnown = parsePropLine(odd.Name)
+			}
+			if !lineKnown {
+				audit.omit(m.Name, "missing-line", 1)
+				continue
 			}
 
-			lower := strings.ToLower(odd.Name)
-			isUnder := strings.Contains(lower, "poniżej") || strings.Contains(lower, "under")
+			isUnder, directionKnown := propSelectionDirection(odd.Name, pName)
+			if !directionKnown {
+				audit.omit(m.Name, "ambiguous-selection-direction", 1)
+				continue
+			}
 
 			props = append(props, NormalizedProp{
-				Bookmaker:   BookmakerSuperbet,
-				PlayerName:  pName,
-				MarketType:  canon,
-				MarketLabel: m.Name,
-				Line:        line,
-				IsUnder:     isUnder,
-				Odds:        odd.Price,
+				MarketID:         m.ID,
+				SelectionID:      odd.UUID,
+				SuperSubEligible: odd.SuperSubEligible,
+				Bookmaker:        BookmakerSuperbet,
+				PlayerName:       pName,
+				MarketType:       canon,
+				MarketLabel:      m.Name,
+				Line:             line,
+				IsUnder:          isUnder,
+				Odds:             odd.Price,
 			})
 		}
 	}
 	log.Printf("[PARSER-SB] Sukces: sparsowano %d propozycji zakładów z Superbet", len(props))
+	finishParserAudit(audit, props)
 	return props, nil
 }
 
-func ParseSTSProps(rawJSON string) ([]NormalizedProp, error) {
+func ParseSTSProps(rawJSON string, audits ...*offerAudit) ([]NormalizedProp, error) {
+	audit := parserAudit("STS", audits)
 	log.Printf("[PARSER-STS] Rozpoczynam parsowanie oferty STS...")
 	var root map[string]any
 	if err := json.Unmarshal([]byte(rawJSON), &root); err != nil {
@@ -6574,13 +7799,20 @@ func ParseSTSProps(rawJSON string) ([]NormalizedProp, error) {
 		}
 
 		for mID, mVal := range markets {
+			audit.RawMarkets++
 			mMap, _ := mVal.(map[string]any)
 			linesMap, _ := mMap["l"].(map[string]any)
+			if len(linesMap) == 0 {
+				audit.omit(mID, "missing-market-details", 1)
+			}
 
 			for _, lVal := range linesMap {
 				lMap, _ := lVal.(map[string]any)
+				outcomeData, _ := lMap["o"].(map[string]any)
+				audit.RawSelections += len(outcomeData)
 				rawName, _ := lMap["n"].(string)
 				if rawName == "" {
+					audit.omit(mID, "missing-market-label", len(outcomeData))
 					continue
 				}
 
@@ -6589,6 +7821,7 @@ func ParseSTSProps(rawJSON string) ([]NormalizedProp, error) {
 				cleanName = strings.TrimSpace(cleanName)
 
 				if isHalfOrPeriodMarket(cleanName) {
+					audit.omit(cleanName, "unsupported-period", len(outcomeData))
 					continue
 				}
 
@@ -6616,6 +7849,7 @@ func ParseSTSProps(rawJSON string) ([]NormalizedProp, error) {
 				}
 
 				if !okMarket || pName == "" || isIDToken(pName) || isUnsupportedMethodOrZone(mType) {
+					audit.omit(cleanName, "unsupported-or-unrecognized-player-market", len(outcomeData))
 					continue
 				}
 
@@ -6633,28 +7867,38 @@ func ParseSTSProps(rawJSON string) ([]NormalizedProp, error) {
 					odds, _ := outMap["O"].(float64)
 
 					if odds < 1.01 {
+						audit.omit(cleanName, "unusable-odds", 1)
 						continue
 					}
 
 					lowerLine := strings.ToLower(strings.TrimSpace(lineStr))
-					isUnder := strings.Contains(lowerLine, "poniżej") ||
-						strings.Contains(lowerLine, "under") ||
-						strings.HasPrefix(lowerLine, "-")
+					isUnder, directionKnown := propSelectionDirection(lowerLine, pName)
+					if !directionKnown {
+						audit.omit(cleanName, "ambiguous-selection-direction", 1)
+						continue
+					}
+					isUnder = isUnder || strings.HasPrefix(lowerLine, "-")
 
-					lineVal := 0.5
+					lineVal, lineKnown := parsePropLine(lowerLine)
 					cleanLineStr := strings.TrimSpace(lowerLine)
 					if strings.HasSuffix(cleanLineStr, "+") {
 						valStr := strings.TrimSuffix(cleanLineStr, "+")
 						if parsed, err := strconv.ParseFloat(valStr, 64); err == nil {
 							lineVal = parsed - 0.5
+							lineKnown = true
 							isUnder = false
 						}
 					} else if m := numRe.FindStringSubmatch(cleanLineStr); len(m) > 1 {
-						if parsed, err := strconv.ParseFloat(m[1], 64); err == nil {
+						if parsed, err := strconv.ParseFloat(strings.ReplaceAll(m[1], ",", "."), 64); err == nil {
 							lineVal = parsed
+							lineKnown = true
 						}
 					}
 
+					if !lineKnown {
+						audit.omit(cleanName, "missing-line", 1)
+						continue
+					}
 					props = append(props, NormalizedProp{
 						Bookmaker:   BookmakerSTS,
 						PlayerName:  pName,
@@ -6672,6 +7916,7 @@ func ParseSTSProps(rawJSON string) ([]NormalizedProp, error) {
 	}
 
 	log.Printf("[PARSER-STS] Sukces: sparsowano %d propozycji zakładów z STS", len(props))
+	finishParserAudit(audit, props)
 	return props, nil
 }
 
@@ -6766,7 +8011,10 @@ func parseProtoNodesDepth(buf []byte, depth int) []protoNode {
 
 var betclicLinePattern = regexp.MustCompile(`(?i)(.+?)\s+(Powyżej|Poniżej)\s+([\d,.]+)`)
 
-func ParseBetclicProps(rawBuf []byte) []NormalizedProp {
+func ParseBetclicProps(rawBuf []byte, audits ...*offerAudit) []NormalizedProp {
+	audit := parserAudit("BETCLIC", audits)
+	audit.Coverage = "heuristic-protobuf"
+	audit.Warnings = append(audit.Warnings, "Parser protobuf jest heurystyczny; liczby kandydatów nie dowodzą kompletności całej oferty. Porównaj odrzucone etykiety i surowe ramki z ofertą bukmachera.")
 	log.Printf("[PARSER-BETCLIC] Rozpoczynam dekodowanie Protobuf Betclic (rozmiar: %d bajtów)...", len(rawBuf))
 	var frames [][]byte
 	offset := 0
@@ -6806,6 +8054,10 @@ func ParseBetclicProps(rawBuf []byte) []NormalizedProp {
 			}
 			if n.text != "" {
 				t := n.text
+				if _, ok := mapMarketCanonical(t); ok {
+					audit.RawMarkets++
+					audit.omit(t, "detected-label-check-parser-coverage", 1)
+				}
 				if len(t) > 3 && !strings.HasPrefix(t, "contestant:") && !strings.HasPrefix(t, "ca_") {
 					if strings.Contains(t, "-") || strings.Contains(t, "Liczba") || strings.Contains(t, "Opta") {
 						current.market = t
@@ -6818,6 +8070,7 @@ func ParseBetclicProps(rawBuf []byte) []NormalizedProp {
 
 		for _, n := range nodes {
 			if n.wireType == 1 && n.valF64 >= 1.01 && n.valF64 <= 500.0 {
+				audit.RawSelections++
 				if isHalfOrPeriodMarket(current.market) || isHalfOrPeriodMarket(current.playerRaw) {
 					continue
 				}
@@ -6839,7 +8092,7 @@ func ParseBetclicProps(rawBuf []byte) []NormalizedProp {
 							MarketType:  canon,
 							MarketLabel: current.market,
 							Line:        line,
-							IsUnder:     strings.Contains(dir, "poniżej"),
+							IsUnder:     dir == "poniżej",
 							Odds:        math.Round(n.valF64*100) / 100,
 							MarketID:    current.marketID,
 							SelectionID: current.selID,
@@ -6871,12 +8124,62 @@ func ParseBetclicProps(rawBuf []byte) []NormalizedProp {
 	}
 
 	log.Printf("[PARSER-BETCLIC] Sukces: wyodrębniono %d unikalnych kursów z Betclic", len(unique))
+	finishParserAudit(audit, unique)
 	return unique
 }
 
 // ==========================================
 // 6. ADAPTACYJNY FUZZY MATCHING I STATYSTYKA
 // ==========================================
+
+func sampleIndexes[T any](values []T, indexes []int) []T {
+	if len(values) == 0 {
+		return nil
+	}
+	result := make([]T, len(indexes))
+	for i, index := range indexes {
+		if index < len(values) {
+			result[i] = values[index]
+		}
+	}
+	return result
+}
+
+// Keep all sample metadata aligned while excluding unknown metric values.
+// Legacy evidence without masks retains its original interpretation.
+func metricHistory(source *PlayerStatHistory, market CanonicalMarket) *PlayerStatHistory {
+	result := *source
+	values := source.MetricValues[market]
+	availability, masked := source.MetricAvailability[market]
+	indexes := []int{}
+	for i := range values {
+		if !masked || (i < len(availability) && availability[i]) {
+			indexes = append(indexes, i)
+		}
+	}
+	result.Matches = len(indexes)
+	result.MetricValues = map[CanonicalMarket][]int{market: sampleIndexes(values, indexes)}
+	result.MetricValuesWithSuperSub = map[CanonicalMarket][]int{}
+	subValid := len(source.MetricValuesWithSuperSub[market]) == len(values)
+	if mask, ok := source.SuperSubAvailability[market]; ok {
+		for _, i := range indexes {
+			subValid = subValid && i < len(mask) && mask[i]
+		}
+	}
+	if subValid {
+		result.MetricValuesWithSuperSub[market] = sampleIndexes(source.MetricValuesWithSuperSub[market], indexes)
+	}
+	result.Ratings = sampleIndexes(source.Ratings, indexes)
+	result.MatchContexts = sampleIndexes(source.MatchContexts, indexes)
+	result.EventIDs = sampleIndexes(source.EventIDs, indexes)
+	result.MatchStartedAt = sampleIndexes(source.MatchStartedAt, indexes)
+	result.Minutes = sampleIndexes(source.Minutes, indexes)
+	result.Positions = sampleIndexes(source.Positions, indexes)
+	result.Opponents = sampleIndexes(source.Opponents, indexes)
+	result.Dates = sampleIndexes(source.Dates, indexes)
+	result.MatchShots = sampleIndexes(source.MatchShots, indexes)
+	return &result
+}
 
 func NormalizePlayerName(s string) string {
 	s = removeDiacritics(norm.NFKD.String(s))
@@ -7056,7 +8359,7 @@ func calcPoissonUnder(line float64, lambda float64) float64 {
 
 // Context v3 prices weighted hits of the requested line, never per90. Ratings and table rows belong to
 // MatchOverview and are deliberately absent from fairModelInput.
-const fairModelVersion = "context-hit-v3"
+const fairModelVersion = "context-hit-v6-tackles-won-passes-direction"
 
 type PlayerMatchContext struct {
 	TeamID     int    `json:"teamId"`
@@ -8123,7 +9426,7 @@ func extendAnalysisMatchProfiles(client *ResilientClient, current analysisMatchC
 		}
 		if overview := result.Overview.Teams[strconv.Itoa(id)]; includeTeamOverview && overview != nil {
 			overview.StatsMatches = int(profile.Statistics["matches"])
-			for _, key := range []string{"shots", "shotsAgainst", "shotsOnTarget", "shotsOnTargetAgainst", "expectedGoals", "tackles", "interceptions", "fouls"} {
+			for _, key := range []string{"shots", "shotsAgainst", "shotsOnTarget", "shotsOnTargetAgainst", "expectedGoals", "tackles", "interceptions", "fouls", "totalPasses", "accuratePasses"} {
 				if value, ok := profile.Statistics[key]; ok {
 					overview.Metrics[key] = value / profile.Statistics["matches"]
 				}
@@ -8135,7 +9438,7 @@ func extendAnalysisMatchProfiles(client *ResilientClient, current analysisMatchC
 			}
 		}
 		modelStats := map[string]float64{"matches": profile.Statistics["matches"]}
-		for _, market := range []CanonicalMarket{MarketShotsTotal, MarketShotsOnTarget, MarketShotsOffTarget, MarketShotsBlocked, MarketShotsInsideBox, MarketShotsOutsideBox, MarketTackles, MarketInterceptions, MarketOffsides, MarketFoulsDrawn} {
+		for _, market := range []CanonicalMarket{MarketShotsTotal, MarketShotsOnTarget, MarketShotsOffTarget, MarketShotsBlocked, MarketShotsInsideBox, MarketShotsOutsideBox, MarketTackles, MarketPasses, MarketAccuratePasses, MarketInterceptions, MarketOffsides, MarketFoulsDrawn} {
 			own, opponent := matchupFeatures(market)
 			for _, key := range []string{own, opponent} {
 				if value, ok := profile.Statistics[key]; ok && key != "" {
@@ -8358,7 +9661,12 @@ func matchupFeatures(market CanonicalMarket) (own, opponent string) {
 	case MarketShotsOutsideBox:
 		return "shotsFromOutsideTheBox", "shotsFromOutsideTheBoxAgainst"
 	case MarketTackles:
-		return "tackles", "tacklesAgainst"
+		// Aggregate tackles do not establish the number of won tackles.
+		return "", ""
+	case MarketPasses:
+		return "totalPasses", ""
+	case MarketAccuratePasses:
+		return "accuratePasses", ""
 	case MarketInterceptions:
 		return "interceptions", "interceptionsAgainst"
 	case MarketOffsides:
@@ -8515,6 +9823,11 @@ func CalculateValueBets(
 	lineupsConfirmed bool,
 	contexts ...analysisMatchContext,
 ) []AnalyzedBet {
+	results, _ := calculateValueBetsContext(context.Background(), props, homePlayers, awayPlayers, homeLineup, awayLineup, lineupsConfirmed, nil, contexts...)
+	return results
+}
+
+func calculateValueBetsContext(ctx context.Context, props []NormalizedProp, homePlayers, awayPlayers []*PlayerStatHistory, homeLineup, awayLineup map[string]bool, lineupsConfirmed bool, progress func(int, int), contexts ...analysisMatchContext) ([]AnalyzedBet, error) {
 	var contextData analysisMatchContext
 	if len(contexts) > 0 {
 		contextData = contexts[0]
@@ -8529,20 +9842,7 @@ func CalculateValueBets(
 			idStr := strconv.Itoa(p.ID)
 			playerHistory[idStr] = p
 
-			norm := NormalizePlayerName(p.FullName)
-			if norm != "" {
-				strictMap[norm] = idStr
-				parts := strings.Fields(norm)
-				if len(parts) >= 2 {
-					strictMap[parts[len(parts)-1]+" "+strings.Join(parts[:len(parts)-1], " ")] = idStr
-					first := parts[0]
-					last := parts[len(parts)-1]
-					if len(first) > 0 {
-						strictMap[string(first[0])+" "+last] = idStr
-						strictMap[last+" "+string(first[0])] = idStr
-					}
-				}
-			}
+			registerHistoryAliases(strictMap, p)
 		}
 	}
 
@@ -8586,9 +9886,33 @@ func CalculateValueBets(
 
 	results := make([]AnalyzedBet, 0)
 	matchedPropsCount := 0
+	matchedPlayers := map[string]string{}
+	type metricKey struct {
+		player string
+		market CanonicalMarket
+	}
+	type modelKey struct {
+		metricKey
+		line  float64
+		under bool
+	}
+	metricHistories := map[metricKey]*PlayerStatHistory{}
+	models := map[modelKey]*FairModelDetails{}
 
-	for _, prop := range props {
-		matchedID := matchPlayerStrict(prop.PlayerName, strictMap)
+	for index, prop := range props {
+		if index%32 == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+		}
+		if progress != nil && index%250 == 0 {
+			progress(index, len(props))
+		}
+		matchedID, resolved := matchedPlayers[prop.PlayerName]
+		if !resolved {
+			matchedID = matchPlayerStrict(prop.PlayerName, strictMap)
+			matchedPlayers[prop.PlayerName] = matchedID
+		}
 		if matchedID == "" {
 			continue
 		}
@@ -8596,6 +9920,14 @@ func CalculateValueBets(
 		hist, exists := playerHistory[matchedID]
 		if !exists || hist.Matches == 0 {
 			continue
+		}
+		historySamples := hist.Matches
+		metric := metricKey{matchedID, prop.MarketType}
+		if cached, ok := metricHistories[metric]; ok {
+			hist = cached
+		} else {
+			hist = metricHistory(hist, prop.MarketType)
+			metricHistories[metric] = hist
 		}
 
 		values, ok := hist.MetricValues[prop.MarketType]
@@ -8625,7 +9957,15 @@ func CalculateValueBets(
 		var fairOdds, edge, evTax float64
 		verdict := "PENDING"
 		if !contextData.Pending {
-			model = contextualFairModel(hist, prop.MarketType, prop.Line, prop.IsUnder, contextData.Input)
+			key := modelKey{metric, prop.Line, prop.IsUnder}
+			model = models[key]
+			if model == nil {
+				model = contextualFairModel(hist, prop.MarketType, prop.Line, prop.IsUnder, contextData.Input)
+				if hist.Matches < historySamples {
+					model.Notes = append(model.Notes, fmt.Sprintf("Dla tego rynku pominięto %d występów bez potwierdzonej wartości statystyki; brak danych nie oznacza zera.", historySamples-hist.Matches))
+				}
+				models[key] = model
+			}
 			fairOdds = 1.0 / model.Probability
 			edge = (prop.Odds - fairOdds) / fairOdds * 100.0
 			evTax = ((1.0/fairOdds)*(prop.Odds*0.88-1.0) - (1.0 - (1.0 / fairOdds))) * 100.0
@@ -8693,8 +10033,14 @@ func CalculateValueBets(
 		}
 	}
 	results = unique
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if progress != nil {
+		progress(len(props), len(props))
+	}
 	log.Printf("[CALCULATE] Zakończono analizę. Dopasowano %d zakładów, utworzono %d przeanalizowanych rekordów", matchedPropsCount, len(results))
-	return results
+	return results, nil
 }
 
 // === Asynchronous analysis API and context-aware source transport ===
@@ -8703,21 +10049,25 @@ var serverDataDir = "data"
 var globalSofaThrottle = prioritySlots{capacity: 6}
 
 type sofaManualContextKey struct{}
+type offerDiscoveryContextKey struct{}
 
-// Manual analysis > interactive team detection > background. Both transports
-// use this queue, including the single shared Chromium session.
+// Manual analysis > interactive requests > qualified background work > offer
+// discovery. Both transports use this queue, including shared Chromium.
 type prioritySlots struct {
 	mu               sync.Mutex
 	capacity, active int
 	backgroundLimit  int
-	activeByPriority [3]int
-	waiting          [3]int
+	activeByPriority [4]int
+	waiting          [4]int
 	changed          chan struct{}
 }
 
 func sofaRequestPriority(ctx context.Context) int {
 	if manual, _ := ctx.Value(sofaManualContextKey{}).(bool); manual {
 		return 0
+	}
+	if discovery, _ := ctx.Value(offerDiscoveryContextKey{}).(bool); discovery {
+		return 3
 	}
 	if background, _ := ctx.Value(sofaBackgroundContextKey{}).(bool); background {
 		return 2
@@ -8747,7 +10097,8 @@ func (slots *prioritySlots) acquire(ctx context.Context) (func(), error) {
 		for i := 0; i < priority; i++ {
 			higher = higher || slots.waiting[i] > 0
 		}
-		backgroundAllowed := priority != 2 || slots.backgroundLimit == 0 || slots.activeByPriority[2] < slots.backgroundLimit
+		backgroundActive := slots.activeByPriority[2] + slots.activeByPriority[3]
+		backgroundAllowed := priority < 2 || slots.backgroundLimit == 0 || backgroundActive < slots.backgroundLimit
 		if slots.active < slots.capacity && !higher && backgroundAllowed {
 			slots.waiting[priority]--
 			slots.active++
@@ -8964,7 +10315,6 @@ func (task *analysisTask) snapshot() AnalysisJob {
 
 func (task *analysisTask) report(stage, message string, done, total int) {
 	task.mu.Lock()
-	defer task.mu.Unlock()
 	if stage != "" {
 		task.job.Stage = stage
 	}
@@ -8973,31 +10323,35 @@ func (task *analysisTask) report(stage, message string, done, total int) {
 	}
 	task.job.PlayersDone += done
 	task.job.PlayersTotal += total
-	currentResearchAction.Store(fmt.Sprintf("job=%s stage=%s players=%d/%d", task.job.ID, task.job.Stage, task.job.PlayersDone, task.job.PlayersTotal))
-	log.Printf("[ANALYSIS-PROGRESS] id=%s match=%q stage=%s players=%d/%d remaining=%d message=%q", task.job.ID, task.job.Match, task.job.Stage, task.job.PlayersDone, task.job.PlayersTotal, max(0, task.job.PlayersTotal-task.job.PlayersDone), task.job.Message)
+	job := task.job
+	task.mu.Unlock()
+	log.Printf("[ANALYSIS-PROGRESS] id=%s match=%q stage=%s players=%d/%d remaining=%d message=%q", job.ID, job.Match, job.Stage, job.PlayersDone, job.PlayersTotal, max(0, job.PlayersTotal-job.PlayersDone), job.Message)
 }
 
 func (task *analysisTask) publishPlayers(result []AnalyzedBet, stage, message string) {
 	task.mu.Lock()
-	defer task.mu.Unlock()
 	// Published slices are immutable. The final calculation creates a new slice.
 	task.job.Result = result
 	task.job.ResultRevision++
 	task.job.Stage = stage
 	task.job.Message = message
-	log.Printf("ANALYSIS_PLAYERS_READY id=%s stage=%s revision=%d results=%d", task.job.ID, stage, task.job.ResultRevision, len(result))
+	id, revision := task.job.ID, task.job.ResultRevision
+	task.mu.Unlock()
+	log.Printf("ANALYSIS_PLAYERS_READY id=%s stage=%s revision=%d results=%d", id, stage, revision, len(result))
 }
 
 func (task *analysisTask) warn(message string) {
 	task.mu.Lock()
-	defer task.mu.Unlock()
 	for _, old := range task.job.Warnings {
 		if old == message {
+			task.mu.Unlock()
 			return
 		}
 	}
 	task.job.Warnings = append(task.job.Warnings, message)
-	log.Printf("ANALYSIS_WARNING id=%s %s", task.job.ID, message)
+	id := task.job.ID
+	task.mu.Unlock()
+	log.Printf("ANALYSIS_WARNING id=%s %s", id, message)
 }
 
 func analysisContext(ctx context.Context, job AnalysisJob, source, scope string) context.Context {
@@ -9098,6 +10452,30 @@ func decodeAPIRequest(w http.ResponseWriter, r *http.Request, target any) error 
 }
 
 func (s *calendarServer) registerAnalysisAPI(mux *http.ServeMux) {
+	mux.HandleFunc("POST /api/v1/analyses/{id}/cancel", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if !regexp.MustCompile(`^[a-f0-9]{24}$`).MatchString(id) {
+			apiError(w, 400, fmt.Errorf("niepoprawne ID analizy"))
+			return
+		}
+		s.analysisMu.Lock()
+		task := s.jobs[id]
+		s.analysisMu.Unlock()
+		if task == nil {
+			apiError(w, 404, fmt.Errorf("nie znaleziono aktywnego zlecenia"))
+			return
+		}
+		job := task.snapshot()
+		if job.Origin != "manual" {
+			apiError(w, 409, fmt.Errorf("anulowanie dotyczy ręcznej analizy"))
+			return
+		}
+		if job.Status == "queued" || job.Status == "running" {
+			task.cancel()
+			log.Printf("INFO Anulowanie analizy na żądanie użytkownika id=%s", id)
+		}
+		jsonResponse(w, 200, true)
+	})
 	mux.HandleFunc("POST /api/v1/analyses", func(w http.ResponseWriter, r *http.Request) {
 		var query AnalysisRequest
 		if err := decodeAPIRequest(w, r, &query); err != nil {
@@ -9355,7 +10733,6 @@ func (s *calendarServer) runAnalysisTask(task *analysisTask) {
 
 func (s *calendarServer) finishAnalysisTask(task *analysisTask, result []AnalyzedBet, err error) {
 	defer task.cancel()
-	defer currentResearchAction.Store("")
 	job := task.snapshot()
 	preview := job.Result
 	job.FinishedAt = time.Now().UTC()
@@ -9370,13 +10747,15 @@ func (s *calendarServer) finishAnalysisTask(task *analysisTask, result []Analyze
 		job.Result = preview
 	}
 	ctx := analysisContext(context.Background(), job, "ANALIZA", "wynik-proba-"+strconv.Itoa(job.Request.MatchLimit)+"-meczow")
+	task.report("saving-results", "Zapisywanie wyniku analizy w archiwum", 0, 0)
 	if saveErr := archiveResponse(ctx, "wynik-analizy-algorytm-"+fairModelVersion, nil, "", job, err); saveErr != nil {
 		job.Status, job.Stage, job.Error = "failed", "failed", errors.Join(err, saveErr).Error()
 		job.Message = job.Error
 		job.Result = nil
 	}
 	if job.Status == "completed" && s.research != nil && task.evidence != nil && (job.Origin == "automatic" || (task.evidence.Fixture.ID != "" && job.FinishedAt.Before(task.evidence.Fixture.StartTime))) {
-		if saveErr := s.savePredictions(job, task.evidence); saveErr != nil {
+		task.report("saving-predictions", "Zapisywanie prognoz Superbet, Betclic i STS", 0, 0)
+		if saveErr := s.savePredictions(job, task.evidence, task.ctx); saveErr != nil {
 			job.Status, job.Stage, job.Error = "failed", "failed", "zapis prognoz: "+saveErr.Error()
 			job.Message = job.Error
 			log.Printf("[PREDICTIONS] id=%s stage=save-error error=%v", job.ID, saveErr)
@@ -9387,6 +10766,7 @@ func (s *calendarServer) finishAnalysisTask(task *analysisTask, result []Analyze
 		job.Result = nil
 	}
 	if job.Origin != "automatic" {
+		task.report("saving-results", "Zapisywanie końcowego stanu analizy", 0, 0)
 		if saveErr := atomicJSON(filepath.Join(s.dataDir, "analysis-jobs", job.ID+".json"), job); saveErr != nil {
 			job.Status, job.Stage, job.Error = "failed", "failed", errors.Join(err, saveErr).Error()
 			job.Message = job.Error
@@ -9453,9 +10833,13 @@ func (s *calendarServer) sofaContextForURL(input string) sofaMatchContext {
 	return result
 }
 
-func matchSofaTeamPair(client *ResilientClient, home, away []SofaTeamItem, match sofaMatchContext) (int, int, error) {
+type sofaResolvedTeamPair struct {
+	Home, Away SofaTeamItem
+}
+
+func matchSofaTeamPair(client *ResilientClient, home, away []SofaTeamItem, match sofaMatchContext, unverified map[int]string) (sofaResolvedTeamPair, error) {
 	if len(home) == 0 || len(away) == 0 || len(home) > 6 || len(away) > 6 {
-		return 0, 0, fmt.Errorf("nie można rozstrzygnąć drużyn na podstawie terminarza (%d i %d kandydatów)", len(home), len(away))
+		return sofaResolvedTeamPair{}, fmt.Errorf("nie można rozstrzygnąć drużyn na podstawie terminarza (%d i %d kandydatów)", len(home), len(away))
 	}
 	homeIDs, awayIDs := map[int]bool{}, map[int]bool{}
 	for _, team := range home {
@@ -9464,11 +10848,19 @@ func matchSofaTeamPair(client *ResilientClient, home, away []SofaTeamItem, match
 	for _, team := range away {
 		awayIDs[team.ID] = true
 	}
-	pairs := map[[2]int]bool{}
+	pairs := map[[2]int]sofaResolvedTeamPair{}
 	var lastErr error
+	var rejectedIdentity string
+	completeSide := false
+	seenTeams := map[int]bool{}
 	for _, side := range [][]SofaTeamItem{home, away} {
 		complete := true
 		for _, team := range side {
+			if seenTeams[team.ID] {
+				complete = false
+				continue
+			}
+			seenTeams[team.ID] = true
 			body, err := client.withScope("rozpoznanie-druzyn-terminarz-" + strconv.Itoa(team.ID)).GetSofa(fmt.Sprintf("/team/%d/events/next/0", team.ID))
 			var response SofaTeamEventsResponse
 			if err == nil {
@@ -9496,27 +10888,46 @@ func matchSofaTeamPair(client *ResilientClient, home, away []SofaTeamItem, match
 				if gender := strings.ToUpper(event.AwayTeam.Gender); gender != "" && gender != match.Gender {
 					continue
 				}
-				h, a := event.HomeTeam.ID, event.AwayTeam.ID
-				if homeIDs[a] && awayIDs[h] {
-					h, a = a, h
+				homeTeam, awayTeam := event.HomeTeam, event.AwayTeam
+				if homeIDs[awayTeam.ID] && awayIDs[homeTeam.ID] {
+					homeTeam, awayTeam = awayTeam, homeTeam
 				}
+				h, a := homeTeam.ID, awayTeam.ID
 				if h == a || !homeIDs[h] || !awayIDs[a] {
 					continue
 				}
-				pairs[[2]int{h, a}] = true
+				valid := true
+				for _, candidate := range []SofaTeamItem{homeTeam, awayTeam} {
+					if slug := unverified[candidate.ID]; slug != "" {
+						if matched, reason := sofaTeamMatchReason(slug, candidate, match.Gender, !match.StartTime.IsZero()); !matched {
+							valid = false
+							rejectedIdentity = fmt.Sprintf("ID %d ze starego cache: %s", candidate.ID, reason)
+							log.Printf("WARNING SofaScore: %s", rejectedIdentity)
+						}
+					}
+				}
+				if !valid {
+					continue
+				}
+				pairs[[2]int{h, a}] = sofaResolvedTeamPair{Home: homeTeam, Away: awayTeam}
 				log.Printf("[SOFA-DETECT] FIXTURE event_id=%d home_id=%d away_id=%d start=%s expected_start=%s", event.ID, h, a, when.UTC().Format(time.RFC3339), match.StartTime.Format(time.RFC3339))
 			}
 		}
-		if complete {
-			if len(pairs) == 1 {
-				for pair := range pairs {
-					return pair[0], pair[1], nil
-				}
-			}
-			return 0, 0, fmt.Errorf("terminarz nie wskazał jednej pary drużyn: %d pasujących par", len(pairs))
+		completeSide = completeSide || complete
+	}
+	// An empty home schedule must not prevent checking the away team's feed.
+	if len(pairs) == 1 && completeSide {
+		for _, pair := range pairs {
+			return pair, nil
 		}
 	}
-	return 0, 0, fmt.Errorf("nie udało się sprawdzić całego terminarza kandydatów: %w", lastErr)
+	if lastErr != nil {
+		return sofaResolvedTeamPair{}, fmt.Errorf("weryfikacja terminarza: %w", lastErr)
+	}
+	if rejectedIdentity != "" {
+		return sofaResolvedTeamPair{}, errors.New(rejectedIdentity)
+	}
+	return sofaResolvedTeamPair{}, fmt.Errorf("terminarz nie wskazał jednej pary drużyn: %d pasujących par", len(pairs))
 }
 
 func detectTeamsBySlugs(client *ResilientClient, home, away string, match sofaMatchContext) TeamDetectionResult {
@@ -9533,6 +10944,19 @@ func detectTeamsBySlugs(client *ResilientClient, home, away string, match sofaMa
 	var candidates [2][]SofaTeamItem
 	var searchErrors [2]error
 	var searches sync.WaitGroup
+	var legacyHints [2]bool
+	unverified := map[int]string{}
+	searchSide := func(index int, slug string) {
+		searches.Add(1)
+		go func() {
+			defer searches.Done()
+			if slug == "" {
+				searchErrors[index] = fmt.Errorf("nie udało się odczytać nazwy drużyny")
+			} else {
+				candidates[index], searchErrors[index] = searchSofaTeamCandidates(client.withScope("wyszukiwanie-druzyny-"+slug), slug, match.Gender, !match.StartTime.IsZero())
+			}
+		}()
+	}
 	for index, team := range []struct {
 		label, slug string
 		id          *string
@@ -9542,39 +10966,61 @@ func detectTeamsBySlugs(client *ResilientClient, home, away string, match sofaMa
 			candidates[index] = []SofaTeamItem{{ID: id}}
 			continue
 		}
-		searches.Add(1)
-		go func(index int, slug string) {
-			defer searches.Done()
-			if slug == "" {
-				searchErrors[index] = fmt.Errorf("nie udało się odczytać nazwy drużyny")
-			} else {
-				candidates[index], searchErrors[index] = searchSofaTeamCandidates(client.withScope("wyszukiwanie-druzyny-"+slug), slug, match.Gender)
-			}
-		}(index, team.slug)
-	}
-	searches.Wait()
-	if (!match.StartTime.IsZero() || len(candidates[0]) > 1 || len(candidates[1]) > 1) && len(candidates[0]) > 0 && len(candidates[1]) > 0 {
-		homeID, awayID, err := matchSofaTeamPair(client, candidates[0], candidates[1], match)
-		if err != nil {
-			result.HomeID, result.AwayID = "", ""
-		}
-		for index, id := range []int{homeID, awayID} {
-			if err != nil {
-				searchErrors[index] = err
+		if !match.StartTime.IsZero() {
+			if id, err := strconv.Atoi(findTeamIDInCache(team.slug, cache)); err == nil && id > 0 {
+				// An old mapping is only a hint. Validate source name, category,
+				// opponent and kickoff before promoting it to a verified mapping.
+				candidates[index] = []SofaTeamItem{{ID: id}}
+				legacyHints[index], unverified[id] = true, team.slug
 				continue
 			}
-			for _, team := range candidates[index] {
-				if team.ID == id {
-					candidates[index] = []SofaTeamItem{team}
+		}
+		searchSide(index, team.slug)
+	}
+	searches.Wait()
+	requiresPair := !match.StartTime.IsZero() || len(candidates[0]) > 1 || len(candidates[1]) > 1
+	pairVerified := false
+	if requiresPair {
+		for attempt := 0; attempt < 2; attempt++ {
+			var pairErr error
+			if len(candidates[0]) > 0 && len(candidates[1]) > 0 {
+				pair, err := matchSofaTeamPair(client, candidates[0], candidates[1], match, unverified)
+				pairErr = err
+				if err == nil {
+					candidates[0], candidates[1] = []SofaTeamItem{pair.Home}, []SofaTeamItem{pair.Away}
+					pairVerified = true
 					break
 				}
 			}
+			if attempt == 0 && (legacyHints[0] || legacyHints[1]) && client.ctx.Err() == nil {
+				for index, slug := range []string{home, away} {
+					if legacyHints[index] {
+						log.Printf("WARNING SofaScore: ponowne wyszukiwanie %q po nieudanej weryfikacji ID ze starego cache", slug)
+						searchSide(index, slug)
+					}
+				}
+				searches.Wait()
+				unverified = nil
+				continue
+			}
+			if pairErr != nil {
+				searchErrors[0], searchErrors[1] = pairErr, pairErr
+			}
+			break
 		}
 	}
 	for index, team := range []struct {
 		label, slug string
 		id          *string
 	}{{"Gospodarze", home, &result.HomeID}, {"Goście", away, &result.AwayID}} {
+		// Never save a name variant (or retain a cached ID for this match)
+		// if the opponent was missing or fixture verification did not finish.
+		if requiresPair && !pairVerified {
+			*team.id = ""
+			if searchErrors[index] == nil {
+				searchErrors[index] = fmt.Errorf("nie potwierdzono obu drużyn i terminu meczu w SofaScore")
+			}
+		}
 		if *team.id != "" {
 			continue
 		}
@@ -9689,7 +11135,7 @@ func (engine *analysisEngine) analyze(query AnalysisRequest) ([]AnalyzedBet, err
 						task.warn(label + ": użyto ręcznie podanego ID; automatyczne dopasowanie nazwy nie powiodło się")
 						return provided, nil
 					}
-					return "", fmt.Errorf("%s: nie udało się zweryfikować drużyny; nie użyto niezweryfikowanego ID %q ze starego cache", label, provided)
+					return "", fmt.Errorf("%w: %s; %s", errSofaTeamVerification, label, strings.Join(teams.Warnings, "; "))
 				}
 				if provided != "" && provided != detected {
 					// The desktop history can outlive the server cache. A verified
@@ -9750,7 +11196,10 @@ func (engine *analysisEngine) analyze(query AnalysisRequest) ([]AnalyzedBet, err
 	playerData, err := fetchSofaMatchPlayers(client, query.HomeID, query.AwayID, homeName, awayName, lineupEventID, reversed, query.MatchLimit, query.TournamentIDs, targets, func(data sofaMatchPlayerData, stage, message string) error {
 		players := append(append([]*PlayerStatHistory(nil), data.Home...), data.Away...)
 		if !contextReady {
-			preview := CalculateValueBets(allProps, data.Home, data.Away, data.Lineup.Home, data.Lineup.Away, data.Lineup.Confirmed, analysisMatchContext{Pending: true})
+			preview, err := calculateValueBetsContext(task.ctx, allProps, data.Home, data.Away, data.Lineup.Home, data.Lineup.Away, data.Lineup.Confirmed, nil, analysisMatchContext{Pending: true})
+			if err != nil {
+				return err
+			}
 			if len(preview) > 0 {
 				task.publishPlayers(preview, stage, message)
 			}
@@ -9780,7 +11229,10 @@ func (engine *analysisEngine) analyze(query AnalysisRequest) ([]AnalyzedBet, err
 				return err
 			}
 		}
-		preview := CalculateValueBets(allProps, data.Home, data.Away, data.Lineup.Home, data.Lineup.Away, data.Lineup.Confirmed, matchContext)
+		preview, err := calculateValueBetsContext(task.ctx, allProps, data.Home, data.Away, data.Lineup.Home, data.Lineup.Away, data.Lineup.Confirmed, nil, matchContext)
+		if err != nil {
+			return err
+		}
 		if len(preview) > 0 {
 			task.publishPlayers(preview, stage, message)
 		}
@@ -9808,12 +11260,17 @@ func (engine *analysisEngine) analyze(query AnalysisRequest) ([]AnalyzedBet, err
 	if err := errors.Join(client.archiveError(), task.ctx.Err()); err != nil {
 		return nil, err
 	}
-	task.report("calculation", "Obliczanie hitrate, kursów fair i EV", 0, 0)
+	task.report("saving-inputs", "Zapisywanie statystyk i kontekstu użytych w wycenie", 0, 0)
 	ctx := analysisContext(task.ctx, task.snapshot(), "ANALIZA", "dane-wejsciowe")
 	if err := archiveResponse(ctx, "kursy-statystyki-sklady-matchup-uzyte-do-obliczen", nil, "", map[string]any{"algorithm": fairModelVersion, "request": query, "propsCount": len(allProps), "oddsSources": oddsSources, "homePlayers": homePlayers, "awayPlayers": awayPlayers, "homeLineup": homeLineup, "awayLineup": awayLineup, "lineupsConfirmed": lineupsConfirmed, "lineupEventId": lineupEventID, "matchContext": matchContext}, nil); err != nil {
 		return nil, err
 	}
-	results := CalculateValueBets(allProps, homePlayers, awayPlayers, homeLineup, awayLineup, lineupsConfirmed, matchContext)
+	results, err := calculateValueBetsContext(task.ctx, allProps, homePlayers, awayPlayers, homeLineup, awayLineup, lineupsConfirmed, func(done, total int) {
+		task.report("calculation", fmt.Sprintf("Obliczanie hitrate, kursów fair i EV · selekcje %d/%d", done, total), 0, 0)
+	}, matchContext)
+	if err != nil {
+		return nil, err
+	}
 	task.mu.Lock()
 	task.evidence = &predictionEvidence{LineupDetails: playerData.Lineup.Details, SchemaVersion: 1, Fixture: fixture, Request: query, HomePlayers: homePlayers, AwayPlayers: awayPlayers, HomeLineup: homeLineup, AwayLineup: awayLineup, LineupsConfirmed: lineupsConfirmed, Context: matchContext, OddsSources: oddsSources}
 	task.mu.Unlock()
@@ -9848,7 +11305,7 @@ func usableMatchProps(props []NormalizedProp) []NormalizedProp {
 		switch prop.MarketType {
 		case MarketShotsTotal, MarketShotsOnTarget, MarketShotsBlocked, MarketShotsOffTarget,
 			MarketShotsOutsideBox, MarketShotsInsideBox, MarketShotsOnTargetOutsideBox,
-			MarketShotsOnTargetInsideBox, MarketTackles, MarketDispossessed,
+			MarketShotsOnTargetInsideBox, MarketTackles, MarketPasses, MarketAccuratePasses, MarketDispossessed,
 			MarketFoulsCommitted, MarketFoulsDrawn, MarketInterceptions, MarketOffsides:
 		default:
 			continue
@@ -9864,8 +11321,11 @@ func usableMatchProps(props []NormalizedProp) []NormalizedProp {
 }
 
 const matchOddsTTL = 15 * time.Minute
+const bookmakerParserVersion = 5
 
 type matchOddsSnapshot struct {
+	ParserVersion  int              `json:"parserVersion"`
+	Audit          *offerAudit      `json:"audit,omitempty"`
 	Bookmaker      string           `json:"bookmaker"`
 	EventID        string           `json:"eventId"`
 	Match          string           `json:"match,omitempty"`
@@ -9935,7 +11395,7 @@ func archiveOddsObservation(ctx context.Context, snapshot *matchOddsSnapshot, bu
 			}
 		}
 		versionPath = filepath.Join(directory, strings.ToLower(snapshot.Bookmaker)+"_"+archiveName(snapshot.Match)+"_mecz-"+archiveName(snapshot.EventID)+"_"+snapshot.ObservedAt.Format("20060102T150405Z")+"_kursy.json.gz")
-		data, err := json.MarshalIndent(map[string]any{"schemaVersion": 2, "bookmaker": snapshot.Bookmaker, "eventId": snapshot.EventID, "match": snapshot.Match, "firstObservedAt": snapshot.ObservedAt, "props": snapshot.Props}, "", "  ")
+		data, err := json.MarshalIndent(map[string]any{"schemaVersion": 3, "parserVersion": snapshot.ParserVersion, "audit": snapshot.Audit, "bookmaker": snapshot.Bookmaker, "eventId": snapshot.EventID, "match": snapshot.Match, "firstObservedAt": snapshot.ObservedAt, "props": snapshot.Props}, "", "  ")
 		if err != nil {
 			return err
 		}
@@ -9974,7 +11434,7 @@ func archiveOddsObservation(ctx context.Context, snapshot *matchOddsSnapshot, bu
 }
 
 func (snapshot matchOddsSnapshot) fresh(now time.Time) bool {
-	return !snapshot.ObservedAt.IsZero() && !snapshot.ObservedAt.After(now) && now.Before(snapshot.ExpiresAt) &&
+	return snapshot.ParserVersion == bookmakerParserVersion && !snapshot.ObservedAt.IsZero() && !snapshot.ObservedAt.After(now) && now.Before(snapshot.ExpiresAt) &&
 		!snapshot.ExpiresAt.After(snapshot.ObservedAt.Add(matchOddsTTL))
 }
 
@@ -10002,6 +11462,19 @@ func (s *calendarServer) matchOdds(ctx context.Context, book, id string) (matchO
 	if s.womenOffer(book, id) {
 		return matchOddsSnapshot{}, fmt.Errorf("oferty meczów kobiet są wyłączone")
 	}
+	// All callers, including quote-only monitoring, must supply the source to
+	// transport archives. Preserve analysis identity and automatic provenance.
+	info := archiveInfoFrom(ctx)
+	info.Bookmaker = book
+	if info.Scope == "" {
+		info.Scope = "kursy-mecz-" + id
+	}
+	if info.Match == "" {
+		if candidate, ok := s.calendarOffers().ByID[book+":"+id]; ok {
+			info.Match = candidate.Event.Home + " vs " + candidate.Event.Away
+		}
+	}
+	ctx = context.WithValue(ctx, archiveContextKey{}, info)
 	key := book + ":" + id
 	for {
 		if err := ctx.Err(); err != nil {
@@ -10045,9 +11518,10 @@ func (s *calendarServer) matchOdds(ctx context.Context, book, id string) (matchO
 		s.oddsFlights[key] = flight
 		s.oddsMu.Unlock()
 		log.Printf("[ODDS-CACHE] FETCH bookmaker=%s event_id=%s", book, id)
-		snapshot := matchOddsSnapshot{Bookmaker: book, EventID: id, Match: archiveInfoFrom(ctx).Match}
+		snapshot := matchOddsSnapshot{ParserVersion: bookmakerParserVersion, Audit: &offerAudit{}, Bookmaker: book, EventID: id, Match: archiveInfoFrom(ctx).Match}
 		buffer := &oddsArchiveBuffer{}
 		fetchCtx := context.WithValue(requestCtx, oddsArchiveBufferKey{}, buffer)
+		fetchCtx = context.WithValue(fetchCtx, offerAuditContextKey{}, snapshot.Audit)
 		var err error
 		func() {
 			defer func() {
@@ -10218,11 +11692,15 @@ func (s *calendarServer) checkMatchMarkets(ctx context.Context, book, id, home, 
 	result := marketAvailabilityFromOdds(book, id, odds, err)
 	// A promoted/canceled scan must not overwrite the foreground result with a
 	// one-minute error entry. The shared odds flight owns coalescing and priority.
-	if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+	if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
 		return result
 	}
-	if saveErr := archiveResponse(ctx, "sprawdzone-obslugiwane-rynki-zawodnikow", nil, "", result, err); saveErr != nil {
-		result = marketAvailabilityResult(book, id, nil, errors.Join(err, saveErr))
+	// A deadline is a completed failed attempt. Remember it so that the calendar
+	// shows the error and retry time instead of staying pending indefinitely.
+	if ctx.Err() == nil {
+		if saveErr := archiveResponse(ctx, "sprawdzone-obslugiwane-rynki-zawodnikow", nil, "", result, err); saveErr != nil {
+			result = marketAvailabilityResult(book, id, nil, errors.Join(err, saveErr))
+		}
 	}
 	result = s.rememberMarketAvailability(result)
 	return result
@@ -10305,20 +11783,32 @@ func fetchMatchProps(ctx context.Context, book, id string) ([]NormalizedProp, er
 
 func fetchRawMatchProps(ctx context.Context, book, id string) ([]NormalizedProp, error) {
 	client := &http.Client{Timeout: 30 * time.Second}
+	audit, _ := ctx.Value(offerAuditContextKey{}).(*offerAudit)
 	switch book {
 	case "SUPERBET":
-		endpoint := "https://production-superbet-bmb.freetls.fastly.net/betbuilder/v2/getBetbuilderMarketsForMatch?match_id=" + url.QueryEscape(id) + "&lang=pl-PL&target=SB_PL"
+		endpoint := "https://production-superbet-bmb.freetls.fastly.net/betbuilder/v3/getBetbuilderMarketsForMatch?match_id=" + url.QueryEscape(id) + "&lang=pl-PL&target=SB_PL"
 		var decoded json.RawMessage
 		if err := getSuperbetCalendarJSON(ctx, client, endpoint, &decoded); err != nil {
 			return nil, err
 		}
-		return ParseSuperbetProps(string(decoded))
+		var identity struct {
+			MatchID   string          `json:"matchId"`
+			FullState *bool           `json:"isFullState"`
+			Markets   json.RawMessage `json:"markets"`
+		}
+		if err := json.Unmarshal(decoded, &identity); err != nil {
+			return nil, err
+		}
+		if identity.MatchID != id || identity.FullState == nil || !*identity.FullState || len(identity.Markets) == 0 || string(identity.Markets) == "null" {
+			return nil, fmt.Errorf("Superbet v3: brak pełnego snapshotu dla meczu %s (matchId=%q)", id, identity.MatchID)
+		}
+		return ParseSuperbetProps(string(decoded), audit)
 	case "STS":
 		raw, err := FetchSTSSnapshot(ctx, STSWebSocket, id)
 		if err != nil {
 			return nil, err
 		}
-		return ParseSTSProps(string(raw))
+		return ParseSTSProps(string(raw), audit)
 	case "BETCLIC":
 		matchID, err := strconv.ParseUint(id, 10, 64)
 		if err != nil || matchID == 0 {
@@ -10331,7 +11821,7 @@ func fetchRawMatchProps(ctx context.Context, book, id string) ([]NormalizedProp,
 		if err != nil {
 			return nil, err
 		}
-		return ParseBetclicProps(raw), nil
+		return ParseBetclicProps(raw, audit), nil
 	}
 	return nil, fmt.Errorf("nieobsługiwane źródło")
 }
@@ -10569,6 +12059,7 @@ func (client *ResilientClient) GetSofa(endpoint string) ([]byte, error) {
 }
 
 func (client *ResilientClient) getSofaAttempt(endpoint string) ([]byte, error) {
+	attemptStarted := time.Now()
 	if client.background {
 		release, err := waitBackgroundSofa(client.ctx)
 		if err != nil {
@@ -10611,6 +12102,9 @@ func (client *ResilientClient) getSofaAttempt(endpoint string) ([]byte, error) {
 	} else {
 		response, fetchErr = client.fetchSofaHTTP(reqURL, endpoint)
 	}
+	// Include the global/background slots and pacing as well as the browser
+	// queue. The total describes this attempt, before archive writes.
+	response.QueueDuration += started.Sub(attemptStarted)
 	info.Status, info.ContentType = response.Status, response.ContentType
 	if response.Status != 0 {
 		noteSofaBlocked(response.Status, response.RetryAfter)
@@ -10619,7 +12113,7 @@ func (client *ResilientClient) getSofaAttempt(endpoint string) ([]byte, error) {
 		}
 	}
 	body := response.Body
-	log.Printf("[SOFA-HTTP] endpoint=%q status=%d protocol=%q content_type=%q bytes=%d duration=%s error=%v", endpoint, info.Status, response.Protocol, info.ContentType, len(body), time.Since(started), fetchErr)
+	log.Printf("[SOFA-HTTP] endpoint=%q status=%d protocol=%q content_type=%q bytes=%d queue_wait=%s setup=%s fetch=%s duration=%s error=%v", endpoint, info.Status, response.Protocol, info.ContentType, len(body), response.QueueDuration.Round(time.Millisecond), response.SetupDuration.Round(time.Millisecond), response.FetchDuration.Round(time.Millisecond), time.Since(attemptStarted).Round(time.Millisecond), fetchErr)
 	if fetchErr != nil && len(body) > 0 {
 		log.Printf("[SOFA-HTTP] ERROR_BODY endpoint=%q preview=%q", endpoint, body[:min(len(body), 512)])
 	}
@@ -10632,11 +12126,14 @@ func (client *ResilientClient) getSofaAttempt(endpoint string) ([]byte, error) {
 }
 
 type sofaFetchResult struct {
-	Status      int    `json:"status"`
-	ContentType string `json:"contentType"`
-	RetryAfter  string `json:"retryAfter,omitempty"`
-	Protocol    string `json:"protocol"`
-	Body        []byte `json:"-"`
+	Status        int           `json:"status"`
+	ContentType   string        `json:"contentType"`
+	RetryAfter    string        `json:"retryAfter,omitempty"`
+	Protocol      string        `json:"protocol"`
+	Body          []byte        `json:"-"`
+	QueueDuration time.Duration `json:"-"`
+	SetupDuration time.Duration `json:"-"`
+	FetchDuration time.Duration `json:"-"`
 }
 
 func (client *ResilientClient) fetchSofaHTTP(reqURL, endpoint string) (sofaFetchResult, error) {
@@ -10652,6 +12149,7 @@ func (client *ResilientClient) fetchSofaHTTP(reqURL, endpoint string) (sofaFetch
 		// Header.Get canonicalizes keys; these deliberately lowercase keys must be read directly.
 		log.Printf("[SOFA-HTTP] REQUEST endpoint=%q tls_profile=Chrome_152 user_agent=%q requested_with=%q referer=%q captcha_configured=%t header_order=%q", endpoint, strings.Join(req.Header["user-agent"], ""), strings.Join(req.Header["x-requested-with"], ""), strings.Join(req.Header["referer"], ""), len(req.Header["x-captcha"]) > 0, req.Header[fhttp.HeaderOrderKey])
 	}
+	started := time.Now()
 	resp, fetchErr := client.tlsClient.Do(req)
 	if resp != nil {
 		defer resp.Body.Close()
@@ -10661,6 +12159,7 @@ func (client *ResilientClient) fetchSofaHTTP(reqURL, endpoint string) (sofaFetch
 		result.Body, readErr = readBounded(resp.Body, 32<<20)
 		fetchErr = errors.Join(fetchErr, readErr)
 	}
+	result.FetchDuration = time.Since(started)
 	return result, fetchErr
 }
 
@@ -10817,12 +12316,24 @@ func (c *sofaCDPConnection) call(method string, params any, out any) error {
 	}
 }
 
-func fetchSofaBrowser(parent context.Context, reqURL string) (sofaFetchResult, error) {
-	result := sofaFetchResult{Protocol: "Chromium/CDP"}
+func fetchSofaBrowser(parent context.Context, reqURL string) (result sofaFetchResult, err error) {
+	result.Protocol = "Chromium/CDP"
 	u, err := url.Parse(reqURL)
 	if err != nil || !isSofaBrowserPage(reqURL) || !strings.HasPrefix(u.Path, "/api/v1/") || u.Fragment != "" {
 		return result, fmt.Errorf("Chromium SofaScore: dozwolone są tylko endpointy www.sofascore.com/api/v1/")
 	}
+	queueStarted := time.Now()
+	var setupStarted, fetchStarted time.Time
+	defer func() {
+		switch {
+		case setupStarted.IsZero():
+			result.QueueDuration = time.Since(queueStarted)
+		case fetchStarted.IsZero():
+			result.SetupDuration = time.Since(setupStarted)
+		default:
+			result.FetchDuration = time.Since(fetchStarted)
+		}
+	}()
 	release, err := sofaBrowserSlot.acquire(parent)
 	if err != nil {
 		return result, err
@@ -10842,6 +12353,8 @@ func fetchSofaBrowser(parent context.Context, reqURL string) (sofaFetchResult, e
 		case <-timer.C:
 		}
 	}
+	setupStarted = time.Now()
+	result.QueueDuration = setupStarted.Sub(queueStarted)
 	ctx, cancel := context.WithTimeout(parent, 20*time.Second)
 	defer cancel()
 	if err := sofaCooldownError(); err != nil {
@@ -10979,6 +12492,8 @@ func fetchSofaBrowser(parent context.Context, reqURL string) (sofaFetchResult, e
 		} `json:"result"`
 		Exception json.RawMessage `json:"exceptionDetails"`
 	}
+	fetchStarted = time.Now()
+	result.SetupDuration = fetchStarted.Sub(setupStarted)
 	if err := cdp.call("Runtime.evaluate", map[string]any{"expression": expression, "contextId": world.ID, "awaitPromise": true, "returnByValue": true, "silent": true}, &evaluated); err != nil {
 		return result, err
 	}
@@ -11776,6 +13291,7 @@ func (s *calendarServer) decorateCalendar(book string, calendar *Calendar) {
 	}
 	s.marketMu.Unlock()
 	now := time.Now()
+	zone, _ := time.LoadLocation("Europe/Warsaw")
 	for i := range calendar.Events {
 		e := &calendar.Events[i]
 		eligibility := &AnalysisEligibility{Status: "pending", Links: map[string]string{}}
@@ -11790,14 +13306,35 @@ func (s *calendarServer) decorateCalendar(book string, calendar *Calendar) {
 			for _, other := range serverBookmakers {
 				matched := matches[other]
 				state, ok := states[other+":"+matched.ID]
-				if !ok || !marketAvailabilityValid(state, matched, now) {
+				if ok && marketAvailabilityMatches(state, matched) && state.Status == "error" {
+					eligibility.Status, eligibility.Reason = "error", other+": "+state.Error
+					if state.ExpiresAt.After(now) {
+						eligibility.Reason += "; ponowienie po " + state.ExpiresAt.In(zone).Format("15:04")
+					} else {
+						eligibility.Reason += "; oczekuje na ponowienie"
+					}
+					break
+				} else if !ok || !marketAvailabilityValid(state, matched, now) {
 					eligibility.Status, eligibility.Reason = "pending", other+": oczekiwanie na pełną ofertę"
 				} else if state.Status != "available" || len(state.Markets) == 0 {
-					eligibility.Status, eligibility.Reason = "unavailable", other+": brak dostępnych rynków lub błąd pobierania"
+					eligibility.Status, eligibility.Reason = "unavailable", other+": brak dostępnych rynków zawodników"
 					break
 				}
 				if eligibility.ExpiresAt.IsZero() || state.ExpiresAt.Before(eligibility.ExpiresAt) {
 					eligibility.ExpiresAt = state.ExpiresAt
+				}
+			}
+			if eligibility.Status == "pending" || eligibility.Status == "error" {
+				start, parseErr := time.Parse(time.RFC3339, e.StartTime)
+				switch {
+				case parseErr != nil:
+					eligibility.Status, eligibility.Reason = "unavailable", "Niepoprawny termin meczu"
+				case e.Live || !start.After(now):
+					eligibility.Status, eligibility.Reason = "inactive", "Mecz rozpoczęty; poza kolejką ofert przedmeczowych"
+				case !s.automaticLeagueEnabled(matches):
+					eligibility.Status, eligibility.Reason = "skipped", "Sprawdzanie w tle wyłączone dla tej ligi; wybierz mecz, aby sprawdzić ofertę ręcznie"
+				case start.After(now.Add(statsWarmupHorizon)):
+					eligibility.Status, eligibility.Reason = "deferred", "Sprawdzanie w tle rozpocznie się 48 godzin przed meczem"
 				}
 			}
 		}
@@ -11820,6 +13357,9 @@ func (s *calendarServer) marketScanCandidates(now time.Time) []statsWarmupCandid
 		}
 		matches, err := matchCalendarOffers(candidate.Event, offers)
 		if err != nil {
+			continue
+		}
+		if !s.automaticLeagueEnabled(matches) {
 			continue
 		}
 		for _, book := range serverBookmakers {
@@ -11868,12 +13408,27 @@ func (s *calendarServer) marketBackgroundWorker() {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	var nextStart time.Time
+	var analysisPriority bool
 	log.Printf("[MARKET-SCAN] START workers=%d foreground_priority=true minimum_gap=3s", concurrency)
 	for s.ctx.Err() == nil {
 		s.workMu.Lock()
 		foreground := s.foregroundWork != 0 || len(s.analysisQueue) != 0
+		qualifiedRunning := s.qualifiedWork
 		s.workMu.Unlock()
-		if !foreground && len(active) < concurrency && !time.Now().Before(nextStart) {
+		qualifiedReady := false
+		if !foreground && !qualifiedRunning {
+			_, qualifiedReady = s.nextStatsWarmup()
+		}
+		prioritizeAnalysis := qualifiedRunning || qualifiedReady
+		if prioritizeAnalysis != analysisPriority && (!foreground || qualifiedRunning) {
+			analysisPriority = prioritizeAnalysis
+			if analysisPriority {
+				log.Printf("INFO Priorytet: analiza meczów z ofertą trzech bukmacherów; nowe skany ofert czekają")
+			} else {
+				log.Printf("INFO Gotowe mecze obsłużone; wznowienie sprawdzania pozostałych ofert")
+			}
+		}
+		if !foreground && !prioritizeAnalysis && len(active) < concurrency && !time.Now().Before(nextStart) {
 			for _, candidate := range s.marketScanCandidates(time.Now()) {
 				if len(active) >= concurrency {
 					break
@@ -11886,15 +13441,20 @@ func (s *calendarServer) marketBackgroundWorker() {
 				wg.Add(1)
 				go func(c statsWarmupCandidate, key string) {
 					defer wg.Done()
+					defer func() { completed <- key }()
+					matches, err := matchCalendarOffers(c.Event, s.calendarOffers())
+					if err != nil || !s.automaticLeagueEnabled(matches) {
+						return
+					}
 					ctx, cancel := context.WithTimeout(s.ctx, 60*time.Second)
 					defer cancel()
 					ctx = context.WithValue(ctx, sofaBackgroundContextKey{}, true)
+					ctx = context.WithValue(ctx, offerDiscoveryContextKey{}, true)
 					ctx = context.WithValue(ctx, archiveContextKey{}, archiveInfo{Automatic: true})
 					started := time.Now()
 					log.Printf("[MARKET-SCAN] CHECK bookmaker=%s event_id=%s", c.Bookmaker, c.Event.ID)
 					result := s.checkMatchMarkets(ctx, c.Bookmaker, c.Event.ID, c.Event.Home, c.Event.Away)
 					log.Printf("[MARKET-SCAN] RESULT bookmaker=%s event_id=%s status=%s duration=%s", c.Bookmaker, c.Event.ID, result.Status, time.Since(started).Round(time.Millisecond))
-					completed <- key
 				}(candidate, key)
 			}
 		}
@@ -11916,6 +13476,7 @@ func hydratePredictionBet(p predictionRecord, evidence predictionEvidence) Analy
 		if h.ID != bet.PlayerID {
 			continue
 		}
+		h = metricHistory(h, bet.MarketType)
 		bet.SampleValues = h.MetricValues[bet.MarketType]
 		bet.SampleValuesSuperSub = h.MetricValuesWithSuperSub[bet.MarketType]
 		bet.SampleMinutes, bet.SamplePositions = h.Minutes, h.Positions
@@ -11932,43 +13493,88 @@ func (s *calendarServer) automaticRun(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 400, fmt.Errorf("niepoprawne ID analizy"))
 		return
 	}
-	var path string
-	if err := s.research.db.QueryRow(`SELECT evidence_path FROM prediction_runs WHERE id=? AND origin='automatic'`, id).Scan(&path); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			apiError(w, 404, err)
-		} else {
-			apiError(w, 500, err)
-		}
-		return
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	db := s.research.summaryDB
+	if db == nil {
+		db = s.research.db
 	}
-	var evidence predictionEvidence
-	if err := s.research.readDocument(path, &evidence); err != nil {
-		apiError(w, 500, err)
-		return
-	}
-	rows, err := s.research.db.Query(`SELECT payload FROM predictions WHERE run_id=? ORDER BY bet_key`, id)
+	// A bookmaker run identifies one shared match analysis. Read every source
+	// from that exact analysis, never mixing another baseline or algorithm.
+	rows, err := db.QueryContext(ctx, `SELECT r.id,r.bookmaker,r.evidence_path,COALESCE(q.payload,'') FROM prediction_runs r LEFT JOIN automatic_price_checks q ON q.run_id=r.id WHERE r.origin='automatic' AND r.analysis_id=(SELECT analysis_id FROM prediction_runs WHERE id=? AND origin='automatic') ORDER BY r.bookmaker`, id)
 	if err != nil {
 		apiError(w, 500, err)
 		return
 	}
-	defer rows.Close()
-	result := []AnalyzedBet{}
+	type savedRun struct{ id, book, path, quote string }
+	runs := []savedRun{}
 	for rows.Next() {
-		var raw string
-		var p predictionRecord
-		if err := rows.Scan(&raw); err != nil {
+		var run savedRun
+		if err := rows.Scan(&run.id, &run.book, &run.path, &run.quote); err != nil {
+			rows.Close()
 			apiError(w, 500, err)
 			return
 		}
-		if err := json.Unmarshal([]byte(raw), &p); err != nil {
-			apiError(w, 500, err)
-			return
-		}
-		result = append(result, hydratePredictionBet(p, evidence))
+		runs = append(runs, run)
 	}
-	if err := rows.Err(); err != nil {
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
 		apiError(w, 500, err)
 		return
+	}
+	if len(runs) == 0 {
+		apiError(w, 404, fmt.Errorf("nie znaleziono zapisanej analizy"))
+		return
+	}
+	if len(runs) != len(serverBookmakers) {
+		apiError(w, 409, fmt.Errorf("zapisana analiza nie zawiera wszystkich trzech bukmacherów"))
+		return
+	}
+	result := []AnalyzedBet{}
+	evidenceByPath := map[string]predictionEvidence{}
+	for _, run := range runs {
+		evidence, found := evidenceByPath[run.path]
+		if !found {
+			if err := s.research.readDocument(run.path, &evidence); err != nil {
+				apiError(w, 500, err)
+				return
+			}
+			evidenceByPath[run.path] = evidence
+		}
+		if run.quote != "" {
+			var check automaticPriceCheck
+			if err := json.Unmarshal([]byte(run.quote), &check); err != nil {
+				apiError(w, 500, err)
+				return
+			}
+			for _, bet := range check.Bets {
+				result = append(result, hydratePredictionBet(predictionRecord{Bet: bet}, evidence))
+			}
+			continue
+		}
+		rows, err := db.QueryContext(ctx, `SELECT payload FROM predictions WHERE run_id=? ORDER BY bet_key`, run.id)
+		if err != nil {
+			apiError(w, 500, err)
+			return
+		}
+		for rows.Next() {
+			var raw string
+			var p predictionRecord
+			if err = rows.Scan(&raw); err == nil {
+				err = json.Unmarshal([]byte(raw), &p)
+			}
+			if err != nil {
+				break
+			}
+			result = append(result, hydratePredictionBet(p, evidence))
+		}
+		err = errors.Join(err, rows.Err())
+		rows.Close()
+		if err != nil {
+			apiError(w, 500, err)
+			return
+		}
 	}
 	jsonResponse(w, 200, result)
 }

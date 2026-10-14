@@ -4,6 +4,8 @@ import {main} from '../models';
 
 export function AnalyzeThreeBookmakers(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:number,arg7:string):Promise<Array<main.AnalyzedBet>>;
 
+export function CancelAnalysis():Promise<void>;
+
 export function CheckMatchMarkets(arg1:string,arg2:string,arg3:string,arg4:string):Promise<main.MatchMarketAvailability>;
 
 export function DeleteMatchHistory(arg1:number):Promise<Array<main.MatchHistoryEntry>>;
@@ -18,6 +20,8 @@ export function GetAnalysisProgress():Promise<main.AnalysisJob>;
 
 export function GetAutomaticAnalysis(arg1:string):Promise<Array<main.AnalyzedBet>>;
 
+export function GetAutomaticLeagues():Promise<Record<string, any>>;
+
 export function GetAutomaticSummaries():Promise<Array<main.AutomaticSummary>>;
 
 export function GetAvailableTournaments(arg1:string,arg2:string):Promise<Array<main.LeagueOption>>;
@@ -27,6 +31,8 @@ export function GetBetclicCalendar(arg1:string):Promise<main.SuperbetCalendar>;
 export function GetEvaluationReport(arg1:number,arg2:number,arg3:string):Promise<Record<string, any>>;
 
 export function GetMatchFlow(arg1:string,arg2:string):Promise<main.HistoricalMatchFlow>;
+
+export function GetOfferDiagnostics(arg1:string,arg2:string,arg3:string):Promise<Array<Record<string, any>>>;
 
 export function GetSTSCalendar(arg1:string):Promise<main.SuperbetCalendar>;
 
@@ -45,3 +51,5 @@ export function SaveMatchHistory(arg1:main.MatchHistoryEntry):Promise<Array<main
 export function SaveMyBets(arg1:Array<main.MyBetItem>):Promise<boolean>;
 
 export function SaveTeamSofaID(arg1:string,arg2:string):Promise<boolean>;
+
+export function SetAutomaticLeague(arg1:string,arg2:boolean):Promise<Record<string, any>>;

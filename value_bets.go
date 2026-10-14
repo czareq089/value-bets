@@ -6,6 +6,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -72,6 +73,8 @@ const (
 	MarketShotsOnTargetOutsideBox CanonicalMarket = "SHOTS_ON_TARGET_OUTSIDE_BOX"
 	MarketShotsOnTargetInsideBox  CanonicalMarket = "SHOTS_ON_TARGET_INSIDE_BOX"
 	MarketTackles                 CanonicalMarket = "TACKLES"
+	MarketPasses                  CanonicalMarket = "PASSES"
+	MarketAccuratePasses          CanonicalMarket = "ACCURATE_PASSES"
 	MarketDispossessed            CanonicalMarket = "DISPOSSESSED"
 	MarketFoulsCommitted          CanonicalMarket = "FOULS_COMMITTED"
 	MarketFoulsDrawn              CanonicalMarket = "FOULS_DRAWN"
@@ -215,6 +218,9 @@ type HistoricalMatchFlow struct {
 }
 
 type AnalyzedBet struct {
+	AnalysisOdds         float64            `json:"analysisOdds,omitempty"`
+	QuoteObservedAt      time.Time          `json:"quoteObservedAt,omitempty"`
+	PriceImproved        bool               `json:"priceImproved,omitempty"`
 	PlayerID             int                `json:"playerId"`
 	ContextPending       bool               `json:"contextPending,omitempty"`
 	SampleRatings        []*float64         `json:"sampleRatings"`
@@ -309,6 +315,7 @@ type App struct {
 	ctx                 context.Context
 	analysisMu          sync.Mutex
 	analysisActive      bool
+	analysisCancel      context.CancelFunc
 	analysisProgress    AnalysisJob
 	detectionMu         sync.Mutex
 	detectionCancel     context.CancelFunc
@@ -591,19 +598,23 @@ func (a *App) getBookmakerCalendar(ctx context.Context, bookmaker, date string, 
 const serverBaseURL = "https://api.value-bets.pl"
 
 type AutomaticSummary struct {
-	Bookmaker  string    `json:"bookmaker"`
-	EventID    string    `json:"eventId"`
-	FixtureID  string    `json:"fixtureId"`
-	Match      string    `json:"match"`
-	Status     string    `json:"status"`
-	Stage      string    `json:"stage"`
-	Value      int       `json:"value"`
-	Traps      int       `json:"traps"`
-	Total      int       `json:"total"`
-	AnalyzedAt time.Time `json:"analyzedAt"`
-	ExpiresAt  time.Time `json:"expiresAt"`
-	RunID      string    `json:"runId"`
-	Error      string    `json:"error,omitempty"`
+	QuoteCheckedAt time.Time `json:"quoteCheckedAt,omitempty"`
+	Improved       int       `json:"improved,omitempty"`
+	NewSelections  int       `json:"newSelections,omitempty"`
+	Missing        int       `json:"missing,omitempty"`
+	Bookmaker      string    `json:"bookmaker"`
+	EventID        string    `json:"eventId"`
+	FixtureID      string    `json:"fixtureId"`
+	Match          string    `json:"match"`
+	Status         string    `json:"status"`
+	Stage          string    `json:"stage"`
+	Value          int       `json:"value"`
+	Traps          int       `json:"traps"`
+	Total          int       `json:"total"`
+	AnalyzedAt     time.Time `json:"analyzedAt"`
+	ExpiresAt      time.Time `json:"expiresAt"`
+	RunID          string    `json:"runId"`
+	Error          string    `json:"error,omitempty"`
 }
 
 func (a *App) GetAutomaticSummaries() ([]AutomaticSummary, error) {
@@ -772,6 +783,26 @@ func (a *App) GetAnalysisProgress() AnalysisJob {
 
 // Wails waits locally while the server performs an independent asynchronous job.
 // Each poll has a short timeout; no long-lived HTTP analysis request is needed.
+func (a *App) CancelAnalysis() error {
+	a.analysisMu.Lock()
+	id, cancel := a.analysisProgress.ID, a.analysisCancel
+	a.analysisMu.Unlock()
+	if id == "" || cancel == nil {
+		return fmt.Errorf("brak aktywnego zlecenia do anulowania")
+	}
+	ctx, stop := context.WithTimeout(a.calendarContext(), 10*time.Second)
+	defer stop()
+	var accepted bool
+	if err := a.serverRequest(ctx, http.MethodPost, "/api/v1/analyses/"+url.PathEscape(id)+"/cancel", nil, &accepted); err != nil {
+		return err
+	}
+	if !accepted {
+		return fmt.Errorf("serwer nie potwierdził anulowania")
+	}
+	cancel()
+	return nil
+}
+
 func (a *App) AnalyzeThreeBookmakers(sb, betclic, sts, home, away string, limit int, tournaments string) (result []AnalyzedBet, err error) {
 	a.analysisMu.Lock()
 	if a.analysisActive {
@@ -785,15 +816,22 @@ func (a *App) AnalyzeThreeBookmakers(sb, betclic, sts, home, away string, limit 
 		a.analysisMu.Lock()
 		defer a.analysisMu.Unlock()
 		a.analysisActive = false
+		a.analysisCancel = nil
 		if err != nil {
 			a.analysisProgress.Status = "failed"
 			a.analysisProgress.Stage = "failed"
 			a.analysisProgress.Error = err.Error()
 			a.analysisProgress.Message = err.Error()
+			if errors.Is(err, context.Canceled) {
+				a.analysisProgress.Message = "Analiza anulowana"
+			}
 		}
 	}()
 	ctx, cancel := context.WithTimeout(a.calendarContext(), 23*time.Minute)
 	defer cancel()
+	a.analysisMu.Lock()
+	a.analysisCancel = cancel
+	a.analysisMu.Unlock()
 	body, _ := json.Marshal(AnalysisRequest{SuperbetURL: sb, BetclicURL: betclic, STSURL: sts, HomeID: home, AwayID: away, MatchLimit: limit, TournamentIDs: tournaments})
 	var job AnalysisJob
 	sendCtx, sendCancel := context.WithTimeout(ctx, 20*time.Second)
@@ -857,5 +895,44 @@ func (a *App) GetAutomaticAnalysis(runID string) ([]AnalyzedBet, error) {
 	defer cancel()
 	var result []AnalyzedBet
 	err := a.serverRequest(ctx, http.MethodGet, "/api/v1/research/runs/"+url.PathEscape(runID), nil, &result)
+	return result, err
+}
+
+// Inspect the already fetched offers; this never starts an analysis or fetch.
+func (a *App) GetOfferDiagnostics(superbet, betclic, sts string) ([]map[string]any, error) {
+	ctx, cancel := context.WithTimeout(a.calendarContext(), 15*time.Second)
+	defer cancel()
+	result := []map[string]any{}
+	for _, source := range []struct{ book, input string }{{"SUPERBET", superbet}, {"BETCLIC", betclic}, {"STS", sts}} {
+		if strings.TrimSpace(source.input) == "" {
+			continue
+		}
+		var item map[string]any
+		query := url.Values{"bookmaker": {source.book}, "matchUrl": {source.input}}
+		if err := a.serverRequest(ctx, http.MethodGet, "/api/v1/markets/audit?"+query.Encode(), nil, &item); err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, nil
+}
+
+func (a *App) GetAutomaticLeagues() (map[string]any, error) {
+	ctx, cancel := context.WithTimeout(a.calendarContext(), 15*time.Second)
+	defer cancel()
+	var result map[string]any
+	err := a.serverRequest(ctx, http.MethodGet, "/api/v1/automatic/leagues", nil, &result)
+	return result, err
+}
+
+func (a *App) SetAutomaticLeague(key string, enabled bool) (map[string]any, error) {
+	ctx, cancel := context.WithTimeout(a.calendarContext(), 15*time.Second)
+	defer cancel()
+	body, err := json.Marshal(map[string]any{"key": key, "enabled": enabled})
+	if err != nil {
+		return nil, err
+	}
+	var result map[string]any
+	err = a.serverRequest(ctx, http.MethodPatch, "/api/v1/automatic/leagues", body, &result)
 	return result, err
 }

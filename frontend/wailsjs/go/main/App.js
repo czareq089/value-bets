@@ -6,6 +6,10 @@ export function AnalyzeThreeBookmakers(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
   return window['go']['main']['App']['AnalyzeThreeBookmakers'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
 }
 
+export function CancelAnalysis() {
+  return window['go']['main']['App']['CancelAnalysis']();
+}
+
 export function CheckMatchMarkets(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['CheckMatchMarkets'](arg1, arg2, arg3, arg4);
 }
@@ -34,6 +38,10 @@ export function GetAutomaticAnalysis(arg1) {
   return window['go']['main']['App']['GetAutomaticAnalysis'](arg1);
 }
 
+export function GetAutomaticLeagues() {
+  return window['go']['main']['App']['GetAutomaticLeagues']();
+}
+
 export function GetAutomaticSummaries() {
   return window['go']['main']['App']['GetAutomaticSummaries']();
 }
@@ -52,6 +60,10 @@ export function GetEvaluationReport(arg1, arg2, arg3) {
 
 export function GetMatchFlow(arg1, arg2) {
   return window['go']['main']['App']['GetMatchFlow'](arg1, arg2);
+}
+
+export function GetOfferDiagnostics(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GetOfferDiagnostics'](arg1, arg2, arg3);
 }
 
 export function GetSTSCalendar(arg1) {
@@ -88,4 +100,8 @@ export function SaveMyBets(arg1) {
 
 export function SaveTeamSofaID(arg1, arg2) {
   return window['go']['main']['App']['SaveTeamSofaID'](arg1, arg2);
+}
+
+export function SetAutomaticLeague(arg1, arg2) {
+  return window['go']['main']['App']['SetAutomaticLeague'](arg1, arg2);
 }
