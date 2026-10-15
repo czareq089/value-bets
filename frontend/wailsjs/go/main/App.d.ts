@@ -34,6 +34,8 @@ export function GetMatchFlow(arg1:string,arg2:string):Promise<main.HistoricalMat
 
 export function GetOfferDiagnostics(arg1:string,arg2:string,arg3:string):Promise<Array<Record<string, any>>>;
 
+export function GetOpponentAnalysis(arg1:string,arg2:string):Promise<Record<string, any>>;
+
 export function GetSTSCalendar(arg1:string):Promise<main.SuperbetCalendar>;
 
 export function GetSuperbetCalendar(arg1:string):Promise<main.SuperbetCalendar>;

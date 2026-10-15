@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -106,6 +107,30 @@ type FairModelDetails struct {
 	OpponentID      string   `json:"opponentId"`
 	Features        []string `json:"features"`
 	Notes           []string `json:"notes"`
+}
+
+type OpponentFilterVariant struct {
+	Indexes   []int             `json:"indexes"`
+	HitRate   float64           `json:"hitRate"`
+	FairModel *FairModelDetails `json:"fairModel,omitempty"`
+}
+
+type OpponentFilterData struct {
+	TargetSample   int                    `json:"targetSample,omitempty"`
+	ScannedMatches int                    `json:"scannedMatches,omitempty"`
+	SampleNote     string                 `json:"sampleNote,omitempty"`
+	Rule           string                 `json:"rule"`
+	Basis          string                 `json:"basis"`
+	OwnTeam        string                 `json:"ownTeam,omitempty"`
+	Opponent       string                 `json:"opponent,omitempty"`
+	OwnPPG         *float64               `json:"ownPPG,omitempty"`
+	OpponentPPG    *float64               `json:"opponentPPG,omitempty"`
+	KnownMatches   int                    `json:"knownMatches"`
+	UnknownMatches int                    `json:"unknownMatches"`
+	EqualMatches   int                    `json:"equalMatches"`
+	Reason         string                 `json:"reason,omitempty"`
+	Easier         *OpponentFilterVariant `json:"easier,omitempty"`
+	Harder         *OpponentFilterVariant `json:"harder,omitempty"`
 }
 
 type TableSummary struct {
@@ -218,40 +243,43 @@ type HistoricalMatchFlow struct {
 }
 
 type AnalyzedBet struct {
-	AnalysisOdds         float64            `json:"analysisOdds,omitempty"`
-	QuoteObservedAt      time.Time          `json:"quoteObservedAt,omitempty"`
-	PriceImproved        bool               `json:"priceImproved,omitempty"`
-	PlayerID             int                `json:"playerId"`
-	ContextPending       bool               `json:"contextPending,omitempty"`
-	SampleRatings        []*float64         `json:"sampleRatings"`
-	FairModel            *FairModelDetails  `json:"fairModel,omitempty"`
-	MatchOverview        *MatchOverview     `json:"matchOverview,omitempty"`
-	Bookmaker            Bookmaker          `json:"bookmaker"`
-	PlayerName           string             `json:"playerName"`
-	MarketType           CanonicalMarket    `json:"marketType"`
-	MarketLabel          string             `json:"marketLabel"`
-	Line                 float64            `json:"line"`
-	IsUnder              bool               `json:"isUnder"`
-	BookmakerOdds        float64            `json:"bookmakerOdds"`
-	FairOdds             float64            `json:"fairOdds"`
-	HitRate              float64            `json:"hitRate"`
-	EdgePercent          float64            `json:"edgePercent"`
-	EVWithTax            float64            `json:"evWithTax"`
-	MatchesSample        int                `json:"matchesSample"`
-	SampleValues         []int              `json:"sampleValues"`
-	SampleValuesSuperSub []int              `json:"sampleValuesSuperSub"`
-	SampleMinutes        []int              `json:"sampleMinutes"`
-	SamplePositions      []string           `json:"samplePositions"`
-	SampleOpponents      []string           `json:"sampleOpponents"`
-	SampleDates          []string           `json:"sampleDates"`
-	SampleShots          [][]ShotCoordinate `json:"sampleShots"`
-	StatsSource          string             `json:"statsSource"`
-	TeamSide             string             `json:"teamSide"`
-	TeamID               string             `json:"teamId"`
-	TeamName             string             `json:"teamName"`
-	Verdict              string             `json:"verdict"`
-	LineupStatus         string             `json:"lineupStatus"`
-	IsStartingXI         bool               `json:"isStartingXI"`
+	HistoryNotes         []string            `json:"historyNotes,omitempty"`
+	AnalysisID           string              `json:"analysisId,omitempty"`
+	OpponentFilter       *OpponentFilterData `json:"opponentFilter,omitempty"`
+	AnalysisOdds         float64             `json:"analysisOdds,omitempty"`
+	QuoteObservedAt      time.Time           `json:"quoteObservedAt,omitempty"`
+	PriceImproved        bool                `json:"priceImproved,omitempty"`
+	PlayerID             int                 `json:"playerId"`
+	ContextPending       bool                `json:"contextPending,omitempty"`
+	SampleRatings        []*float64          `json:"sampleRatings"`
+	FairModel            *FairModelDetails   `json:"fairModel,omitempty"`
+	MatchOverview        *MatchOverview      `json:"matchOverview,omitempty"`
+	Bookmaker            Bookmaker           `json:"bookmaker"`
+	PlayerName           string              `json:"playerName"`
+	MarketType           CanonicalMarket     `json:"marketType"`
+	MarketLabel          string              `json:"marketLabel"`
+	Line                 float64             `json:"line"`
+	IsUnder              bool                `json:"isUnder"`
+	BookmakerOdds        float64             `json:"bookmakerOdds"`
+	FairOdds             float64             `json:"fairOdds"`
+	HitRate              float64             `json:"hitRate"`
+	EdgePercent          float64             `json:"edgePercent"`
+	EVWithTax            float64             `json:"evWithTax"`
+	MatchesSample        int                 `json:"matchesSample"`
+	SampleValues         []int               `json:"sampleValues"`
+	SampleValuesSuperSub []int               `json:"sampleValuesSuperSub"`
+	SampleMinutes        []int               `json:"sampleMinutes"`
+	SamplePositions      []string            `json:"samplePositions"`
+	SampleOpponents      []string            `json:"sampleOpponents"`
+	SampleDates          []string            `json:"sampleDates"`
+	SampleShots          [][]ShotCoordinate  `json:"sampleShots"`
+	StatsSource          string              `json:"statsSource"`
+	TeamSide             string              `json:"teamSide"`
+	TeamID               string              `json:"teamId"`
+	TeamName             string              `json:"teamName"`
+	Verdict              string              `json:"verdict"`
+	LineupStatus         string              `json:"lineupStatus"`
+	IsStartingXI         bool                `json:"isStartingXI"`
 }
 
 type TeamDetectionResult struct {
@@ -886,6 +914,51 @@ func (a *App) AnalyzeThreeBookmakers(sb, betclic, sts, home, away string, limit 
 			return job.Result, nil
 		case "failed":
 			return nil, fmt.Errorf("%s", job.Error)
+		}
+	}
+}
+
+// A derived filtered sample reuses the baseline fixture, odds and context.
+// Only missing historical inputs are downloaded by the server job.
+func (a *App) GetOpponentAnalysis(analysisID, mode string) (map[string]any, error) {
+	if !regexp.MustCompile(`^[a-f0-9]{24}$`).MatchString(analysisID) || (mode != "easier" && mode != "harder") {
+		return nil, fmt.Errorf("niepoprawne ID lub filtr historii")
+	}
+	ctx, cancel := context.WithTimeout(a.calendarContext(), 23*time.Minute)
+	defer cancel()
+	path := "/api/v1/research/matchup/" + url.PathEscape(analysisID) + "?mode=" + url.QueryEscape(mode)
+	method := http.MethodPost
+	failures := 0
+	for {
+		requestCtx, requestCancel := context.WithTimeout(ctx, 25*time.Second)
+		var job map[string]any
+		err := a.serverRequest(requestCtx, method, path, nil, &job)
+		requestCancel()
+		if err != nil {
+			failures++
+			if method == http.MethodPost || failures >= 4 {
+				return nil, fmt.Errorf("uzupełnianie próbki: %w", err)
+			}
+		} else {
+			failures = 0
+			status, _ := job["status"].(string)
+			if status == "completed" {
+				return job, nil
+			}
+			if status == "error" {
+				return nil, fmt.Errorf("uzupełnianie próbki: %v", job["error"])
+			}
+			if a.ctx != nil {
+				wailsruntime.EventsEmit(a.ctx, "analysis:opponent-progress", map[string]any{"analysisId": analysisID, "mode": mode, "done": job["done"], "total": job["total"], "message": job["message"]})
+			}
+			method = http.MethodGet
+		}
+		timer := time.NewTimer(1500 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, fmt.Errorf("uzupełnianie próbki: %w", ctx.Err())
+		case <-timer.C:
 		}
 	}
 }

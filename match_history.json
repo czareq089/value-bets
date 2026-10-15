@@ -1,5 +1,35 @@
 [
   {
+    "timestamp": "2026-10-15 14:33:29",
+    "title": "hajduk-split vs ajax-amsterdam",
+    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/hajduk-split-vs-ajax-amsterdam-14744369?mdt=o",
+    "betclicUrl": "https://www.betclic.pl/pilka-nozna-s1/hajduk-split-vs-ajax-m1213506070249472",
+    "stsUrl": "https://www.sts.pl/kursy/pilka-nozna/hajduk-split-vs-ajax-amsterdam/f3397706",
+    "homeStatsId": "2036",
+    "awayStatsId": "2953",
+    "sampleLimit": 10
+  },
+  {
+    "timestamp": "2026-10-15 13:27:14",
+    "title": "universitatea-craiova vs getafe",
+    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/universitatea-craiova-vs-getafe-14744365?mdt=o",
+    "betclicUrl": "https://www.betclic.pl/pilka-nozna-s1/cs-universitatea-craiova-vs-getafe-m1213503950028800",
+    "stsUrl": "https://www.sts.pl/kursy/pilka-nozna/universitatea-craiova-vs-getafe/f3397705",
+    "homeStatsId": "116223",
+    "awayStatsId": "2859",
+    "sampleLimit": 10
+  },
+  {
+    "timestamp": "2026-10-15 13:26:52",
+    "title": "lech-poznan vs bayer-leverkusen",
+    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/lech-poznan-vs-bayer-leverkusen-14744315?mdt=o",
+    "betclicUrl": "https://www.betclic.pl/pilka-nozna-s1/lech-poznan-vs-bayer-leverkusen-m1228807814025216",
+    "stsUrl": "https://www.sts.pl/kursy/pilka-nozna/lech-poznan-vs-bayer-leverkusen/f3397657",
+    "homeStatsId": "3121",
+    "awayStatsId": "2681",
+    "sampleLimit": 10
+  },
+  {
     "timestamp": "2026-10-14 20:24:35",
     "title": "aston-villa vs fenerbahce",
     "sbUrl": "https://superbet.pl/kursy/pilka-nozna/aston-villa-vs-fenerbahce-14738973?mdt=o",

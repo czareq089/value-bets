@@ -504,10 +504,12 @@
             Tylko XI (także przewidywana)
         </label>
 
-        <label style="display:flex; align-items:center; gap:6px; background:var(--bg-card); border:1px solid var(--border); padding:0 10px; border-radius:6px; height:32px; font-size:12px; font-weight:700; cursor:pointer; user-select:none;">
-            <input type="checkbox" id="bufferModeToggle" onchange="renderFiltered()" style="accent-color:var(--accent); cursor:pointer;">
-            🛡️ Buffer Mode (HR 100% + bufor śr.)
-        </label>
+        <select id="opponentFilter" class="filter-select" onchange="changeOpponentFilter()" aria-label="Historyczny rywal względem drużyny zawodnika" title="W każdym historycznym meczu porównuje rywala z drużyną, w której grał zawodnik. Łatwiejsi: rywal słabszy od własnej drużyny. Trudniejsi: rywal silniejszy. Równa ocena nie trafia do żadnej grupy. Zmienia próbkę, pokrycie, kurs fair i EV.">
+            <option value="all">Matchup: wszyscy rywale</option>
+            <option value="easier">Matchup: łatwiejsi — rywal słabszy</option>
+            <option value="harder">Matchup: trudniejsi — rywal silniejszy</option>
+        </select>
+        <span id="opponentFilterStatus" style="font-size:11px;color:var(--text-muted);max-width:430px;" role="status"></span>
 
         <select id="verdictFilter" class="filter-select" onchange="renderFiltered()">
             <option value="ALL">Wszystkie typy</option>
@@ -661,6 +663,7 @@
 
 <script>
     let rawBets = [];
+    let analysisSourceBets = [];
     let compareMode = false;
     let myBets = [];
     let sortCol = "hitRate";
@@ -687,7 +690,11 @@
     const CALENDAR_INPUTS = { SUPERBET: 'sbInput', STS: 'stsInput', BETCLIC: 'betclicInput' };
     const CALENDAR_LABELS = { SUPERBET: 'Superbet', STS: 'STS', BETCLIC: 'Betclic' };
     const automaticSummaries = new Map();
+    const OPPONENT_FILTER_RULE = 'opponent-vs-team';
+    const opponentSampleCache = new Map();
+    let opponentProgressSubscribed = false;
     let automaticSummaryPolling = false;
+    let automaticSummaryRefreshPending = false;
     let automaticSummaryError = '';
     let analysisPolling = false;
     let analysisActive = false;
@@ -716,6 +723,10 @@
     const BOOKMAKERS = ["SUPERBET", "BETCLIC", "STS"];
 
     window.onload = async () => {
+        try {
+            const saved = localStorage.getItem('value-bets-opponent-filter');
+            if (['all','easier','harder'].includes(saved)) document.getElementById('opponentFilter').value = saved;
+        } catch (_) {}
         const dateParts = new Intl.DateTimeFormat('en-CA', {timeZone: 'Europe/Warsaw', year: 'numeric', month: '2-digit', day: '2-digit'}).formatToParts(new Date());
         const datePart = type => dateParts.find(part => part.type === type).value;
         document.getElementById('calendarDate').value = `${datePart('year')}-${datePart('month')}-${datePart('day')}`;
@@ -826,6 +837,8 @@
         currentHomeSlug = "";
         currentAwaySlug = "";
         rawBets = [];
+        analysisSourceBets = [];
+        document.getElementById('opponentFilterStatus').textContent = '';
         document.getElementById('resultsMeta').textContent = '';
         closeChart();
 
@@ -836,28 +849,6 @@
 
         document.getElementById('resultsBody').innerHTML =
             '<tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--text-muted);">Uzupełnij linki bukmacherów i kliknij Analizuj.</td></tr>';
-    }
-
-    function passesBufferMode(item, isValue) {
-        if (!isValue) return false;
-
-        const hasSuperSub = Array.isArray(item.sampleValuesSuperSub) &&
-            item.sampleValuesSuperSub.length === (item.sampleValues || []).length;
-
-        const vals = (!item.isUnder && hasSuperSub) ? item.sampleValuesSuperSub : (item.sampleValues || []);
-        if (!vals || vals.length === 0) return false;
-
-        if (item.isUnder) {
-            const maxAllowed = Math.floor(item.line);
-            const worstMatch = Math.max(...vals);
-            const allHit = vals.every(v => v <= maxAllowed);
-            return allHit && (worstMatch < maxAllowed);
-        } else {
-            const minRequired = Math.floor(item.line) + 1;
-            const worstMatch = Math.min(...vals);
-            const allHit = vals.every(v => v >= minRequired);
-            return allHit && (worstMatch > minRequired);
-        }
     }
 
     function toggleDropdown(id) {
@@ -1288,7 +1279,11 @@
     }
 
     async function refreshAutomaticSummaries() {
-        if (automaticSummaryPolling || !window.go?.main?.App?.GetAutomaticSummaries) return;
+        if (!window.go?.main?.App?.GetAutomaticSummaries) return;
+        if (automaticSummaryPolling) {
+            automaticSummaryRefreshPending = true;
+            return;
+        }
         automaticSummaryPolling = true;
         try {
             const items = await window.go.main.App.GetAutomaticSummaries();
@@ -1306,6 +1301,10 @@
         finally {
             automaticSummaryPolling = false;
             document.querySelectorAll('#calendarList .calendar-card').forEach(updateAutomaticCard);
+            if (automaticSummaryRefreshPending) {
+                automaticSummaryRefreshPending = false;
+                refreshAutomaticSummaries();
+            }
         }
     }
 
@@ -1698,9 +1697,136 @@
         }
     }
 
+    function changeOpponentFilter() {
+        try { localStorage.setItem('value-bets-opponent-filter', document.getElementById('opponentFilter').value); } catch (_) {}
+        for (const [key, state] of opponentSampleCache) {
+            if (state.status === 'error') opponentSampleCache.delete(key);
+        }
+        applyAnalysisResults(analysisSourceBets, true);
+    }
+
+    function opponentOfferKey(bet) {
+        return JSON.stringify([bet.bookmaker, Number(bet.playerId), bet.marketType, Number(bet.line), Boolean(bet.isUnder)]);
+    }
+
+    function ensureOpponentSample(bets, mode) {
+        const ids = new Set(bets.map(bet => bet.analysisId).filter(Boolean));
+        if (ids.size !== 1) return null;
+        const id = [...ids][0], key = id + ':' + mode;
+        if (opponentSampleCache.has(key)) return opponentSampleCache.get(key);
+        if (analysisActive) return {status:'waiting', message:'Uzupełnienie próbki rozpocznie się po zapisaniu analizy bazowej.'};
+        if (!window.go?.main?.App?.GetOpponentAnalysis) return {status:'error', error:'Uzupełnianie próbki wymaga aktualizacji klienta.'};
+        const state = {status:'running', message:'Szukanie kolejnych pasujących występów w historii...', done:0, total:0};
+        opponentSampleCache.set(key, state);
+        const refresh = () => {
+            if (document.getElementById('opponentFilter').value === mode && analysisSourceBets.some(bet => bet.analysisId === id)) {
+                applyAnalysisResults(analysisSourceBets, false);
+            }
+        };
+        if (!opponentProgressSubscribed && window.runtime?.EventsOnMultiple) {
+            opponentProgressSubscribed = true;
+            window.runtime.EventsOnMultiple('analysis:opponent-progress', progress => {
+                const current = opponentSampleCache.get(progress.analysisId + ':' + progress.mode);
+                if (!current || current.status !== 'running') return;
+                Object.assign(current, {message:progress.message, done:progress.done, total:progress.total});
+                if (document.getElementById('opponentFilter').value === progress.mode && analysisSourceBets.some(bet => bet.analysisId === progress.analysisId)) {
+                    applyAnalysisResults(analysisSourceBets, false);
+                }
+            }, -1);
+        }
+        window.go.main.App.GetOpponentAnalysis(id, mode).then(job => {
+            Object.assign(state, job, {status:'completed', rows:Array.isArray(job.rows) ? job.rows : []});
+            refresh();
+        }).catch(error => {
+            Object.assign(state, {status:'error', error:String(error?.message || error)});
+            refresh();
+        }).finally(() => {
+            for (const [oldKey, old] of opponentSampleCache) {
+                if (opponentSampleCache.size <= 8) break;
+                if (oldKey !== key && old.status !== 'running') opponentSampleCache.delete(oldKey);
+            }
+        });
+        return state;
+    }
+
+    function opponentFilteredBets(bets) {
+        const mode = document.getElementById('opponentFilter').value;
+        const status = document.getElementById('opponentFilterStatus');
+        if (mode === 'all' || !bets.length) {
+            status.textContent = '';
+            return bets;
+        }
+        const refill = ensureOpponentSample(bets, mode);
+        if (refill?.status === 'completed') {
+            const latest = new Map(bets.map(bet => [opponentOfferKey(bet), bet]));
+            const result = [];
+            for (const row of refill.rows) {
+                const base = latest.get(opponentOfferKey(row));
+                const p = Number(row.fairModel?.probability);
+                if (!base || !(p > 0 && p < 1)) continue;
+                const price = Number(base.bookmakerOdds), ev = (p * price * .88 - 1) * 100;
+                result.push({...base, ...row, bookmakerOdds:price, quoteObservedAt:base.quoteObservedAt,
+                    analysisOdds:base.analysisOdds, priceImproved:base.priceImproved, matchOverview:base.matchOverview,
+                    opponentFilterMode:mode, fairOdds:Math.round(100/p)/100,
+                    edgePercent:Math.round((price*p-1)*1000)/10, evWithTax:Math.round(ev*10)/10,
+                    verdict:ev > 0 ? 'VALUE' : ev < -15 ? 'TRAP' : 'NEUTRAL'});
+            }
+            const short = result.filter(bet => bet.matchesSample < refill.target).length;
+            const notes = refill.notes || [];
+            status.textContent = `Próba docelowa: ${refill.target} pasujących występów w grupie · przeliczono ${result.length}/${bets.length} ofert${short ? ` · krótsza próbka: ${short} ofert` : ''}${result.length < bets.length ? ` · bez wyceny w grupie: ${bets.length-result.length}` : ''}.${notes.length ? ' ' + notes[0] : ''}${refill.partial ? ' Część danych źródłowych jest niepełna.' : ''}`;
+            status.title = ['Przeglądamy starsze występy do osiągnięcia docelowej próbki dla każdego zawodnika i rynku. Zapisane statystyki są używane ponownie. Kursy pochodzą z bieżącej wyceny bazowej; wariant z filtrem nie pobiera kursów ani nie nadpisuje bazowej prognozy.', ...notes].join('\n');
+            return result;
+        }
+        let missing = 0, empty = 0, pending = 0, legacy = 0, invalid = 0;
+        const reasons = new Map();
+        const result = [];
+        for (const bet of bets) {
+            const data = bet.opponentFilter;
+            if (bet.contextPending) { pending++; continue; }
+            if (!data || data.rule !== OPPONENT_FILTER_RULE) { legacy++; continue; }
+            if (data.reason) {
+                missing++;
+                reasons.set(data.reason, (reasons.get(data.reason) || 0) + 1);
+                continue;
+            }
+            const variant = data[mode];
+            if (!variant?.indexes?.length || !variant.fairModel) { empty++; continue; }
+            const indexes = variant.indexes;
+            const baseValues = bet.sampleValues || [];
+            const p = Number(variant.fairModel.probability);
+            if (!indexes.every(index => Number.isInteger(index) && index >= 0 && index < baseValues.length) || !(p > 0 && p < 1)) { invalid++; continue; }
+            const fairOdds = 1 / p;
+            const price = Number(bet.bookmakerOdds);
+            const ev = (p * price * .88 - 1) * 100;
+            const filtered = {...bet, opponentFilterMode:mode, fairModel:variant.fairModel,
+                hitRate:variant.hitRate, matchesSample:indexes.length, fairOdds:Math.round(fairOdds*100)/100,
+                edgePercent:Math.round((price*p-1)*1000)/10, evWithTax:Math.round(ev*10)/10,
+                verdict:ev > 0 ? 'VALUE' : ev < -15 ? 'TRAP' : 'NEUTRAL'};
+            for (const key of ['sampleValues','sampleMinutes','samplePositions','sampleOpponents','sampleDates','sampleShots','sampleRatings']) {
+                const values = bet[key] || [];
+                filtered[key] = values.length === baseValues.length ? indexes.map(index => values[index]) : [];
+            }
+            filtered.sampleValuesSuperSub = bet.sampleValuesSuperSub?.length === baseValues.length ? indexes.map(index => bet.sampleValuesSuperSub[index]) : [];
+            result.push(filtered);
+        }
+        const details = [...reasons].sort((a,b) => b[1]-a[1]).map(([reason,count]) => `${count} ofert: ${reason}`);
+        const rule = mode === 'easier' ? 'rywal słabszy od drużyny zawodnika' : 'rywal silniejszy od drużyny zawodnika';
+        status.textContent = `Przeliczono ${result.length}/${bets.length} ofert · brak danych o sile: ${missing} · brak występów w grupie: ${empty}${legacy ? ` · starszy zapis filtra: ${legacy} — wykonaj analizę na aktualnym serwerze` : ''}${invalid ? ` · niezgodna próbka: ${invalid}` : ''}${pending ? ` · oczekiwanie na wycenę: ${pending}` : ''}. Reguła: ${rule} w tym samym historycznym meczu.${!result.length && details.length ? ' Powód: ' + details[0] : ''}`;
+        status.title = ['W każdym historycznym meczu porównujemy PPG przeciwnika z PPG drużyny, w której grał zawodnik: niższe = łatwiejszy rywal, wyższe = trudniejszy. Bieżący przeciwnik nie wyznacza progu podziału historii. Gdy wspólna tabela nie wystarcza, filtr korzysta z ostatnich wyników drużyn, również w innych rozgrywkach. Źródło i ograniczenia są w szczegółach oferty. Równa ocena i nieznana siła nie trafiają do łatwiejszych ani trudniejszych.', ...details].join('\n');
+        if (refill?.status === 'running' || refill?.status === 'waiting') {
+            status.textContent += ' Uzupełnianie próbki: ' + (refill.message || 'oczekiwanie na dane') + (refill.total ? ` · zawodnicy ${refill.done || 0}/${refill.total}` : '');
+        } else if (refill?.error) {
+            status.textContent += ' Nie udało się uzupełnić próbki: ' + refill.error;
+        } else if (!refill) {
+            status.textContent += ' Uzupełnianie wymaga nowej, zapisanej analizy na aktualnym serwerze.';
+        }
+        return result;
+    }
+
     function applyAnalysisResults(bets, resetOddsRange) {
         const previousChart = currentChartBet;
-        rawBets = Array.isArray(bets) ? bets : [];
+        analysisSourceBets = Array.isArray(bets) ? bets : [];
+        rawBets = opponentFilteredBets(analysisSourceBets);
         for (const [side, input] of [['HOME', 'homeIdInput'], ['AWAY', 'awayIdInput']]) {
             const team = rawBets.find(b => b.teamSide === side && b.teamId);
             if (team) document.getElementById(input).value = team.teamId;
@@ -1715,7 +1841,7 @@
             if (replacement) {
                 currentChartBet = replacement;
                 drawCurrentBetChart();
-            }
+            } else closeChart();
         }
     }
 
@@ -1788,6 +1914,8 @@
         btn.style.opacity = "0.7";
         btn.innerHTML = `⏳ Analizowanie...`;
         rawBets = [];
+        analysisSourceBets = [];
+        document.getElementById('opponentFilterStatus').textContent = '';
         document.getElementById('resultsMeta').textContent = 'Bieżąca analiza wybranych bukmacherów · próbka ' + limit + ' występów';
         closeChart();
         tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 40px; color: var(--accent);">
@@ -1799,6 +1927,7 @@
             const finalBets = await window.go.main.App.AnalyzeThreeBookmakers(sb, betclic, sts, home, away, limit, selectedTournaments);
             finalReceived = true;
             if (isCurrentView()) applyAnalysisResults(finalBets, !previewReceived);
+            refreshAutomaticSummaries();
 
             if (finalBets.some(b => b.teamSide === 'HOME' && b.teamId)) {
                 home = finalBets.find(b => b.teamSide === 'HOME' && b.teamId).teamId;
@@ -1850,6 +1979,7 @@
         } finally {
             analysisActive = false;
             analysisCancelRequested = false;
+            if (finalReceived && isCurrentView()) applyAnalysisResults(analysisSourceBets, false);
             document.getElementById('btnCancelAnalysis').hidden = true;
             if (typeof stopPreview === 'function') stopPreview();
             await refreshAnalysisProgress();
@@ -1946,6 +2076,9 @@
                     sampleShots: b.sampleShots || [],
                     sampleRatings: b.sampleRatings || [],
                     fairModel: b.fairModel,
+                    opponentFilter: b.opponentFilter,
+					historyNotes: b.historyNotes,
+                    opponentFilterMode: b.opponentFilterMode,
                     matchOverview: b.matchOverview,
                     statsSource: b.statsSource || '',
                     teamSide: b.teamSide || '',
@@ -1988,7 +2121,6 @@
         const selectedTeam = document.getElementById("teamFilter")?.value || "ALL";
         const verdict = document.getElementById("verdictFilter").value;
         const onlyStartingXI = document.getElementById("startingXIToggle")?.checked;
-        const bufferMode = document.getElementById("bufferModeToggle")?.checked;
 
         const minOdds = parseFloat(document.getElementById("oddsMinSlider")?.value || "1.05");
         const maxOdds = parseFloat(document.getElementById("oddsMaxSlider")?.value || "5.00");
@@ -2014,11 +2146,6 @@
 
                 if (onlyStartingXI && !['STARTER', 'PREDICTED_STARTER'].includes(b.lineupStatus)) return false;
 
-                if (bufferMode && !b.contextPending) {
-                    const isVal = b.verdict === "VALUE";
-                    if (!passesBufferMode(b, isVal)) return false;
-                }
-
                 return matchQuery && matchBm && matchMarket && matchVerdict && matchOdds && matchHr && matchSample;
             });
             filtered = applySort(filtered);
@@ -2042,11 +2169,6 @@
             if (!matchTeam) return false;
 
             if (onlyStartingXI && !['STARTER', 'PREDICTED_STARTER'].includes(g.lineupStatus)) return false;
-
-            if (bufferMode && !g.contextPending) {
-                const hasValueBook = Object.values(g.books).some(o => o.verdict === "VALUE");
-                if (!passesBufferMode(g, hasValueBook)) return false;
-            }
 
             return matchQuery && matchMarket && matchBm && matchVerdict && matchOdds && matchHr && matchSample;
         });
@@ -2139,6 +2261,10 @@
             (useSuperSub && hasSuperSubSample
                 ? ' SuperSub jest wliczony do słupków; plakietka "+N" pokazuje wkład zmiennika.'
                 : (useSuperSub ? ' Brak kompletnej próbki zmienników; pokazano statystyki zawodnika.' : ''));
+        const historyNotes = bet.historyNotes || [];
+        if (historyNotes.length) {
+            document.getElementById('chartSubtitle').textContent += ' ' + historyNotes[0] + (historyNotes.length > 1 ? ` Uwagi do historii: ${historyNotes.length-1} — szczegóły w sekcji poniżej.` : '');
+        }
         document.getElementById('chartSummary').innerHTML = `
             <span>Linia: <b>${bet.isUnder ? 'under' : 'over'} ${bet.line}</b></span>
             <span>Średnia: <b>${average.toFixed(2)}</b></span>
@@ -2175,9 +2301,10 @@
         panel.appendChild(kpis);
         const computation = contextSection(panel, 'Jak powstała wycena');
         const steps = contextNode('div', 'context-kpis');
-        contextKpi(steps, model.version === 'context-hit-v3' ? '1 · POKRYCIE LINII' : '1 · ŚREDNIA Z PRÓBKI', model.version === 'context-hit-v3' ? contextNumber(bet.hitRate,1)+'%' : contextNumber(model.baseMean), model.version === 'context-hit-v3' ? 'Ważone trafienia z wygładzeniem' : 'Po uwzględnieniu pozycji i home/away');
+        const hitModel = model.version?.startsWith('context-hit-');
+        contextKpi(steps, hitModel ? '1 · POKRYCIE LINII' : '1 · ŚREDNIA Z PRÓBKI', hitModel ? contextNumber(bet.hitRate,1)+'%' : contextNumber(model.baseMean), hitModel ? 'Pokrycie historyczne; model waży i wygładza trafienia' : 'Po uwzględnieniu pozycji i home/away');
         contextKpi(steps, '2 · KOREKTA MATCHUPU', '×' + contextNumber(model.matchupFactor, 3), 'Dane właściwe dla wybranego rynku');
-        contextKpi(steps, model.version === 'context-hit-v3' ? '3 · PRAWDOPODOBIEŃSTWO' : '3 · OCZEKIWANA LICZBA', model.version === 'context-hit-v3' ? contextNumber(model.probability*100,1)+'%' : contextNumber(model.expectedCount), model.distribution);
+        contextKpi(steps, hitModel ? '3 · PRAWDOPODOBIEŃSTWO' : '3 · OCZEKIWANA LICZBA', hitModel ? contextNumber(model.probability*100,1)+'%' : contextNumber(model.expectedCount), model.distribution);
         computation.appendChild(steps);
         const chips = contextNode('div', 'context-chips');
         for (const text of [`Próba: ${bet.matchesSample}`, `Efektywna: ${contextNumber(model.effectiveSample, 1)}`, `Kontekst: ${model.contextMatches}/${bet.matchesSample}`, `Pozycja: ${model.role || 'brak'}`, contextVenue(model.venue), model.distribution]) chips.appendChild(contextNode('span', 'context-chip', text));
@@ -2191,11 +2318,36 @@
         computation.appendChild(features);
         if (model.effectiveSample < 5) computation.appendChild(contextNode('div', 'context-warning', 'Mała efektywna próbka — wycena ma wysoką niepewność.'));
         contextNotes(computation, 'Założenia i ograniczenia modelu', [...(model.notes || []), `Wersja: ${model.version}.`, 'Hit rate opisuje historię. SuperSub zachowuje dotychczasowe działanie i nie przelicza zapisanego fair kursu.']);
+        if (bet.historyNotes?.length) {
+            contextNotes(computation, 'Zakres i braki w historii', bet.historyNotes);
+        }
+        if (bet.opponentFilter) {
+            const filter = bet.opponentFilter;
+            const section = contextSection(panel, 'Rywal względem drużyny zawodnika — filtr historii');
+            const strength = contextNode('div', 'context-kpis');
+            const ownSide = bet.teamSide === 'HOME' ? 'gospodarze' : bet.teamSide === 'AWAY' ? 'goście' : 'drużyna zawodnika';
+            const opponentSide = bet.teamSide === 'HOME' ? 'goście' : bet.teamSide === 'AWAY' ? 'gospodarze' : 'rywal';
+            contextKpi(strength, `${filter.ownTeam || 'DRUŻYNA ZAWODNIKA'} (${ownSide})`, filter.ownPPG == null ? '—' : contextNumber(filter.ownPPG), 'PPG w bieżącym meczu — informacyjnie');
+            contextKpi(strength, `${filter.opponent || 'OBECNY RYWAL'} (${opponentSide})`, filter.opponentPPG == null ? '—' : contextNumber(filter.opponentPPG), 'PPG w bieżącym meczu — informacyjnie');
+            contextKpi(strength, 'WYSTĘPY Z KLASYFIKACJĄ', String(filter.knownMatches), `Bez danych: ${filter.unknownMatches} · równa ocena: ${filter.equalMatches}`);
+            section.appendChild(strength);
+            section.appendChild(contextNode('p', 'context-note', filter.basis));
+            if (filter.targetSample) {
+                section.appendChild(contextNode('p', 'context-note', `Próba docelowa po filtrze: ${filter.targetSample}. Wybrano: ${bet.matchesSample}. Przejrzano występów: ${filter.scannedMatches}.`));
+                if (filter.sampleNote) section.appendChild(contextNode('div', 'context-warning', filter.sampleNote));
+            }
+            if (filter.rule === OPPONENT_FILTER_RULE) {
+                section.appendChild(contextNode('p', 'context-note', `Wyświetlana próba: ${bet.matchesSample}. W każdym historycznym spotkaniu rywal słabszy od ówczesnej drużyny zawodnika trafia do łatwiejszych, silniejszy do trudniejszych. Miejsce rozegrania meczu nie odwraca tej zasady. Ocena obecnego rywala jest informacyjna i nie wyznacza progu podziału historii.`));
+            } else {
+                section.appendChild(contextNode('div', 'context-warning', 'Ten zapis używa starszej reguły filtra. Wykonaj nową analizę na aktualnym serwerze, aby porównywać rywala z drużyną zawodnika w każdym historycznym meczu.'));
+            }
+            if (filter.reason) section.appendChild(contextNode('div', 'context-warning', filter.reason));
+        }
         const overview = bet.matchOverview;
         if (!overview) return;
         const teams = [model.teamId, model.opponentId].map(id => overview.teams && overview.teams[id]);
         const comparison = contextSection(panel, 'Drużyna i rywal');
-        comparison.appendChild(contextNode('p', 'context-note', 'Podgląd sezonu. Tabela, forma, rating, posiadanie i xG nie zmieniają fair kursu.'));
+        comparison.appendChild(contextNode('p', 'context-note', 'Dane bieżącego meczu. Filtr historii porównuje przeciwnika z drużyną zawodnika osobno w każdym historycznym występie, według źródła opisanego wyżej. Wybrana grupa zmienia próbkę i wycenę.'));
         const tableText = table => table ? `${table.position}. miejsce · ${table.points} pkt · ${table.matches} meczów` : '—';
         const rows = [
             ['Miejsce meczu', ...teams.map(t => t ? contextVenue(t.venue) : '—')],

@@ -66,6 +66,10 @@ export function GetOfferDiagnostics(arg1, arg2, arg3) {
   return window['go']['main']['App']['GetOfferDiagnostics'](arg1, arg2, arg3);
 }
 
+export function GetOpponentAnalysis(arg1, arg2) {
+  return window['go']['main']['App']['GetOpponentAnalysis'](arg1, arg2);
+}
+
 export function GetSTSCalendar(arg1) {
   return window['go']['main']['App']['GetSTSCalendar'](arg1);
 }

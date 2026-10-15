@@ -363,7 +363,102 @@ export namespace main {
 	        this.notes = source["notes"];
 	    }
 	}
+	export class OpponentFilterVariant {
+	    indexes: number[];
+	    hitRate: number;
+	    fairModel?: FairModelDetails;
+	
+	    static createFrom(source: any = {}) {
+	        return new OpponentFilterVariant(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.indexes = source["indexes"];
+	        this.hitRate = source["hitRate"];
+	        this.fairModel = this.convertValues(source["fairModel"], FairModelDetails);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class OpponentFilterData {
+	    targetSample?: number;
+	    scannedMatches?: number;
+	    sampleNote?: string;
+	    rule: string;
+	    basis: string;
+	    ownTeam?: string;
+	    opponent?: string;
+	    ownPPG?: number;
+	    opponentPPG?: number;
+	    knownMatches: number;
+	    unknownMatches: number;
+	    equalMatches: number;
+	    reason?: string;
+	    easier?: OpponentFilterVariant;
+	    harder?: OpponentFilterVariant;
+	
+	    static createFrom(source: any = {}) {
+	        return new OpponentFilterData(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.targetSample = source["targetSample"];
+	        this.scannedMatches = source["scannedMatches"];
+	        this.sampleNote = source["sampleNote"];
+	        this.rule = source["rule"];
+	        this.basis = source["basis"];
+	        this.ownTeam = source["ownTeam"];
+	        this.opponent = source["opponent"];
+	        this.ownPPG = source["ownPPG"];
+	        this.opponentPPG = source["opponentPPG"];
+	        this.knownMatches = source["knownMatches"];
+	        this.unknownMatches = source["unknownMatches"];
+	        this.equalMatches = source["equalMatches"];
+	        this.reason = source["reason"];
+	        this.easier = this.convertValues(source["easier"], OpponentFilterVariant);
+	        this.harder = this.convertValues(source["harder"], OpponentFilterVariant);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class AnalyzedBet {
+	    historyNotes?: string[];
+	    analysisId?: string;
+	    opponentFilter?: OpponentFilterData;
 	    analysisOdds?: number;
 	    // Go type: time
 	    quoteObservedAt?: any;
@@ -406,6 +501,9 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.historyNotes = source["historyNotes"];
+	        this.analysisId = source["analysisId"];
+	        this.opponentFilter = this.convertValues(source["opponentFilter"], OpponentFilterData);
 	        this.analysisOdds = source["analysisOdds"];
 	        this.quoteObservedAt = this.convertValues(source["quoteObservedAt"], null);
 	        this.priceImproved = source["priceImproved"];
@@ -947,6 +1045,8 @@ export namespace main {
 		    return a;
 		}
 	}
+	
+	
 	
 	export class SuperbetCalendarEvent {
 	    id: string;

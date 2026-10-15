@@ -9,7 +9,7 @@ Type=simple
 User=vstkxj
 WorkingDirectory=/home/vstkxj
 ExecStartPre=/usr/bin/tigervncserver -list -cleanstale
-ExecStart=/usr/bin/tigervncserver -fg :1 -localhost yes -geometry 1440x900 -- /usr/bin/dbus-run-session /usr/bin/chromium --user-data-dir=/home/vstkxj/.local/share/sofascore-browser --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 --start-maximized https://www.sofascore.com/
+ExecStart=/usr/bin/tigervncserver -fg :1 -localhost yes -geometry 1440x900 -- /usr/bin/dbus-run-session /usr/bin/chromium --user-data-dir=/home/vstkxj/.local/share/sofascore-browser --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 --hide-crash-restore-bubble --no-first-run --no-default-browser-check --start-maximized --new-window https://www.sofascore.com/
 ExecStop=-/usr/bin/tigervncserver -kill :1
 Restart=always
 RestartSec=10
