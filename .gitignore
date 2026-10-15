@@ -15,3 +15,5 @@
 /review/data/
 /review/review
 /review/review.exe
+/tools/node_modules/
+/tools/journal-preview/

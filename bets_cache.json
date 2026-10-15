@@ -1,1 +1,480 @@
-[]
+[
+  {
+    "analysisId": "8827555efe5378031fbf3fdb",
+    "playerId": 1033346,
+    "sampleEventIds": [
+      16317023,
+      16944477,
+      16317003,
+      15260821
+    ],
+    "historyNotes": [
+      "Zakres historii: wszystkie rozgrywki.",
+      "SofaScore uzupełnia tylko brakujące rynki: [ACCURATE_PASSES DISPOSSESSED FOULS_COMMITTED FOULS_DRAWN INTERCEPTIONS OFFSIDES PASSES SHOTS_BLOCKED SHOTS_INSIDE_BOX SHOTS_OFF_TARGET SHOTS_ON_TARGET SHOTS_ON_TARGET_INSIDE_BOX SHOTS_ON_TARGET_OUTSIDE_BOX SHOTS_OUTSIDE_BOX SHOTS_TOTAL TACKLES]. Pozostałe mapy są dostępne na żądanie.",
+      "03.10 · Polonia Warszawa · Club Friendly Games · event_id=17213096: pominięto występ: brak potwierdzonych statystyk zawodnika: SofaScore HTTP 404",
+      "29.09 · FK Sūduva · Club Friendly Games · event_id=17185003: pominięto występ: brak potwierdzonych statystyk zawodnika: SofaScore HTTP 404",
+      "30.08 · Raków Częstochowa · Ekstraklasa · event_id=16316993: pominięto występ: brak potwierdzonych statystyk zawodnika: SofaScore /event/16316993/player/1033346/statistics: brak kompletnych statystyk udziału zawodnika: brak pola minutesPlayed, liczba pól statystyk=2",
+      "27.08 · Iberia 1999 · UEFA Europa League, Playoff Round · event_id=16708161: pominięto występ: brak potwierdzonych statystyk zawodnika: SofaScore HTTP 404",
+      "20.08 · Iberia 1999 · UEFA Europa League, Playoff Round · event_id=16708138: pominięto występ: brak potwierdzonych statystyk zawodnika: SofaScore HTTP 404",
+      "13.08 · Rangers · UEFA Europa League, Qualification · event_id=16578367: pominięto występ: brak potwierdzonych statystyk zawodnika: SofaScore HTTP 404",
+      "06.08 · Rangers · UEFA Europa League, Qualification · event_id=16578365: pominięto występ: brak potwierdzonych statystyk zawodnika: SofaScore HTTP 404",
+      "26.07 · Jagiellonia Białystok – ŁKS Łomża · Club Friendly Games · event_id=16616272: brak potwierdzenia udziału zawodnika w uzupełniającej historii drużyny",
+      "25.07 · Jagiellonia Białystok – MKS Korona Kielce · Ekstraklasa · event_id=16316943: nie potwierdzono zawodnika w składzie tego spotkania; nie dopisano występu drużyny",
+      "Dalsze uwagi do historii: 12; pełny zapis znajduje się w archiwum i logach."
+    ],
+    "sampleRatings": [
+      6.3,
+      7.1,
+      6.6,
+      6.1
+    ],
+    "fairModel": {
+      "version": "context-hit-v11-footymetrics-bulk",
+      "distribution": "Weighted empirical / Jeffreys",
+      "probability": 0.8977649006622517,
+      "baseMean": 1,
+      "expectedCount": 1,
+      "matchupFactor": 1,
+      "effectiveSample": 3.8906882591093113,
+      "contextMatches": 0,
+      "role": "M",
+      "venue": "HOME",
+      "teamId": "7691",
+      "opponentId": "262229",
+      "features": [
+        "liczności na mecz",
+        "pozycja M",
+        "home/away",
+        "ważone trafienia linii, wygładzenie Jeffreysa"
+      ],
+      "notes": [
+        "Model eksperymentalny; parametry wymagają kalibracji na zapisanych wynikach.",
+        "Brak zgodnych danych dla tego rynku: korekta matchupu = 1.",
+        "Mała efektywna próbka; fair kurs ma wysoką niepewność.",
+        "Zapas ponad linię nie zwiększa szansy trafienia; zera z rozegranych występów są pełnymi nietrafieniami over. Minuty nie przeliczają historii na per90.",
+        "Średnia liczność jest opisem historii; fair kurs wynika z trafień linii i korekty matchupu.",
+        "Dla tego rynku pominięto 6 występów bez potwierdzonej wartości statystyki; brak danych nie oznacza zera."
+      ]
+    },
+    "matchOverview": {
+      "asOf": "2026-10-15T17:01:17.249877866Z",
+      "leagueId": 679,
+      "seasonId": 96522,
+      "teams": {
+        "262229": {
+          "flow": {
+            "requested": 5,
+            "available": 1,
+            "matches": [
+              {
+                "eventId": "16945549",
+                "revision": "01932bd66f2a6ff5c13da11e38c46082818e765879e8c5bb718c815e86a2815f",
+                "startedAt": "2026-09-16T16:45:00Z",
+                "opponent": "AC Sparta Praha",
+                "venue": "HOME",
+                "homeName": "FC Ararat-Armenia",
+                "awayName": "AC Sparta Praha",
+                "homeScore": 1,
+                "awayScore": 4,
+                "available": true
+              },
+              {
+                "eventId": "16708159",
+                "revision": "",
+                "startedAt": "2026-08-27T16:00:00Z",
+                "opponent": "Universitatea Craiova",
+                "venue": "HOME",
+                "homeName": "FC Ararat-Armenia",
+                "awayName": "Universitatea Craiova",
+                "homeScore": 1,
+                "awayScore": 0,
+                "available": false,
+                "reason": "SofaScore HTTP 404"
+              },
+              {
+                "eventId": "16708144",
+                "revision": "",
+                "startedAt": "2026-08-20T17:00:00Z",
+                "opponent": "Universitatea Craiova",
+                "venue": "AWAY",
+                "homeName": "Universitatea Craiova",
+                "awayName": "FC Ararat-Armenia",
+                "homeScore": 1,
+                "awayScore": 1,
+                "available": false,
+                "reason": "SofaScore HTTP 404"
+              }
+            ],
+            "states": [
+              {
+                "state": "DRAW",
+                "matches": 1,
+                "window": {
+                  "points": 19,
+                  "mean": -8.578947368421053,
+                  "positive": 5,
+                  "negative": 14
+                }
+              },
+              {
+                "state": "TRAILING",
+                "matches": 1,
+                "window": {
+                  "points": 66,
+                  "mean": -21.954545454545457,
+                  "positive": 11,
+                  "negative": 55
+                }
+              }
+            ],
+            "reactions": [],
+            "notes": [
+              "Ostatnie maksymalnie 5 zakończonych meczów w tych rozgrywkach z pierwszej strony historii. Dodatnie saldo oznacza przewagę analizowanej drużyny.",
+              "Agregaty są poglądowe i nie zmieniają fair kursu. Brak stanu lub reakcji oznacza brak wystarczającej próbki."
+            ]
+          },
+          "name": "FC Ararat-Armenia",
+          "venue": "AWAY",
+          "table": {
+            "position": 33,
+            "matches": 1,
+            "points": 0
+          },
+          "venueTable": {
+            "position": 27,
+            "matches": 0,
+            "points": 0
+          },
+          "form": [
+            "L"
+          ],
+          "venueForm": [],
+          "statsMatches": 1,
+          "metrics": {
+            "accuratePasses": 295,
+            "averageBallPossession": 41,
+            "avgRating": 6.66875,
+            "expectedGoals": 1.9172,
+            "fouls": 16,
+            "interceptions": 12,
+            "shots": 13,
+            "shotsAgainst": 23,
+            "shotsOnTarget": 2,
+            "shotsOnTargetAgainst": 8,
+            "tackles": 15,
+            "totalPasses": 354
+          }
+        },
+        "7691": {
+          "flow": {
+            "requested": 5,
+            "available": 1,
+            "matches": [
+              {
+                "eventId": "16944477",
+                "revision": "6269c87472221bf6910defa01001d9326ce601be28585846cf293ae2ed9142ec",
+                "startedAt": "2026-09-16T19:00:00Z",
+                "opponent": "Olympiacos FC",
+                "venue": "AWAY",
+                "homeName": "Olympiacos FC",
+                "awayName": "Jagiellonia Białystok",
+                "homeScore": 2,
+                "awayScore": 1,
+                "available": true
+              },
+              {
+                "eventId": "16708161",
+                "revision": "",
+                "startedAt": "2026-08-27T16:00:00Z",
+                "opponent": "FC Iberia 1999",
+                "venue": "AWAY",
+                "homeName": "FC Iberia 1999",
+                "awayName": "Jagiellonia Białystok",
+                "homeScore": 1,
+                "awayScore": 2,
+                "available": false,
+                "reason": "SofaScore HTTP 404"
+              },
+              {
+                "eventId": "16708138",
+                "revision": "",
+                "startedAt": "2026-08-20T16:00:00Z",
+                "opponent": "FC Iberia 1999",
+                "venue": "HOME",
+                "homeName": "Jagiellonia Białystok",
+                "awayName": "FC Iberia 1999",
+                "homeScore": 4,
+                "awayScore": 0,
+                "available": false,
+                "reason": "SofaScore HTTP 404"
+              },
+              {
+                "eventId": "16578367",
+                "revision": "",
+                "startedAt": "2026-08-13T18:30:00Z",
+                "opponent": "Rangers",
+                "venue": "AWAY",
+                "homeName": "Rangers",
+                "awayName": "Jagiellonia Białystok",
+                "homeScore": 1,
+                "awayScore": 1,
+                "available": false,
+                "reason": "SofaScore HTTP 404"
+              },
+              {
+                "eventId": "16578365",
+                "revision": "",
+                "startedAt": "2026-08-06T16:00:00Z",
+                "opponent": "Rangers",
+                "venue": "HOME",
+                "homeName": "Jagiellonia Białystok",
+                "awayName": "Rangers",
+                "homeScore": 2,
+                "awayScore": 1,
+                "available": false,
+                "reason": "SofaScore HTTP 404"
+              }
+            ],
+            "states": [
+              {
+                "state": "LEADING",
+                "matches": 1,
+                "window": {
+                  "points": 22,
+                  "mean": -11.09090909090909,
+                  "positive": 11,
+                  "negative": 11
+                }
+              },
+              {
+                "state": "DRAW",
+                "matches": 1,
+                "window": {
+                  "points": 59,
+                  "mean": -27.898305084745754,
+                  "positive": 6,
+                  "negative": 53
+                }
+              },
+              {
+                "state": "TRAILING",
+                "matches": 1,
+                "window": {
+                  "points": 6,
+                  "mean": -25.666666666666668,
+                  "positive": 0,
+                  "negative": 6
+                }
+              }
+            ],
+            "reactions": [
+              {
+                "kind": "AFTER_SCORED",
+                "samples": 1,
+                "matches": 1,
+                "before": -40,
+                "after": 24.8,
+                "delta": 64.8
+              },
+              {
+                "kind": "OPP_YELLOW_CARD",
+                "samples": 1,
+                "matches": 1,
+                "before": -39.2,
+                "after": 7.25,
+                "delta": 46.45
+              },
+              {
+                "kind": "OWN_YELLOW_CARD",
+                "samples": 2,
+                "matches": 1,
+                "before": -4.2,
+                "after": -44.7,
+                "delta": -40.5
+              },
+              {
+                "kind": "TOOK_LEAD",
+                "samples": 1,
+                "matches": 1,
+                "before": -40,
+                "after": 24.8,
+                "delta": 64.8
+              }
+            ],
+            "notes": [
+              "Ostatnie maksymalnie 5 zakończonych meczów w tych rozgrywkach z pierwszej strony historii. Dodatnie saldo oznacza przewagę analizowanej drużyny.",
+              "Agregaty są poglądowe i nie zmieniają fair kursu. Brak stanu lub reakcji oznacza brak wystarczającej próbki."
+            ]
+          },
+          "name": "Jagiellonia Białystok",
+          "venue": "HOME",
+          "table": {
+            "position": 21,
+            "matches": 1,
+            "points": 0
+          },
+          "venueTable": {
+            "position": 21,
+            "matches": 0,
+            "points": 0
+          },
+          "form": [
+            "L"
+          ],
+          "venueForm": [],
+          "statsMatches": 1,
+          "metrics": {
+            "accuratePasses": 263,
+            "averageBallPossession": 42,
+            "avgRating": 6.7866666666667,
+            "expectedGoals": 0.4828,
+            "fouls": 13,
+            "interceptions": 10,
+            "shots": 4,
+            "shotsAgainst": 26,
+            "shotsOnTarget": 3,
+            "shotsOnTargetAgainst": 6,
+            "tackles": 20,
+            "totalPasses": 346
+          }
+        }
+      },
+      "notes": [
+        "Kontekst drużyn: brak 3/7 profili; dla brakujących danych model pomija korektę",
+        "Tabela, forma, posiadanie, xG i rating są podglądem; nie mnożą fair kursu. Na początku sezonu tabela ma małą próbkę."
+      ]
+    },
+    "id": "BETCLIC_Ferslev Anders Klynge_Liczba odbiorów zawodnika (OPTA)_0.5_false",
+    "bookmaker": "BETCLIC",
+    "playerName": "Ferslev Anders Klynge",
+    "marketType": "TACKLES",
+    "marketLabel": "Liczba odbiorów zawodnika (OPTA)",
+    "line": 0.5,
+    "isUnder": false,
+    "bookmakerOdds": 1.19,
+    "fairOdds": 1.11,
+    "hitRate": 100,
+    "edgePercent": 6.8,
+    "evWithTax": -6,
+    "matchesSample": 4,
+    "sampleValues": [
+      1,
+      1,
+      1,
+      1
+    ],
+    "sampleValuesSuperSub": null,
+    "sampleMinutes": [
+      65,
+      63,
+      59,
+      59
+    ],
+    "samplePositions": [
+      "M",
+      "M",
+      "M",
+      "M"
+    ],
+    "sampleOpponents": [
+      "Legia Warszawa",
+      "Olympiacos FC",
+      "Wisła Kraków",
+      "Rosenborg BK"
+    ],
+    "sampleDates": [
+      "20.09",
+      "16.09",
+      "11.09",
+      "29.05"
+    ],
+    "sampleShots": [
+      [
+        {
+          "x": 34,
+          "y": 40,
+          "shotType": "block",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": true
+        },
+        {
+          "x": 31.5,
+          "y": 29.7,
+          "shotType": "miss",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": true
+        },
+        {
+          "x": 25.7,
+          "y": 26.8,
+          "shotType": "block",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": true
+        },
+        {
+          "x": 21,
+          "y": 33.4,
+          "shotType": "block",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": true
+        },
+        {
+          "x": 16.7,
+          "y": 48.7,
+          "shotType": "save",
+          "inBox": false,
+          "onTarget": true,
+          "isSub": false
+        }
+      ],
+      null,
+      [
+        {
+          "x": 7.3,
+          "y": 61.3,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 6.9,
+          "y": 33.5,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": true
+        },
+        {
+          "x": 13,
+          "y": 47,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": true
+        },
+        {
+          "x": 15.6,
+          "y": 31.9,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        }
+      ]
+    ],
+    "statsSource": "SOFASCORE",
+    "teamSide": "HOME",
+    "teamId": "7691",
+    "teamName": "Jagiellonia Białystok",
+    "verdict": "NEUTRAL",
+    "lineupStatus": "PREDICTED_STARTER",
+    "isStartingXI": true
+  }
+]

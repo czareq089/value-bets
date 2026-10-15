@@ -2,7 +2,7 @@
 <html lang="pl">
 <head>
     <meta charset="UTF-8">
-    <title>ValueBets 3.0 (SofaScore Edition)</title>
+    <title>ValueBets 3.0</title>
     <style>
         :root {
             --bg-main: #0b0f19;
@@ -340,7 +340,12 @@
         <label style="font-size:11px; color:var(--text-muted);"><input type="checkbox" id="calendarMarketsOnly" checked onchange="changeCalendarMarketFilter()"> Tylko mecze z rynkami u wszystkich bukmacherów</label>
         <div id="calendarStatus" class="calendar-status" role="status"></div>
         <div id="calendarWarnings" class="calendar-status" style="color:var(--sb-color);"></div>
-        <button class="btn-ghost" onclick="openEvaluationReport()">Raport skuteczności algorytmu</button>
+        <div style="border:1px solid var(--border);border-radius:8px;padding:10px;display:grid;gap:7px;">
+            <strong style="font-size:12px;">Lokalny dziennik Excel</strong>
+            <div style="display:flex;gap:6px;"><button class="btn-ghost" onclick="openJournalWorkbook()">Otwórz Excel</button><button class="btn-ghost" onclick="refreshJournalResults()">Odśwież wyniki</button></div>
+            <div id="journalStatus" class="calendar-status" role="status" aria-live="polite">Wczytywanie lokalnego rejestru…</div>
+            <small style="color:var(--text-muted);">PPM zapisuje wybór w arkuszu 1. Arkusz 2 zbiera oferty z analiz, które otworzysz. Usunięcie karty z listy wyborów zachowuje historię w Excelu. Rozliczenie: bez SuperSub.</small>
+        </div>
         <div id="calendarList" class="calendar-list"></div>
     </div>
 </div>
@@ -356,7 +361,7 @@
 <div class="main-container">
     <div class="header">
         <div class="title-box">
-            <h1>ValueBets 3.0 <span style="font-size:13px; color:var(--accent); font-weight:600;">(Auto-SofaScore + Shotmap)</span></h1>
+            <h1>ValueBets 3.0 <span style="font-size:13px; color:var(--accent); font-weight:600;">(FootyMetrics + SofaScore)</span></h1>
             <p style="color: var(--text-muted); font-size: 12px;">Wklej link do meczu — ID drużyn z SofaScore pobiorą się automatycznie! LPM = wykres i mini-mapa, PPM = MyBets.</p>
         </div>
     </div>
@@ -570,7 +575,7 @@
                     <span class="legend-item"><span class="legend-swatch" style="background:var(--danger)"></span>nietrafiona próba</span>
                     <span class="legend-item"><span class="legend-swatch" style="background:var(--accent)"></span>linia zakładu</span>
                     <span class="legend-item"><span style="width:14px; height:2px; background:#10b981; display:inline-block;"></span>rozegrane minuty (oś prawa)</span>
-                    <span class="legend-item">rating SofaScore pod datą (tylko zawodnik)</span>
+                    <span class="legend-item">rating ze źródła próbki pod datą (tylko zawodnik)</span>
                 </div>
             </div>
 
@@ -673,6 +678,54 @@
     let currentAwaySlug = "";
 
     let currentChartBet = null;
+    const shotmapCache = new Map();
+
+    function statsSourceLabel(bet) {
+        return bet?.statsSource === 'FOOTYMETRICS' ? 'FootyMetrics' : 'SofaScore';
+    }
+
+    function shotmapKey(bet) {
+        if (!bet?.analysisId || !bet.playerId || !bet.sampleValues?.length) return '';
+        if (bet.statsSource !== 'FOOTYMETRICS' && bet.sampleValues.every((_, i) => Array.isArray(bet.sampleShots?.[i]))) return '';
+        return JSON.stringify([bet.analysisId, bet.playerId, bet.marketType, bet.opponentFilterMode || 'all', bet.statsSource,
+            bet.sampleEventIds || [], bet.sampleDates || [], bet.sampleOpponents || [], bet.sampleValues]);
+    }
+
+    async function loadChartShotmaps(bet, retry = false) {
+        const key = shotmapKey(bet);
+        const cached = shotmapCache.get(key);
+        if (!key || cached?.loading || (cached && !retry && ((!cached.error && !cached.pending) || Date.now() < cached.retryAt))) return;
+        const entry = {loading: true, shots: {}, subUnknown: []};
+        shotmapCache.set(key, entry);
+        for (const [oldKey, oldEntry] of shotmapCache) {
+            if (shotmapCache.size <= 20) break;
+            if (oldKey !== key && !oldEntry.loading) shotmapCache.delete(oldKey);
+        }
+        if (shotmapKey(currentChartBet) === key) renderShotmap(currentChartBet, selectedMatchIndexForShotmap);
+        try {
+            const result = await window.go.main.App.GetAnalysisShotmaps(bet.analysisId, bet.playerId, bet.marketType, bet.opponentFilterMode || 'all');
+            entry.shots = result?.shots || {};
+            entry.subUnknown = result?.subUnknown || [];
+            entry.unmapped = Number(result?.unmapped) || 0;
+            entry.mappingNote = result?.mappingNote || '';
+            entry.pending = !!result?.mappingPending;
+            entry.retryAt = entry.pending ? Date.now() + 1000 : 0;
+            if (result?.sampleShots?.length === bet.sampleValues.length &&
+                result.sampleDates?.every((date, i) => date === bet.sampleDates?.[i]) &&
+                result.sampleOpponents?.every((opponent, i) => opponent === bet.sampleOpponents?.[i]) &&
+                result.sampleDates.length === bet.sampleValues.length && result.sampleOpponents.length === bet.sampleValues.length) {
+                entry.samples = result.sampleShots;
+                entry.eventIds = result.sampleEventIds || [];
+            }
+        } catch (error) {
+            entry.error = error?.message || String(error);
+            entry.pending = /API HTTP 409:/.test(entry.error);
+            entry.retryAt = Date.now() + (entry.pending ? 1000 : 15000);
+        } finally {
+            entry.loading = false;
+            if (shotmapKey(currentChartBet) === key) renderShotmap(currentChartBet, selectedMatchIndexForShotmap);
+        }
+    }
     let useSuperSub = true;
     let selectedMatchIndexForShotmap = null;
     let calendarEvents = [];
@@ -735,6 +788,8 @@
         setInterval(refreshAnalysisProgress, 1500);
         setInterval(refreshCalendarMarketFreshness, 30000);
         refreshAutomaticSummaries();
+        window.go.main.App.GetJournalStatus().then(renderJournalStatus).catch(showJournalError);
+        window.runtime?.EventsOnMultiple?.('journal:status', renderJournalStatus, -1);
         setInterval(refreshAutomaticSummaries, 15000);
         renderTableHeaders();
         updateDropdownLabels();
@@ -1393,46 +1448,6 @@
         } catch (err) { parent.textContent = String(err); }
     }
 
-    async function openEvaluationReport() {
-        let dialog = document.getElementById('evaluationDialog');
-        if (!dialog) {
-            dialog = document.createElement('dialog'); dialog.id = 'evaluationDialog';
-            dialog.style.cssText = 'width:min(1200px,95vw);max-height:90vh;background:var(--bg-card);color:var(--text-main);border:1px solid var(--border);border-radius:14px;padding:24px;overflow:auto';
-            dialog.innerHTML = '<div style="display:flex;justify-content:space-between;gap:16px"><h2>Skuteczność algorytmu</h2><button class="btn-ghost" id="evaluationClose">Zamknij</button></div><p>Historyczny hitrate jako filtr. Single po 1 jednostce, ostatnia pełna prognoza przed T−60 min, próbka minimum 10 meczów.</p><div style="display:flex;gap:12px;flex-wrap:wrap"><label>Okres <select id="evaluationDays"><option value="7">7 dni</option><option value="30" selected>30 dni</option><option value="90">90 dni</option><option value="365">365 dni</option></select></label><label>Zasady <select id="evaluationRules"><option value="standard-v1">Zawodnik</option><option value="supersub-v1">SuperSub — wariant programu</option></select></label><label>Mnożnik wypłaty <input id="evaluationPayout" type="number" min="0.01" max="1" step="0.01" value="0.88" style="width:80px"></label><label>Propozycje <select id="evaluationVerdict"><option>VALUE</option><option>TRAP</option><option>NEUTRAL</option><option>ALL</option></select></label><button class="btn-ghost" id="evaluationReload">Odśwież</button></div><div id="evaluationContent" style="margin-top:20px;overflow:auto"></div>';
-            document.body.appendChild(dialog);
-            dialog.querySelector('#evaluationClose').onclick = () => dialog.close();
-            dialog.querySelector('#evaluationReload').onclick = loadEvaluationReport;
-            dialog.querySelector('#evaluationVerdict').onchange = loadEvaluationReport;
-        }
-        if (!dialog.open) dialog.showModal();
-        await loadEvaluationReport();
-    }
-
-    async function loadEvaluationReport() {
-        const parent = document.getElementById('evaluationContent');
-        parent.textContent = 'Pobieranie raportu…';
-        try {
-            const report = await window.go.main.App.GetEvaluationReport(Number(document.getElementById('evaluationDays').value), Number(document.getElementById('evaluationPayout').value), document.getElementById('evaluationRules').value);
-            parent.replaceChildren();
-            const rows = (report.rows || []).filter(row => row.verdict === document.getElementById('evaluationVerdict').value);
-            const note = document.createElement('p'); note.textContent = `Strategia: ${report.strategy} · stan: ${new Date(report.asOf).toLocaleString('pl-PL')}`; parent.appendChild(note);
-            if (!rows.length) { const empty = document.createElement('p'); empty.textContent = 'Brak kwalifikujących się prognoz. Raport zacznie się wypełniać po spotkaniach z automatyczną analizą wykonaną przed T−60 min.'; parent.appendChild(empty); }
-            else {
-                const table = document.createElement('table'); table.className = 'risk-table';
-                const headings = ['Algorytm / bukmacher','HR ≥','Typy / mecze','W / P / zwroty','Oczekuje','HR rzeczywisty','Stawki','Wypłaty','Zysk wygranych','Straty','Netto','ROI'];
-                const header = table.createTHead().insertRow(); for (const text of headings) { const th = document.createElement('th'); th.textContent = text; header.appendChild(th); }
-                const body = table.createTBody();
-                for (const row of rows) {
-                    const tr = body.insertRow();
-                    const values = [`${row.algorithm} / ${row.bookmaker}`,`${row.minimumHitRate}%`,`${row.bets} / ${row.matches}`,`${row.won} / ${row.lost} / ${row.void}`,row.pending,row.won+row.lost ? `${row.actualHitRate.toFixed(1)}%` : '—',row.stakes.toFixed(2),row.returns.toFixed(2),row.winsProfit.toFixed(2),row.losses.toFixed(2),row.net.toFixed(2),row.won+row.lost ? `${row.roi.toFixed(1)}%` : '—'];
-                    values.forEach((text,index) => { const td = tr.insertCell(); td.textContent = String(text); if (index === 10) td.style.color = row.net >= 0 ? 'var(--success)' : 'var(--danger)'; });
-                }
-                parent.appendChild(table);
-            }
-            for (const text of report.notes || []) { const p = document.createElement('p'); p.style.cssText = 'font-size:12px;color:var(--text-muted)'; p.textContent = text; parent.appendChild(p); }
-        } catch (err) { parent.textContent = String(err); }
-    }
-
     async function fillCalendarLinks(event, selection) {
         if (selection !== calendarSelection) return [];
         const eligibility = event.analysisEligibility;
@@ -1802,7 +1817,7 @@
                 hitRate:variant.hitRate, matchesSample:indexes.length, fairOdds:Math.round(fairOdds*100)/100,
                 edgePercent:Math.round((price*p-1)*1000)/10, evWithTax:Math.round(ev*10)/10,
                 verdict:ev > 0 ? 'VALUE' : ev < -15 ? 'TRAP' : 'NEUTRAL'};
-            for (const key of ['sampleValues','sampleMinutes','samplePositions','sampleOpponents','sampleDates','sampleShots','sampleRatings']) {
+            for (const key of ['sampleValues','sampleMinutes','samplePositions','sampleOpponents','sampleDates','sampleShots','sampleRatings','sampleEventIds']) {
                 const values = bet[key] || [];
                 filtered[key] = values.length === baseValues.length ? indexes.map(index => values[index]) : [];
             }
@@ -1841,6 +1856,10 @@
             if (replacement) {
                 currentChartBet = replacement;
                 drawCurrentBetChart();
+                const mapEntry = shotmapCache.get(shotmapKey(replacement));
+                const filteredMap = replacement.opponentFilterMode && replacement.opponentFilterMode !== 'all';
+                const mapSampleReady = filteredMap ? replacement.opponentFilter?.targetSample > 0 : !analysisActive && !replacement.contextPending;
+                loadChartShotmaps(replacement, !!mapEntry?.pending && mapSampleReady);
             } else closeChart();
         }
     }
@@ -2058,6 +2077,8 @@
             const key = `${b.playerName}|${b.marketType}|${b.line}|${b.isUnder}`;
             if (!groups.has(key)) {
                 groups.set(key, {
+                    analysisId: b.analysisId,
+                    playerId: b.playerId,
                     contextPending: !!b.contextPending,
                     playerName: b.playerName,
                     marketType: b.marketType,
@@ -2075,6 +2096,7 @@
                     sampleDates: b.sampleDates || [],
                     sampleShots: b.sampleShots || [],
                     sampleRatings: b.sampleRatings || [],
+                    sampleEventIds: b.sampleEventIds || [],
                     fairModel: b.fairModel,
                     opponentFilter: b.opponentFilter,
 					historyNotes: b.historyNotes,
@@ -2224,6 +2246,7 @@
         }
         drawCurrentBetChart();
         document.getElementById('chartModal').classList.add('is-open');
+        loadChartShotmaps(bet);
     }
 
     function drawCurrentBetChart() {
@@ -2257,7 +2280,7 @@
             : null;
 
         document.getElementById('chartTitle').textContent = `${bet.playerName} — ${marketLabel}`;
-        document.getElementById('chartSubtitle').textContent = `Ostatnie ${values.length} meczów z aktualnej próbki; mecz 1 (od lewej) jest najnowszy.` +
+        document.getElementById('chartSubtitle').textContent = `Źródło statystyk: ${statsSourceLabel(bet)}. Ostatnie ${values.length} meczów z aktualnej próbki; mecz 1 (od lewej) jest najnowszy.` +
             (useSuperSub && hasSuperSubSample
                 ? ' SuperSub jest wliczony do słupków; plakietka "+N" pokazuje wkład zmiennika.'
                 : (useSuperSub ? ' Brak kompletnej próbki zmienników; pokazano statystyki zawodnika.' : ''));
@@ -2656,7 +2679,7 @@
             const minText = minutes[index] !== undefined ? ` · ${minutes[index]} min` : '';
             const rating = ratings[index];
             const hasRating = Number.isFinite(rating) && rating > 0;
-            const ratingText = hasRating ? ` · Rating SofaScore: ${rating.toFixed(1)}` : '';
+            const ratingText = hasRating ? ` · Rating ${statsSourceLabel(currentChartBet)}: ${rating.toFixed(1)}` : '';
 
             const delta = superSubDeltas[index] || 0;
             const tooltip = createSvgElement('title');
@@ -2726,7 +2749,7 @@
             });
             ratingLabel.textContent = hasRating ? rating.toFixed(1) : '—';
             const ratingTitle = createSvgElement('title');
-            ratingTitle.textContent = hasRating ? `Rating SofaScore zawodnika: ${rating.toFixed(1)}; informacja poglądowa` : 'Brak ratingu SofaScore';
+            ratingTitle.textContent = hasRating ? `Rating ${statsSourceLabel(currentChartBet)} zawodnika: ${rating.toFixed(1)}; informacja poglądowa` : 'Brak ratingu';
             ratingLabel.appendChild(ratingTitle);
             svg.appendChild(ratingLabel);
         });
@@ -2776,7 +2799,14 @@
 
         group.replaceChildren();
 
-        const matchShotsList = bet.sampleShots || [];
+        const key = shotmapKey(bet);
+        const lazy = key ? shotmapCache.get(key) : null;
+        const fromFooty = bet.statsSource === 'FOOTYMETRICS';
+        const matchShotsList = (fromFooty || key)
+            ? (bet.sampleValues || []).map((_, i) => lazy?.samples?.[i] ?? lazy?.shots?.[String((bet.sampleEventIds || [])[i])] ?? bet.sampleShots?.[i])
+            : (bet.sampleShots || []);
+        const range = matchIndex !== null ? [matchIndex] : (bet.sampleValues || []).map((_, i) => i);
+        const available = range.filter(i => Array.isArray(matchShotsList[i])).length;
         let shotsToRender = [];
 
         const isSingleMatch = matchIndex !== null;
@@ -2794,15 +2824,36 @@
             const dt = (bet.sampleDates || [])[matchIndex] || '';
             filterTitle.textContent = "Wróć do całości";
             filterTitle.style.textDecoration = "underline";
-            details.innerHTML = `Strzały w meczu vs <b>${opp}</b> (${dt}): <b>${shotsToRender.length}</b>`;
+            details.textContent = `Mapa vs ${opp} (${dt}): ${available ? shotsToRender.length + ' strzałów' : 'brak danych mapy'}`;
         } else {
             filterTitle.textContent = "Wszystkie mecze";
             filterTitle.style.textDecoration = "none";
-            details.innerHTML = `Łącznie strzałów w całej próbce (${bet.matchesSample} spotkań): <b>${shotsToRender.length}</b>`;
+            details.textContent = `Dostępne mapy: ${available}/${range.length} spotkań · strzały na dostępnych mapach: ${shotsToRender.length}`;
+        }
+
+        if (fromFooty || key) {
+            const note = document.createElement('div');
+            note.style.cssText = 'color:var(--text-muted);font-size:11px;margin-top:5px;';
+            note.textContent = lazy?.loading ? 'Pobieranie map SofaScore…' : lazy?.error
+                ? `Nie udało się pobrać map: ${lazy.error}`
+                : (fromFooty ? 'Mapy: SofaScore. Statystyki i wycena: FootyMetrics; liczby mogą się różnić między źródłami.' : 'Mapy SofaScore są uzupełniane na żądanie. Statystyki i wycena pozostają zapisane.');
+            if (lazy?.unmapped) note.textContent += ` Nie potwierdzono ID SofaScore dla ${lazy.unmapped} występów.`;
+            if (lazy?.mappingNote) note.textContent += ' ' + lazy.mappingNote;
+            if (!key) note.textContent += ' Brak identyfikatora zapisanej analizy — otwórz ją ponownie z kalendarza.';
+            if (useSuperSub && range.some(i => lazy?.subUnknown?.includes((lazy?.eventIds || bet.sampleEventIds || [])[i]))) {
+                note.textContent += ' Na części map nie udało się ustalić zmiennika.';
+            }
+            details.appendChild(note);
+            if (key && !lazy?.loading && (lazy?.error || available < range.length || lazy?.subUnknown?.length)) {
+                const retry = document.createElement('button');
+                retry.textContent = 'Ponów pobieranie map';
+                retry.style.marginTop = '6px';
+                retry.onclick = () => loadChartShotmaps(bet, true);
+                details.appendChild(retry);
+            }
         }
 
         if (shotsToRender.length === 0) {
-            details.innerHTML += `<div style="color:var(--text-muted); font-size:10px; margin-top:2px;">(Brak strzałów w wybranym zakresie)</div>`;
             return;
         }
 
@@ -2936,7 +2987,7 @@
             tr.innerHTML = `
                 <td><span class="badge-bm bm-${b.bookmaker}">${b.bookmaker}</span></td>
                 <td><b>${b.playerName}</b>${lineupBadge(b.lineupStatus)}</td>
-                <td>${b.marketLabel}<span class="tag-src" title="Próbka z SofaScore">SOFASCORE</span></td>
+                <td>${b.marketLabel}<span class="tag-src" title="Źródło statystyk próbki">${statsSourceLabel(b)}</span></td>
                 <td>${b.isUnder ? 'under' : 'over'} ${b.line}</td>
                 <td><b>${b.bookmakerOdds.toFixed(2)}</b></td>
                 <td>${b.contextPending ? '—' : b.fairOdds.toFixed(2)}</td>
@@ -2991,7 +3042,7 @@
             tr.className = 'result-row';
             tr.innerHTML = `
                 <td><b>${g.playerName}</b>${lineupBadge(g.lineupStatus)}</td>
-                <td>${MARKET_LABELS[g.marketType] || g.marketType}<span class="tag-src" title="Próbka z SofaScore">SOFA</span></td>
+                <td>${MARKET_LABELS[g.marketType] || g.marketType}<span class="tag-src" title="Źródło statystyk próbki">${statsSourceLabel(g)}</span></td>
                 <td>${g.isUnder ? 'under' : 'over'} ${g.line}</td>
                 <td>${g.contextPending ? '—' : g.fairOdds.toFixed(2)}</td>
                 <td style="font-weight:700; color:var(--accent);">${g.hitRate}%</td>
@@ -3023,7 +3074,12 @@
                         evWithTax: o.evWithTax,
                         verdict: o.verdict,
                         matchesSample: g.matchesSample,
-                        statsSource: "SOFASCORE",
+                        statsSource: g.statsSource,
+                        analysisId: g.analysisId,
+                        playerId: g.playerId,
+                        sampleEventIds: g.sampleEventIds,
+                        opponentFilterMode: g.opponentFilterMode,
+                        historyNotes: g.historyNotes,
                         teamSide: g.teamSide,
                         teamId: g.teamId,
                         teamName: g.teamName,
@@ -3058,16 +3114,38 @@
         }
     }
 
-    function addToMyBets(bet) {
+    function renderJournalStatus(status) {
+        const node = document.getElementById('journalStatus');
+        if (!node || !status) return;
+        node.textContent = `Wybory: ${status.selected} · wszystkie oferty: ${status.all} · oczekujące: ${status.pending} · brak danych: ${status.missing}${status.busy ? ' · aktualizacja…' : ''}${status.error ? ' · '+status.error : ''}`;
+        node.title = status.path || '';
+        node.style.color = status.error ? 'var(--danger)' : 'var(--text-muted)';
+    }
+    function showJournalError(error) {
+        const node = document.getElementById('journalStatus');
+        if (node) { node.textContent = String(error); node.style.color = 'var(--danger)'; }
+    }
+    async function openJournalWorkbook() {
+        try { await window.go.main.App.OpenJournalWorkbook(); renderJournalStatus(await window.go.main.App.GetJournalStatus()); }
+        catch (err) { showJournalError(err); }
+    }
+    async function refreshJournalResults() {
+        try { renderJournalStatus(await window.go.main.App.RefreshJournalResults()); }
+        catch (err) { showJournalError(err); }
+    }
+    async function addToMyBets(bet) {
         if (bet.contextPending) {
             alert('Poczekaj na ukończenie kontekstu i wyceny przed zapisaniem zakładu.');
             return;
         }
-        const id = `${bet.bookmaker}_${bet.playerName}_${bet.marketLabel}_${bet.line}_${bet.isUnder}`;
+        const id = `${bet.analysisId}_${bet.opponentFilterMode || 'all'}_${bet.bookmaker}_${bet.playerId}_${bet.marketType}_${bet.line}_${bet.isUnder}`;
         if (myBets.some(b => b.id === id)) {
             removeMyBet(id);
             return;
         }
+        try { await window.go.main.App.SelectJournalBet(bet); }
+        catch (err) { showJournalError(err); alert(`Nie zapisano wyboru w lokalnym rejestrze: ${err}`); return; }
+        if (myBets.some(b => b.id === id)) return;
         myBets.push({
             id,
             ...bet,
@@ -3097,7 +3175,7 @@
             card.innerHTML = `
                 <div class="card-title">${b.playerName}${lineupBadge(b.lineupStatus)}</div>
                 <div style="font-size:11px; color:var(--text-muted); margin-top:-2px; margin-bottom:2px;">${b.teamName || (b.teamSide === 'HOME' ? 'Gospodarze' : (b.teamSide === 'AWAY' ? 'Goście' : ''))}</div>
-                <div class="card-sub">${b.marketLabel} (${b.isUnder ? 'under' : 'over'} ${b.line}) [SOFA]</div>
+                <div class="card-sub">${b.marketLabel} (${b.isUnder ? 'under' : 'over'} ${b.line}) [${statsSourceLabel(b)}]</div>
                 <div style="margin-top:4px; font-weight:700; color:var(--accent);">
                     @${b.bookmakerOdds ? b.bookmakerOdds.toFixed(2) : '-'} | HR: ${b.hitRate}% [${b.bookmaker}]
                 </div>

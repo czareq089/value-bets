@@ -34,6 +34,10 @@ export function GetAnalysisProgress() {
   return window['go']['main']['App']['GetAnalysisProgress']();
 }
 
+export function GetAnalysisShotmaps(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['GetAnalysisShotmaps'](arg1, arg2, arg3, arg4);
+}
+
 export function GetAutomaticAnalysis(arg1) {
   return window['go']['main']['App']['GetAutomaticAnalysis'](arg1);
 }
@@ -54,8 +58,8 @@ export function GetBetclicCalendar(arg1) {
   return window['go']['main']['App']['GetBetclicCalendar'](arg1);
 }
 
-export function GetEvaluationReport(arg1, arg2, arg3) {
-  return window['go']['main']['App']['GetEvaluationReport'](arg1, arg2, arg3);
+export function GetJournalStatus() {
+  return window['go']['main']['App']['GetJournalStatus']();
 }
 
 export function GetMatchFlow(arg1, arg2) {
@@ -86,12 +90,20 @@ export function LoadMyBets() {
   return window['go']['main']['App']['LoadMyBets']();
 }
 
+export function OpenJournalWorkbook() {
+  return window['go']['main']['App']['OpenJournalWorkbook']();
+}
+
 export function PrepareCalendarMatch(arg1, arg2, arg3) {
   return window['go']['main']['App']['PrepareCalendarMatch'](arg1, arg2, arg3);
 }
 
 export function RefreshBookmakerCalendar(arg1, arg2) {
   return window['go']['main']['App']['RefreshBookmakerCalendar'](arg1, arg2);
+}
+
+export function RefreshJournalResults() {
+  return window['go']['main']['App']['RefreshJournalResults']();
 }
 
 export function SaveMatchHistory(arg1) {
@@ -104,6 +116,10 @@ export function SaveMyBets(arg1) {
 
 export function SaveTeamSofaID(arg1, arg2) {
   return window['go']['main']['App']['SaveTeamSofaID'](arg1, arg2);
+}
+
+export function SelectJournalBet(arg1) {
+  return window['go']['main']['App']['SelectJournalBet'](arg1);
 }
 
 export function SetAutomaticLeague(arg1, arg2) {

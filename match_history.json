@@ -1,72 +1,12 @@
 [
   {
-    "timestamp": "2026-10-15 14:33:29",
-    "title": "hajduk-split vs ajax-amsterdam",
-    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/hajduk-split-vs-ajax-amsterdam-14744369?mdt=o",
-    "betclicUrl": "https://www.betclic.pl/pilka-nozna-s1/hajduk-split-vs-ajax-m1213506070249472",
-    "stsUrl": "https://www.sts.pl/kursy/pilka-nozna/hajduk-split-vs-ajax-amsterdam/f3397706",
-    "homeStatsId": "2036",
-    "awayStatsId": "2953",
-    "sampleLimit": 10
-  },
-  {
-    "timestamp": "2026-10-15 13:27:14",
-    "title": "universitatea-craiova vs getafe",
-    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/universitatea-craiova-vs-getafe-14744365?mdt=o",
-    "betclicUrl": "https://www.betclic.pl/pilka-nozna-s1/cs-universitatea-craiova-vs-getafe-m1213503950028800",
-    "stsUrl": "https://www.sts.pl/kursy/pilka-nozna/universitatea-craiova-vs-getafe/f3397705",
-    "homeStatsId": "116223",
-    "awayStatsId": "2859",
-    "sampleLimit": 10
-  },
-  {
-    "timestamp": "2026-10-15 13:26:52",
+    "timestamp": "2026-10-15 18:30:40",
     "title": "lech-poznan vs bayer-leverkusen",
     "sbUrl": "https://superbet.pl/kursy/pilka-nozna/lech-poznan-vs-bayer-leverkusen-14744315?mdt=o",
     "betclicUrl": "https://www.betclic.pl/pilka-nozna-s1/lech-poznan-vs-bayer-leverkusen-m1228807814025216",
     "stsUrl": "https://www.sts.pl/kursy/pilka-nozna/lech-poznan-vs-bayer-leverkusen/f3397657",
     "homeStatsId": "3121",
     "awayStatsId": "2681",
-    "sampleLimit": 10
-  },
-  {
-    "timestamp": "2026-10-14 20:24:35",
-    "title": "aston-villa vs fenerbahce",
-    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/aston-villa-vs-fenerbahce-14738973?mdt=o",
-    "betclicUrl": "https://www.betclic.pl/pilka-nozna-s1/aston-villa-vs-fenerbahce-m1222415077117953",
-    "stsUrl": "https://www.sts.pl/kursy/pilka-nozna/aston-villa-vs-fenerbahce/f3395536",
-    "homeStatsId": "40",
-    "awayStatsId": "3052",
-    "sampleLimit": 10
-  },
-  {
-    "timestamp": "2026-10-14 20:17:53",
-    "title": "manchester-city vs psg",
-    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/manchester-city-vs-psg-14738975?mdt=o",
-    "betclicUrl": "https://www.betclic.pl/pilka-nozna-s1/manchester-city-vs-paris-saint-germain-m1222417862135808",
-    "stsUrl": "https://www.sts.pl/kursy/pilka-nozna/manchester-city-vs-psg/f3395538",
-    "homeStatsId": "17",
-    "awayStatsId": "1644",
-    "sampleLimit": 10
-  },
-  {
-    "timestamp": "2026-10-14 20:15:59",
-    "title": "as-roma vs real-madryt",
-    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/as-roma-vs-real-madryt-14738967?mdt=o",
-    "betclicUrl": "https://www.betclic.pl/pilka-nozna-s1/roma-vs-real-madryt-m1222413966667776",
-    "stsUrl": "https://www.sts.pl/kursy/pilka-nozna/as-roma-vs-real-madryt/f3395526",
-    "homeStatsId": "2702",
-    "awayStatsId": "2829",
-    "sampleLimit": 10
-  },
-  {
-    "timestamp": "2026-10-14 20:08:31",
-    "title": "betis vs porto",
-    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/betis-vs-porto-14738969?mdt=o",
-    "betclicUrl": "https://www.betclic.pl/pilka-nozna-s1/betis-vs-porto-m1222418838347776",
-    "stsUrl": "https://www.sts.pl/kursy/pilka-nozna/real-betis-vs-fc-porto/f3395528",
-    "homeStatsId": "2816",
-    "awayStatsId": "3002",
     "sampleLimit": 10
   }
 ]

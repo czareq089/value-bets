@@ -277,14 +277,6 @@ func (s *service) handler() http.Handler {
 	mux.HandleFunc("POST /api/prediction/{id}/history", s.extendedHistory)
 	mux.HandleFunc("GET /api/prediction/{id}/history", s.extendedHistory)
 	mux.HandleFunc("GET /api/history", s.history)
-	mux.HandleFunc("GET /api/reports", func(w http.ResponseWriter, r *http.Request) {
-		var report any
-		if err := s.backendGET(r.Context(), "/api/v1/research/reports?"+r.URL.RawQuery, &report); err != nil {
-			fail(w, 502, err)
-			return
-		}
-		respond(w, 200, report)
-	})
 	mux.HandleFunc("GET /api/progress", func(w http.ResponseWriter, r *http.Request) {
 		var progress any
 		if err := s.backendGET(r.Context(), "/api/v1/research/progress", &progress); err != nil {
@@ -784,7 +776,7 @@ func (s *service) export(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if kind != "predictions" && kind != "outcomes" && kind != "inputs" {
+	if kind != "predictions" && kind != "inputs" {
 		fail(w, 400, fmt.Errorf("nieznany rodzaj eksportu"))
 		return
 	}

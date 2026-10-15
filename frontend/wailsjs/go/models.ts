@@ -1,16 +1,16 @@
 export namespace main {
-	
+
 	export class AnalysisEligibility {
 	    status: string;
 	    reason?: string;
 	    links: Record<string, string>;
 	    // Go type: time
 	    expiresAt?: any;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new AnalysisEligibility(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.status = source["status"];
@@ -18,7 +18,7 @@ export namespace main {
 	        this.links = source["links"];
 	        this.expiresAt = this.convertValues(source["expiresAt"], null);
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -44,11 +44,11 @@ export namespace main {
 	    inBox: boolean;
 	    onTarget: boolean;
 	    isSub: boolean;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ShotCoordinate(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.x = source["x"];
@@ -63,11 +63,11 @@ export namespace main {
 	    position: number;
 	    matches: number;
 	    points: number;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new TableSummary(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.position = source["position"];
@@ -82,11 +82,11 @@ export namespace main {
 	    before: number;
 	    after: number;
 	    delta: number;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new FlowReactionSummary(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.kind = source["kind"];
@@ -102,11 +102,11 @@ export namespace main {
 	    mean: number;
 	    positive: number;
 	    negative: number;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new FlowWindow(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.points = source["points"];
@@ -119,18 +119,18 @@ export namespace main {
 	    state: string;
 	    matches: number;
 	    window: FlowWindow;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new FlowStateSummary(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.state = source["state"];
 	        this.matches = source["matches"];
 	        this.window = this.convertValues(source["window"], FlowWindow);
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -162,11 +162,11 @@ export namespace main {
 	    awayScore?: number;
 	    available: boolean;
 	    reason?: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new FlowMatchReference(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.eventId = source["eventId"];
@@ -181,7 +181,7 @@ export namespace main {
 	        this.available = source["available"];
 	        this.reason = source["reason"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -207,11 +207,11 @@ export namespace main {
 	    states: FlowStateSummary[];
 	    reactions: FlowReactionSummary[];
 	    notes: string[];
-	
+
 	    static createFrom(source: any = {}) {
 	        return new TeamFlowOverview(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.requested = source["requested"];
@@ -221,7 +221,7 @@ export namespace main {
 	        this.reactions = this.convertValues(source["reactions"], FlowReactionSummary);
 	        this.notes = source["notes"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -250,11 +250,11 @@ export namespace main {
 	    venueForm: string[];
 	    statsMatches: number;
 	    metrics: Record<string, number>;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new TeamOverview(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.flow = this.convertValues(source["flow"], TeamFlowOverview);
@@ -267,7 +267,7 @@ export namespace main {
 	        this.statsMatches = source["statsMatches"];
 	        this.metrics = source["metrics"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -293,11 +293,11 @@ export namespace main {
 	    seasonId: number;
 	    teams: Record<string, TeamOverview>;
 	    notes: string[];
-	
+
 	    static createFrom(source: any = {}) {
 	        return new MatchOverview(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.asOf = this.convertValues(source["asOf"], null);
@@ -306,7 +306,7 @@ export namespace main {
 	        this.teams = this.convertValues(source["teams"], TeamOverview, true);
 	        this.notes = source["notes"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -340,11 +340,11 @@ export namespace main {
 	    opponentId: string;
 	    features: string[];
 	    notes: string[];
-	
+
 	    static createFrom(source: any = {}) {
 	        return new FairModelDetails(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.version = source["version"];
@@ -367,18 +367,18 @@ export namespace main {
 	    indexes: number[];
 	    hitRate: number;
 	    fairModel?: FairModelDetails;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new OpponentFilterVariant(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.indexes = source["indexes"];
 	        this.hitRate = source["hitRate"];
 	        this.fairModel = this.convertValues(source["fairModel"], FairModelDetails);
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -413,11 +413,11 @@ export namespace main {
 	    reason?: string;
 	    easier?: OpponentFilterVariant;
 	    harder?: OpponentFilterVariant;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new OpponentFilterData(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.targetSample = source["targetSample"];
@@ -436,7 +436,7 @@ export namespace main {
 	        this.easier = this.convertValues(source["easier"], OpponentFilterVariant);
 	        this.harder = this.convertValues(source["harder"], OpponentFilterVariant);
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -456,6 +456,7 @@ export namespace main {
 		}
 	}
 	export class AnalyzedBet {
+	    sampleEventIds?: number[];
 	    historyNotes?: string[];
 	    analysisId?: string;
 	    opponentFilter?: OpponentFilterData;
@@ -494,13 +495,14 @@ export namespace main {
 	    verdict: string;
 	    lineupStatus: string;
 	    isStartingXI: boolean;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new AnalyzedBet(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sampleEventIds = source["sampleEventIds"];
 	        this.historyNotes = source["historyNotes"];
 	        this.analysisId = source["analysisId"];
 	        this.opponentFilter = this.convertValues(source["opponentFilter"], OpponentFilterData);
@@ -539,7 +541,7 @@ export namespace main {
 	        this.lineupStatus = source["lineupStatus"];
 	        this.isStartingXI = source["isStartingXI"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -566,11 +568,11 @@ export namespace main {
 	    awayId: string;
 	    matchLimit: number;
 	    tournamentIds: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new AnalysisRequest(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.superbetUrl = source["superbetUrl"];
@@ -583,6 +585,9 @@ export namespace main {
 	    }
 	}
 	export class AnalysisJob {
+	    fixtureId?: string;
+	    // Go type: time
+	    startTime?: any;
 	    resultRevision: number;
 	    id: string;
 	    match: string;
@@ -601,13 +606,15 @@ export namespace main {
 	    warnings: string[];
 	    result?: AnalyzedBet[];
 	    error?: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new AnalysisJob(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.fixtureId = source["fixtureId"];
+	        this.startTime = this.convertValues(source["startTime"], null);
 	        this.resultRevision = source["resultRevision"];
 	        this.id = source["id"];
 	        this.match = source["match"];
@@ -624,7 +631,7 @@ export namespace main {
 	        this.result = this.convertValues(source["result"], AnalyzedBet);
 	        this.error = source["error"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -643,8 +650,8 @@ export namespace main {
 		    return a;
 		}
 	}
-	
-	
+
+
 	export class AutomaticSummary {
 	    // Go type: time
 	    quoteCheckedAt?: any;
@@ -666,11 +673,11 @@ export namespace main {
 	    expiresAt: any;
 	    runId: string;
 	    error?: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new AutomaticSummary(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.quoteCheckedAt = this.convertValues(source["quoteCheckedAt"], null);
@@ -691,7 +698,7 @@ export namespace main {
 	        this.runId = source["runId"];
 	        this.error = source["error"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -710,16 +717,16 @@ export namespace main {
 		    return a;
 		}
 	}
-	
+
 	export class FlowGraphPoint {
 	    minute: number;
 	    value: number;
 	    state?: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new FlowGraphPoint(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.minute = source["minute"];
@@ -727,7 +734,7 @@ export namespace main {
 	        this.state = source["state"];
 	    }
 	}
-	
+
 	export class FlowReaction {
 	    kind: string;
 	    minute: number;
@@ -741,11 +748,11 @@ export namespace main {
 	    before: FlowWindow;
 	    after: FlowWindow;
 	    eligible: boolean;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new FlowReaction(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.kind = source["kind"];
@@ -761,7 +768,7 @@ export namespace main {
 	        this.after = this.convertValues(source["after"], FlowWindow);
 	        this.eligible = source["eligible"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -780,9 +787,9 @@ export namespace main {
 		    return a;
 		}
 	}
-	
-	
-	
+
+
+
 	export class HistoricalMatchFlow {
 	    version: number;
 	    eventId: string;
@@ -799,11 +806,11 @@ export namespace main {
 	    graphPoints: FlowGraphPoint[];
 	    reactions: FlowReaction[];
 	    notes: string[];
-	
+
 	    static createFrom(source: any = {}) {
 	        return new HistoricalMatchFlow(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.version = source["version"];
@@ -821,7 +828,52 @@ export namespace main {
 	        this.reactions = this.convertValues(source["reactions"], FlowReaction);
 	        this.notes = source["notes"];
 	    }
-	
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class JournalStatus {
+	    path: string;
+	    selected: number;
+	    all: number;
+	    pending: number;
+	    missing: number;
+	    busy: boolean;
+	    error: string;
+	    // Go type: time
+	    updatedAt: any;
+
+	    static createFrom(source: any = {}) {
+	        return new JournalStatus(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.selected = source["selected"];
+	        this.all = source["all"];
+	        this.pending = source["pending"];
+	        this.missing = source["missing"];
+	        this.busy = source["busy"];
+	        this.error = source["error"];
+	        this.updatedAt = this.convertValues(source["updatedAt"], null);
+	    }
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -843,11 +895,11 @@ export namespace main {
 	export class LeagueOption {
 	    id: number;
 	    name: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new LeagueOption(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -863,11 +915,11 @@ export namespace main {
 	    homeStatsId: string;
 	    awayStatsId: string;
 	    sampleLimit?: number;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new MatchHistoryEntry(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.timestamp = source["timestamp"];
@@ -890,11 +942,11 @@ export namespace main {
 	    // Go type: time
 	    expiresAt: any;
 	    error?: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new MatchMarketAvailability(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.bookmaker = source["bookmaker"];
@@ -905,7 +957,7 @@ export namespace main {
 	        this.expiresAt = this.convertValues(source["expiresAt"], null);
 	        this.error = source["error"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -924,21 +976,21 @@ export namespace main {
 		    return a;
 		}
 	}
-	
+
 	export class MatchPreparation {
 	    qualified: boolean;
 	    sources: Record<string, MatchMarketAvailability>;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new MatchPreparation(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.qualified = source["qualified"];
 	        this.sources = this.convertValues(source["sources"], MatchMarketAvailability, true);
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -958,6 +1010,11 @@ export namespace main {
 		}
 	}
 	export class MyBetItem {
+	    analysisId?: string;
+	    playerId?: number;
+	    opponentFilterMode?: string;
+	    sampleEventIds?: number[];
+	    historyNotes?: string[];
 	    sampleRatings: number[];
 	    fairModel?: FairModelDetails;
 	    matchOverview?: MatchOverview;
@@ -988,13 +1045,18 @@ export namespace main {
 	    verdict: string;
 	    lineupStatus: string;
 	    isStartingXI: boolean;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new MyBetItem(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.analysisId = source["analysisId"];
+	        this.playerId = source["playerId"];
+	        this.opponentFilterMode = source["opponentFilterMode"];
+	        this.sampleEventIds = source["sampleEventIds"];
+	        this.historyNotes = source["historyNotes"];
 	        this.sampleRatings = source["sampleRatings"];
 	        this.fairModel = this.convertValues(source["fairModel"], FairModelDetails);
 	        this.matchOverview = this.convertValues(source["matchOverview"], MatchOverview);
@@ -1026,7 +1088,7 @@ export namespace main {
 	        this.lineupStatus = source["lineupStatus"];
 	        this.isStartingXI = source["isStartingXI"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -1045,9 +1107,9 @@ export namespace main {
 		    return a;
 		}
 	}
-	
-	
-	
+
+
+
 	export class SuperbetCalendarEvent {
 	    id: string;
 	    home: string;
@@ -1060,11 +1122,11 @@ export namespace main {
 	    betBuilder: boolean;
 	    marketAvailability?: MatchMarketAvailability;
 	    analysisEligibility?: AnalysisEligibility;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new SuperbetCalendarEvent(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -1079,7 +1141,7 @@ export namespace main {
 	        this.marketAvailability = this.convertValues(source["marketAvailability"], MatchMarketAvailability);
 	        this.analysisEligibility = this.convertValues(source["analysisEligibility"], AnalysisEligibility);
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -1103,11 +1165,11 @@ export namespace main {
 	    events: SuperbetCalendarEvent[];
 	    warnings: string[];
 	    fetchedAt?: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new SuperbetCalendar(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.date = source["date"];
@@ -1115,7 +1177,7 @@ export namespace main {
 	        this.warnings = source["warnings"];
 	        this.fetchedAt = source["fetchedAt"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -1134,19 +1196,19 @@ export namespace main {
 		    return a;
 		}
 	}
-	
-	
+
+
 	export class TeamDetectionResult {
 	    homeSlug: string;
 	    awaySlug: string;
 	    homeId: string;
 	    awayId: string;
 	    warnings: string[];
-	
+
 	    static createFrom(source: any = {}) {
 	        return new TeamDetectionResult(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.homeSlug = source["homeSlug"];
@@ -1156,7 +1218,7 @@ export namespace main {
 	        this.warnings = source["warnings"];
 	    }
 	}
-	
+
 
 }
 

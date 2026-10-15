@@ -18,6 +18,8 @@ export function DetectTeamsFromURL(arg1:string):Promise<main.TeamDetectionResult
 
 export function GetAnalysisProgress():Promise<main.AnalysisJob>;
 
+export function GetAnalysisShotmaps(arg1:string,arg2:number,arg3:string,arg4:string):Promise<Record<string, any>>;
+
 export function GetAutomaticAnalysis(arg1:string):Promise<Array<main.AnalyzedBet>>;
 
 export function GetAutomaticLeagues():Promise<Record<string, any>>;
@@ -28,7 +30,7 @@ export function GetAvailableTournaments(arg1:string,arg2:string):Promise<Array<m
 
 export function GetBetclicCalendar(arg1:string):Promise<main.SuperbetCalendar>;
 
-export function GetEvaluationReport(arg1:number,arg2:number,arg3:string):Promise<Record<string, any>>;
+export function GetJournalStatus():Promise<main.JournalStatus>;
 
 export function GetMatchFlow(arg1:string,arg2:string):Promise<main.HistoricalMatchFlow>;
 
@@ -44,14 +46,20 @@ export function LoadMatchHistory():Promise<Array<main.MatchHistoryEntry>>;
 
 export function LoadMyBets():Promise<Array<main.MyBetItem>>;
 
+export function OpenJournalWorkbook():Promise<void>;
+
 export function PrepareCalendarMatch(arg1:string,arg2:string,arg3:string):Promise<main.MatchPreparation>;
 
 export function RefreshBookmakerCalendar(arg1:string,arg2:string):Promise<main.SuperbetCalendar>;
+
+export function RefreshJournalResults():Promise<main.JournalStatus>;
 
 export function SaveMatchHistory(arg1:main.MatchHistoryEntry):Promise<Array<main.MatchHistoryEntry>>;
 
 export function SaveMyBets(arg1:Array<main.MyBetItem>):Promise<boolean>;
 
 export function SaveTeamSofaID(arg1:string,arg2:string):Promise<boolean>;
+
+export function SelectJournalBet(arg1:main.MyBetItem):Promise<void>;
 
 export function SetAutomaticLeague(arg1:string,arg2:boolean):Promise<Record<string, any>>;

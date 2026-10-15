@@ -56,16 +56,15 @@ Do samego lokalnego użycia można uruchomić `./review -listen 127.0.0.1:8092 -
 - Skala 1–5 ocenia opłacalność przy pokazanej cenie. `Nie wiem` jest osobną odpowiedzią. Korzystanie z danych zewnętrznych wymaga jawnego wyboru tak/nie. Powód, źródła i minimalny akceptowalny kurs są opcjonalne.
 - Fair kurs, EV i opinia drugiej osoby pojawiają się dopiero po zapisaniu własnej oceny. Administracyjny eksport może zawierać wszystkie opinie; nie używaj go do podglądania ocen przed niezależną oceną.
 - Oceny można zmieniać przed startem. Każdy zapis tworzy nową wersję; po starcie backend panelu odrzuca zapis. Podstawą terminu jest zamrożona prognoza.
-- Widok historii zawiera ostatnią ocenę każdej propozycji, do 200 pozycji. Eksport zawiera wszystkie wersje, bez tego ograniczenia. Wyniki po meczu są pobierane z głównego backendu.
+- Widok historii zawiera ostatnią ocenę każdej propozycji, do 200 pozycji. Eksport zawiera wszystkie wersje, bez tego ograniczenia. Rozliczenia i raport algorytmu zostały usunięte z panelu; wyniki zapisuje lokalny dziennik Windows.
 
 ## Dane i eksport
 
 SQLite jest głównym zapisem transakcyjnym. Konto administratora ma widok **Eksport ML** z JSONL:
 
 - `ratings`: wszystkie wersje ocen, autor, moment, usedExternal, reason, sources, rating/unknown, minimumOdds, predictionId, betKey i revisionOf (0 przy pierwszej ocenie, ID wcześniejszej wersji przy zmianie);
-- `predictions`: zamrożone prognozy; `id` łączy się z `predictionId` ocen i rozliczeń;
+- `predictions`: zamrożone prognozy; `id` łączy się z `predictionId` ocen;
 - `inputs`: współdzielone dane wejściowe; `evidenceId` łączy się z prognozą;
-- `outcomes`: wszystkie zachowane wersje rozliczeń, rozdzielone na standard-v1 i supersub-v1.
 
 Brak danych ma pozostać brakiem, a nie zerem ani przegraną. Nie mieszaj różnych wersji algorytmu i zasad rozliczenia. Do treningu wybieraj wersję oceny zapisaną przed startem, a dane wejściowe wyłącznie z prognozy. Pierwsza ocena (`revisionOf=0`) jest zapisywana przed ujawnieniem porównania w panelu; późniejsza zmiana może już uwzględniać fair kurs i opinię drugiej osoby. Zachowaj to rozróżnienie przy analizie niezależnych ocen. Podział trening/walidacja powinien odbywać się chronologicznie całymi meczami, bez rozrzucania linii i bukmacherów tego samego spotkania.
 
