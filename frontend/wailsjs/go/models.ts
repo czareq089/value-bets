@@ -98,6 +98,10 @@ export namespace main {
 	    }
 	}
 	export class AnalyzedBet {
+	    fixtureId?: number;
+	    // Go type: time
+	    matchStart?: any;
+	    matchName?: string;
 	    sampleEventIds?: number[];
 	    historyNotes?: string[];
 	    analysisId?: string;
@@ -139,6 +143,9 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.fixtureId = source["fixtureId"];
+	        this.matchStart = this.convertValues(source["matchStart"], null);
+	        this.matchName = source["matchName"];
 	        this.sampleEventIds = source["sampleEventIds"];
 	        this.historyNotes = source["historyNotes"];
 	        this.analysisId = source["analysisId"];
@@ -414,6 +421,21 @@ export namespace main {
 		}
 	}
 	export class MyBetItem {
+	    fixtureId?: number;
+	    // Go type: time
+	    matchStart?: any;
+	    matchName?: string;
+	    addedAt?: string;
+	    includeSuperSub: boolean;
+	    archivedAt?: string;
+	    settlementStatus?: string;
+	    settlementSource?: string;
+	    settlementValue?: number;
+	    playerValue?: number;
+	    superSubValue?: number;
+	    settlementNote?: string;
+	    settlementCheckedAt?: string;
+	    fixtureStatus?: string;
 	    analysisId?: string;
 	    playerId?: number;
 	    sampleEventIds?: number[];
@@ -455,6 +477,20 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.fixtureId = source["fixtureId"];
+	        this.matchStart = this.convertValues(source["matchStart"], null);
+	        this.matchName = source["matchName"];
+	        this.addedAt = source["addedAt"];
+	        this.includeSuperSub = source["includeSuperSub"];
+	        this.archivedAt = source["archivedAt"];
+	        this.settlementStatus = source["settlementStatus"];
+	        this.settlementSource = source["settlementSource"];
+	        this.settlementValue = source["settlementValue"];
+	        this.playerValue = source["playerValue"];
+	        this.superSubValue = source["superSubValue"];
+	        this.settlementNote = source["settlementNote"];
+	        this.settlementCheckedAt = source["settlementCheckedAt"];
+	        this.fixtureStatus = source["fixtureStatus"];
 	        this.analysisId = source["analysisId"];
 	        this.playerId = source["playerId"];
 	        this.sampleEventIds = source["sampleEventIds"];

@@ -116,6 +116,9 @@ type FairModelDetails struct {
 }
 
 type AnalyzedBet struct {
+	FixtureID               int                `json:"fixtureId,omitempty"`
+	MatchStart              time.Time          `json:"matchStart,omitempty"`
+	MatchName               string             `json:"matchName,omitempty"`
 	SampleEventIDs          []int              `json:"sampleEventIds,omitempty"`
 	HistoryNotes            []string           `json:"historyNotes,omitempty"`
 	AnalysisID              string             `json:"analysisId,omitempty"`
@@ -177,6 +180,20 @@ type MatchHistoryEntry struct {
 }
 
 type MyBetItem struct {
+	FixtureID               int                `json:"fixtureId,omitempty"`
+	MatchStart              time.Time          `json:"matchStart,omitempty"`
+	MatchName               string             `json:"matchName,omitempty"`
+	AddedAt                 string             `json:"addedAt,omitempty"`
+	IncludeSuperSub         bool               `json:"includeSuperSub"`
+	ArchivedAt              string             `json:"archivedAt,omitempty"`
+	SettlementStatus        string             `json:"settlementStatus,omitempty"`
+	SettlementSource        string             `json:"settlementSource,omitempty"`
+	SettlementValue         *int               `json:"settlementValue"`
+	PlayerValue             *int               `json:"playerValue"`
+	SuperSubValue           *int               `json:"superSubValue"`
+	SettlementNote          string             `json:"settlementNote,omitempty"`
+	SettlementCheckedAt     string             `json:"settlementCheckedAt,omitempty"`
+	FixtureStatus           string             `json:"fixtureStatus,omitempty"`
 	AnalysisID              string             `json:"analysisId,omitempty"`
 	PlayerID                int                `json:"playerId,omitempty"`
 	SampleEventIDs          []int              `json:"sampleEventIds,omitempty"`
@@ -404,9 +421,47 @@ func (a *App) SaveMyBets(bets []MyBetItem) bool {
 		return false
 	}
 
-	err = os.WriteFile(path, data, 0644)
+	// Replace the complete snapshot only after the temporary file is durable.
+	file, err := os.CreateTemp(filepath.Dir(path), ".mybets-*.tmp")
+	if err != nil {
+		log.Printf("[MYBETS] Błąd zapisu: %v", err)
+		return false
+	}
+	defer os.Remove(file.Name())
+	_, writeErr := file.Write(data)
+	err = errors.Join(writeErr, file.Sync(), file.Close())
+	if err == nil {
+		err = os.Rename(file.Name(), path)
+	}
 	log.Printf("[MYBETS] Zapisano %d zakładów do %s (sukces: %v)", len(bets), path, err == nil)
 	return err == nil
+}
+
+// Stateless settlement survives server restarts: MyBets identity and outcome stay local.
+func (a *App) RefreshMyBets(bets []MyBetItem) ([]map[string]any, error) {
+	if len(bets) == 0 || len(bets) > 10 {
+		return nil, fmt.Errorf("rozliczenie wymaga od 1 do 10 typów")
+	}
+	requests := make([]map[string]any, 0, len(bets))
+	for _, bet := range bets {
+		if bet.StatsSource != "FOOTYMETRICS" {
+			return nil, fmt.Errorf("brak tożsamości FootyMetrics zapisanej dla typu")
+		}
+		teamID, err := strconv.Atoi(bet.TeamID)
+		if err != nil {
+			return nil, fmt.Errorf("brak ID drużyny dla typu")
+		}
+		requests = append(requests, map[string]any{"id": bet.ID, "fixtureId": bet.FixtureID, "playerId": bet.PlayerID, "teamId": teamID, "matchStart": bet.MatchStart, "marketType": bet.MarketType, "line": bet.Line, "isUnder": bet.IsUnder, "includeSuperSub": bet.IncludeSuperSub})
+	}
+	body, err := json.Marshal(map[string]any{"bets": requests})
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(a.calendarContext(), 3*time.Minute)
+	defer cancel()
+	var result []map[string]any
+	err = a.serverRequest(ctx, http.MethodPost, "/api/v1/mybets/settle", body, &result)
+	return result, err
 }
 
 type SuperbetCalendarEvent struct {

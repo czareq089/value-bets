@@ -90,6 +90,10 @@ export function RefreshBookmakerCalendar(arg1, arg2) {
   return window['go']['main']['App']['RefreshBookmakerCalendar'](arg1, arg2);
 }
 
+export function RefreshMyBets(arg1) {
+  return window['go']['main']['App']['RefreshMyBets'](arg1);
+}
+
 export function SaveMatchHistory(arg1) {
   return window['go']['main']['App']['SaveMatchHistory'](arg1);
 }

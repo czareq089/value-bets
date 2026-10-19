@@ -1463,6 +1463,9 @@ type PlayerStatHistory struct {
 }
 
 type AnalyzedBet struct {
+	FixtureID               int                `json:"fixtureId,omitempty"`
+	MatchStart              time.Time          `json:"matchStart,omitempty"`
+	MatchName               string             `json:"matchName,omitempty"`
 	SampleEventIDs          []int              `json:"sampleEventIds,omitempty"`
 	HistoryNotes            []string           `json:"historyNotes,omitempty"`
 	AnalysisID              string             `json:"analysisId,omitempty"`
@@ -2331,6 +2334,7 @@ type footyTeam struct {
 }
 type footyFixture struct {
 	APID      int       `json:"apid"`
+	Status    string    `json:"status"`
 	Timestamp time.Time `json:"timestamp"`
 	HomeID    int       `json:"hid"`
 	AwayID    int       `json:"aid"`
@@ -6327,6 +6331,9 @@ func (s *calendarServer) analyze(task *analysisTask) ([]AnalyzedBet, error) {
 	}
 	for i := range result {
 		result[i].AnalysisID = task.job.ID
+		result[i].FixtureID = footyFixture.APID
+		result[i].MatchStart = fixture.StartTime
+		result[i].MatchName = homeName + " — " + awayName
 	}
 	task.mu.Lock()
 	task.calculation = &analysisCalculation{Props: props, Home: home, Away: away, HomeLineup: lineups.Home, AwayLineup: lineups.Away, Confirmed: lineups.Confirmed, Context: contextData}
@@ -6544,6 +6551,7 @@ func (s *calendarServer) handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/analyses/{id}/lineup-event", s.analysisLineupEvent)
 	mux.HandleFunc("POST /api/v1/analyses/{id}/sample", s.analysisSample)
 	mux.HandleFunc("POST /api/v1/markets/prepare", s.prepareMatch)
+	mux.HandleFunc("POST /api/v1/mybets/settle", s.settleMyBets)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		clientID := r.Header.Get("X-ValueBets-Client")
 		if clientID != "" && !relayClientIDPattern.MatchString(clientID) {
@@ -6612,6 +6620,9 @@ func (s *calendarServer) analysisSample(w http.ResponseWriter, r *http.Request) 
 	}
 	for i := range result {
 		result[i].AnalysisID = r.PathValue("id")
+		result[i].FixtureID, _ = strconv.Atoi(task.fixture.ID)
+		result[i].MatchStart = task.fixture.StartTime
+		result[i].MatchName = task.seed.Home + " — " + task.seed.Away
 	}
 	jsonResponse(w, 200, result)
 }
@@ -7890,4 +7901,188 @@ func (s *calendarServer) prepareMatch(w http.ResponseWriter, r *http.Request) {
 	}
 	prepared.Reason = strings.Join(warnings, "; ")
 	jsonResponse(w, 200, prepared)
+}
+
+// Only final match status permits settlement; elapsed wall time is never evidence.
+type myBetSettlementRequest struct {
+	ID              string          `json:"id"`
+	FixtureID       int             `json:"fixtureId"`
+	PlayerID        int             `json:"playerId"`
+	TeamID          int             `json:"teamId"`
+	MatchStart      time.Time       `json:"matchStart"`
+	MarketType      CanonicalMarket `json:"marketType"`
+	Line            float64         `json:"line"`
+	IsUnder         bool            `json:"isUnder"`
+	IncludeSuperSub bool            `json:"includeSuperSub"`
+}
+type myBetSettlement struct {
+	ID            string    `json:"id"`
+	Finished      bool      `json:"finished"`
+	Status        string    `json:"status"`
+	Value         *int      `json:"value"`
+	PlayerValue   *int      `json:"playerValue"`
+	SuperSubValue *int      `json:"superSubValue"`
+	Note          string    `json:"note"`
+	FixtureStatus string    `json:"fixtureStatus"`
+	CheckedAt     time.Time `json:"checkedAt"`
+}
+
+func (s *calendarServer) settleMyBets(w http.ResponseWriter, r *http.Request) {
+	var query struct {
+		Bets []myBetSettlementRequest `json:"bets"`
+	}
+	if err := decodeAPIRequest(w, r, &query); err != nil {
+		apiError(w, 400, err)
+		return
+	}
+	if len(query.Bets) == 0 || len(query.Bets) > 10 {
+		apiError(w, 400, fmt.Errorf("dozwolone 1–10 typów"))
+		return
+	}
+	knownMarkets := map[CanonicalMarket]bool{}
+	for _, market := range playerStatMarkets() {
+		knownMarkets[market] = true
+	}
+	for _, bet := range query.Bets {
+		if bet.ID == "" || len(bet.ID) > 1024 || bet.FixtureID <= 0 || bet.PlayerID <= 0 || bet.TeamID <= 0 || bet.MatchStart.Year() < 2000 || bet.MatchStart.Year() > time.Now().Year()+2 || !knownMarkets[bet.MarketType] || bet.Line < 0 || math.IsNaN(bet.Line) || math.IsInf(bet.Line, 0) {
+			apiError(w, 400, fmt.Errorf("brak poprawnej tożsamości typu do rozliczenia"))
+			return
+		}
+	}
+	client, err := newSofaClient(r.Context(), nil)
+	if err != nil {
+		apiError(w, 500, err)
+		return
+	}
+	defer client.tlsClient.CloseIdleConnections()
+	results := make([]myBetSettlement, 0, len(query.Bets))
+	for _, bet := range query.Bets {
+		if r.Context().Err() != nil {
+			return
+		}
+		results = append(results, settleFootyBet(client, bet))
+	}
+	jsonResponse(w, 200, results)
+}
+
+func settleFootyBet(client *ResilientClient, bet myBetSettlementRequest) myBetSettlement {
+	out := myBetSettlement{ID: bet.ID, Status: "pending", CheckedAt: time.Now().UTC()}
+	zone, err := time.LoadLocation("Europe/Warsaw")
+	if err != nil {
+		out.Note = err.Error()
+		return out
+	}
+	query := url.Values{"date": {bet.MatchStart.In(zone).Format("2006-01-02")}, "tz": {"Europe/Warsaw"}, "late": {"1"}}
+	var groups []struct {
+		Fixtures []footyFixture `json:"fixtures"`
+		Late     []footyFixture `json:"late"`
+	}
+	if err = getFootyJSON(client, "/api/front/fixtures?"+query.Encode(), &groups); err != nil {
+		out.Note = err.Error()
+		return out
+	}
+	var fixture *footyFixture
+	for _, group := range groups {
+		for _, event := range append(group.Fixtures, group.Late...) {
+			if event.APID == bet.FixtureID {
+				copy := event
+				fixture = &copy
+			}
+		}
+	}
+	if fixture == nil {
+		out.Note = "FootyMetrics nie potwierdził statusu tego meczu; brak automatycznego rozliczenia."
+		return out
+	}
+	if fixture.Home.APID != bet.TeamID && fixture.Away.APID != bet.TeamID {
+		out.Note = "Drużyna typu nie zgadza się z meczem FootyMetrics."
+		return out
+	}
+	out.FixtureStatus = strings.ToUpper(strings.TrimSpace(fixture.Status))
+	switch out.FixtureStatus {
+	case "FT":
+		out.Finished = true
+	case "AET", "PEN", "CANC", "ABD", "AWD", "WO":
+		out.Finished = true
+		out.Status = "review"
+		out.Note = "Niestandardowe zakończenie meczu (" + out.FixtureStatus + "); ustaw rozliczenie ręcznie."
+		return out
+	default:
+		out.Note = "Oczekiwanie na potwierdzone zakończenie meczu w FootyMetrics."
+		return out
+	}
+	out.Status = "review"
+	load := func(playerID int) (footyRecord, error) {
+		q := url.Values{"stat": {"shots"}, "id": {strconv.Itoa(playerID)}, "tid": {strconv.Itoa(bet.TeamID)}, "period": {"30"}, "started": {"false"}, "location": {"both"}, "scope": {"all"}, "l": {""}, "p": {""}, "dl": {"true"}, "se": {"false"}, "sm": {"easier"}}
+		var table footyTable
+		if err := getFootyJSON(client, "/api/front/players/table?"+q.Encode(), &table); err != nil {
+			return nil, err
+		}
+		normalizeFootyPlayerCounters(&table)
+		found := false
+		for _, event := range table.Fixtures {
+			if event.APID == bet.FixtureID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("brak meczu w historii zawodnika; brak danych nie oznacza zera")
+		}
+		record := table.PivotData[strconv.Itoa(playerID)][strconv.Itoa(bet.FixtureID)]
+		minutes, ok := footyCount(record, "mins")
+		if !ok || minutes <= 0 || minutes > 150 {
+			return nil, fmt.Errorf("brak potwierdzonego występu zawodnika; rozlicz ręcznie według zasad bukmachera")
+		}
+		if team, ok := footyReferenceID(record, "team"); ok && team > 0 && team != bet.TeamID {
+			return nil, fmt.Errorf("niezgodna drużyna zawodnika")
+		}
+		return record, nil
+	}
+	record, err := load(bet.PlayerID)
+	if err != nil {
+		out.Note = err.Error()
+		return out
+	}
+	value, known := footyMetric(record, bet.MarketType)
+	if !known {
+		out.Note = "Brak potwierdzonej wartości statystyki; wymagane rozliczenie ręczne lub ponowienie później."
+		return out
+	}
+	base := value
+	out.PlayerValue = &base
+	if bet.IncludeSuperSub {
+		subID, _ := footyReferenceID(record, "subApid")
+		subValue := 0
+		if subID > 0 && subID != bet.PlayerID {
+			sub, err := load(subID)
+			if err != nil {
+				out.Note = "SuperSub: " + err.Error()
+				return out
+			}
+			var ok bool
+			subValue, ok = footyMetric(sub, bet.MarketType)
+			if !ok {
+				out.Note = "Brak potwierdzonej statystyki zmiennika; nie doliczono zera."
+				return out
+			}
+		} else {
+			minutes, _ := footyCount(record, "mins")
+			if minutes < 90 {
+				out.Note = "SuperSub: brak potwierdzonego zmiennika dla skróconego występu; rozlicz ręcznie lub ponów później."
+				return out
+			}
+		}
+		out.SuperSubValue = &subValue
+		value += subValue
+	}
+	out.Value = &value
+	out.Status = "lost"
+	if float64(value) == bet.Line {
+		out.Status = "push"
+	} else if (bet.IsUnder && float64(value) < bet.Line) || (!bet.IsUnder && float64(value) > bet.Line) {
+		out.Status = "won"
+	}
+	out.Note = "Statystyka FootyMetrics po FT; wynik można skorygować ręcznie."
+	return out
 }

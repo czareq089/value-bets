@@ -46,6 +46,8 @@ export function PrepareCalendarMatch(arg1:string,arg2:string,arg3:string):Promis
 
 export function RefreshBookmakerCalendar(arg1:string,arg2:string):Promise<main.SuperbetCalendar>;
 
+export function RefreshMyBets(arg1:Array<main.MyBetItem>):Promise<Array<Record<string, any>>>;
+
 export function SaveMatchHistory(arg1:main.MatchHistoryEntry):Promise<Array<main.MatchHistoryEntry>>;
 
 export function SaveMyBets(arg1:Array<main.MyBetItem>):Promise<boolean>;

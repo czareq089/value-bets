@@ -57,6 +57,14 @@
         .calendar-card { width: 100%; text-align: left; color: #fff; }
         .calendar-card.selected { border-color: var(--sb-color); }
         .calendar-live { color: var(--danger); font-weight: 700; }
+        .mybets-controls { padding: 8px; border-bottom: 1px solid var(--border); }
+        .mybets-tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+        .mybets-tabs button { flex: 1; padding: 5px; font-size: 11px; }
+        .mybets-tabs button[aria-selected="true"] { color: var(--accent); border-color: var(--accent); }
+        .dock.collapsed .mybets-controls { display: none; }
+        .mybets-note { font-size: 10px; color: var(--text-muted); margin-top: 5px; line-height: 1.4; overflow-wrap: anywhere; }
+        .mybets-actions { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+        .mybets-actions select { width: 100%; font-size: 11px; }
         .dock-content { padding: 10px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 8px; }
 
         .item-card {
@@ -656,7 +664,15 @@
         <button class="dock-toggle" style="width:auto; padding:0 6px;" title="Kalkulator AKO / solo i Anty-Domino"
                 onclick="openRiskModal()">📉</button>
     </div>
-    <div class="dock-content" id="myBetsList"></div>
+    <div class="mybets-controls">
+        <nav class="mybets-tabs" role="tablist" aria-label="MyBets">
+            <button id="myBetsActiveTab" class="filter-select" type="button" role="tab" aria-controls="myBetsList" aria-selected="true" onclick="selectMyBetsTab('active')">Aktywne</button>
+            <button id="myBetsHistoryTab" class="filter-select" type="button" role="tab" aria-controls="myBetsList" aria-selected="false" onclick="selectMyBetsTab('history')">Historyczne</button>
+        </nav>
+        <button id="myBetsRefresh" class="filter-select" type="button" onclick="refreshMyBetsSettlements(true)">Sprawdź wyniki</button>
+        <div id="myBetsStatus" class="mybets-note" aria-live="polite"></div>
+    </div>
+    <div class="dock-content" id="myBetsList" role="tabpanel" aria-labelledby="myBetsActiveTab"></div>
 </div>
 
 <script>
@@ -784,6 +800,10 @@
         } catch (e) {
             console.error("Błąd podczas wczytywania MyBets:", e);
         }
+
+        renderMyBets();
+        refreshMyBetsSettlements();
+        setInterval(() => refreshMyBetsSettlements(), 5 * 60 * 1000);
 
         try {
             if (window.go?.main?.App?.LoadMatchHistory) {
@@ -1434,6 +1454,7 @@
             if (!groups.has(key)) {
                 groups.set(key, {
                     analysisId: b.analysisId,
+                    fixtureId: b.fixtureId, matchStart: b.matchStart, matchName: b.matchName,
                     playerId: b.playerId,
                     sampleEventIds: b.sampleEventIds || [],
                     sampleRatings: b.sampleRatings || [],
@@ -2357,6 +2378,7 @@
                     addToMyBets({
                         bookmaker: bmKey,
                         analysisId: g.analysisId,
+                        fixtureId: g.fixtureId, matchStart: g.matchStart, matchName: g.matchName,
                         playerId: g.playerId,
                         sampleEventIds: g.sampleEventIds || [],
                         sampleRatings: g.sampleRatings || [],
@@ -2397,83 +2419,182 @@
         });
     }
 
-    async function persistMyBets() {
-        if (window.go?.main?.App?.SaveMyBets) {
-            try {
-                await window.go.main.App.SaveMyBets(myBets);
-            } catch (e) {
-                console.error("Błąd zapisu MyBets do bets_cache.json:", e);
-            }
-        }
+    let myBetsTab = 'active';
+    let myBetsSaveQueue = Promise.resolve();
+    let myBetsRefreshing = false;
+    let myBetsRefreshAgain = false;
+    const MYBET_RESULTS = {pending: 'Oczekuje', review: 'Do weryfikacji', won: '✓ Trafiony', lost: '✗ Nietrafiony', push: '↔ Zwrot', void: '↔ Anulowany / zwrot'};
+    function activeMyBets() { return myBets.filter(bet => !bet.archivedAt); }
+    function selectMyBetsTab(tab) { myBetsTab = tab; renderMyBets(); }
+    function persistMyBets() {
+        const snapshot = JSON.parse(JSON.stringify(myBets));
+        myBetsSaveQueue = myBetsSaveQueue.catch(() => {}).then(async () => {
+            if (!window.go?.main?.App?.SaveMyBets || !await window.go.main.App.SaveMyBets(snapshot)) throw new Error('Nie udało się zapisać MyBets na dysku.');
+            return true;
+        }).catch(error => { document.getElementById('myBetsStatus').textContent = String(error); return false; });
+        return myBetsSaveQueue;
     }
-
     function addToMyBets(bet) {
-        const id = `${bet.bookmaker}_${bet.playerName}_${bet.marketLabel}_${bet.line}_${bet.isUnder}`;
-        if (myBets.some(b => b.id === id)) {
-            removeMyBet(id);
-            return;
-        }
+        const match = bet.fixtureId || `${bet.matchStart || ''}|${bet.matchName || bet.analysisId || 'legacy'}`;
+        const id = `${match}|${bet.bookmaker}|${bet.playerId || bet.playerName}|${bet.marketType}|${bet.line}|${bet.isUnder}`;
+        if (myBets.some(b => b.id === id)) { removeMyBet(id); return; }
         myBets.push({
-            id,
-            ...bet,
+            ...bet, id, addedAt: new Date().toISOString(), includeSuperSub: false,
+            settlementStatus: 'pending', settlementSource: '', archivedAt: '',
             teamId: bet.teamId || bet.teamSide || "TEAM_DEFAULT",
             teamName: bet.teamName || (bet.teamSide === "HOME" ? "Gospodarze" : (bet.teamSide === "AWAY" ? "Goście" : "Drużyna"))
         });
+        myBetsTab = 'active';
         renderMyBets();
         persistMyBets();
+        refreshMyBetsSettlements();
     }
-
     function removeMyBet(id) {
         myBets = myBets.filter(b => b.id !== id);
         renderMyBets();
         persistMyBets();
     }
-
-    function renderMyBets() {
-        const container = document.getElementById("myBetsList");
-        document.getElementById("myBetsCount").textContent = myBets.length;
-        container.innerHTML = "";
-
-        myBets.forEach(b => {
-            const hasSample = Array.isArray(b.sampleValues) && b.sampleValues.length > 0;
-
-            const card = document.createElement("div");
-            card.className = "item-card";
-            card.innerHTML = `
-                <div class="card-title">${b.playerName} ${renderLineupBadge(b.lineupStatus)}</div>
-                <div style="font-size:11px; color:var(--text-muted); margin-top:-2px; margin-bottom:2px;">${b.teamName || (b.teamSide === 'HOME' ? 'Gospodarze' : (b.teamSide === 'AWAY' ? 'Goście' : ''))}</div>
-                <div class="card-sub">${b.marketLabel} (${b.isUnder ? 'under' : 'over'} ${b.line}) [${b.statsSource || 'SOFASCORE'}]</div>
-                <div style="margin-top:4px; font-weight:700; color:var(--accent);">
-                    @${b.bookmakerOdds ? b.bookmakerOdds.toFixed(2) : '-'} | HR: ${b.hitRate}% [${b.bookmaker}]
-                </div>
-                ${hasSample ? '<div style="font-size:10px; color:var(--text-muted); margin-top:3px;">kliknij, aby zobaczyć wykres</div>' : ''}
-            `;
-
-            const del = document.createElement("button");
-            del.className = "card-del";
-            del.textContent = "✕";
-            del.addEventListener("click", e => { e.stopPropagation(); removeMyBet(b.id); });
-            card.appendChild(del);
-
-            if (hasSample) {
-                card.addEventListener("click", () => openSampleChart(b));
-            } else {
-                card.style.cursor = "default";
+    function setMyBetResult(bet, result) {
+        if (result === 'auto') {
+            if (bet.settlementSource === 'manual' && !['FT', 'AET', 'PEN', 'CANC', 'ABD', 'AWD', 'WO'].includes(bet.fixtureStatus)) bet.archivedAt = '';
+            bet.settlementSource = '';
+            bet.settlementStatus = bet.archivedAt ? 'review' : 'pending';
+            bet.settlementValue = bet.playerValue = bet.superSubValue = null;
+            bet.settlementNote = '';
+            bet.settlementCheckedAt = '';
+        } else {
+            bet.settlementSource = 'manual';
+            bet.settlementStatus = result;
+            bet.archivedAt ||= new Date().toISOString();
+            bet.settlementCheckedAt = new Date().toISOString();
+            bet.settlementNote = 'Wynik ustawiony ręcznie.';
+        }
+        renderMyBets();
+        persistMyBets();
+        if (result === 'auto') refreshMyBetsSettlements(true);
+    }
+    function toggleMyBetSuperSub(bet, enabled) {
+        bet.includeSuperSub = enabled;
+        setMyBetResult(bet, 'auto');
+    }
+    function myBetCanSettle(bet) {
+        return bet.statsSource === 'FOOTYMETRICS' && Number.isInteger(bet.fixtureId) && bet.fixtureId > 0 &&
+            Number.isInteger(bet.playerId) && bet.playerId > 0 && /^\d+$/.test(String(bet.teamId)) && Number(bet.teamId) > 0 &&
+            Number.isFinite(Date.parse(bet.matchStart)) && Date.parse(bet.matchStart) > Date.UTC(2000, 0, 1);
+    }
+    async function refreshMyBetsSettlements(force = false) {
+        if (myBetsRefreshing) { myBetsRefreshAgain ||= force; return; }
+        if (!window.go?.main?.App?.RefreshMyBets) return;
+        const now = Date.now();
+        const candidates = myBets.filter(b => b.settlementSource !== 'manual' && myBetCanSettle(b) &&
+            Date.parse(b.matchStart) <= now && (force || !b.settlementCheckedAt || now - Date.parse(b.settlementCheckedAt) >= 5 * 60 * 1000) &&
+            (force || !b.archivedAt || b.settlementStatus === 'review' || now - Date.parse(b.archivedAt) <= 48 * 60 * 60 * 1000));
+        if (!candidates.length) {
+            if (force) document.getElementById('myBetsStatus').textContent = 'Brak typów do sprawdzenia. Starsze zapisy bez danych meczu rozlicz ręcznie.';
+            return;
+        }
+        myBetsRefreshing = true;
+        document.getElementById('myBetsRefresh').disabled = true;
+        document.getElementById('myBetsStatus').textContent = 'Sprawdzanie wyników FootyMetrics…';
+        let failed = false;
+        for (let offset = 0; offset < candidates.length; offset += 5) {
+            const batch = candidates.slice(offset, offset + 5);
+            // Retain snapshots to ignore replies after edits or removal of a bet.
+            const states = batch.map(b => ({bet: b, superSub: !!b.includeSuperSub, checked: b.settlementCheckedAt}));
+            try {
+                const result = await window.go.main.App.RefreshMyBets(batch);
+                for (const row of result || []) {
+                    const state = states.find(s => s.bet.id === row.id);
+                    if (!state || !myBets.includes(state.bet)) continue;
+                    const bet = state.bet;
+                    if (bet.settlementSource === 'manual' || !!bet.includeSuperSub !== state.superSub || bet.settlementCheckedAt !== state.checked) continue;
+                    bet.settlementCheckedAt = row.checkedAt;
+                    bet.fixtureStatus = row.fixtureStatus;
+                    bet.settlementNote = row.note;
+                    if (row.finished) bet.archivedAt ||= new Date().toISOString();
+                    // A temporary data gap must not erase a previously confirmed outcome.
+                    if (['won', 'lost', 'push'].includes(row.status) || !['won', 'lost', 'push'].includes(bet.settlementStatus)) {
+                        bet.settlementStatus = row.status;
+                        bet.settlementSource = 'footymetrics';
+                        bet.settlementValue = row.value;
+                        bet.playerValue = row.playerValue;
+                        bet.superSubValue = row.superSubValue;
+                    }
+                }
+                renderMyBets();
+                if (!await persistMyBets()) failed = true;
+            } catch (error) {
+                failed = true;
+                document.getElementById('myBetsStatus').textContent = 'Błąd sprawdzania wyników: ' + String(error);
             }
-
+        }
+        myBetsRefreshing = false;
+        document.getElementById('myBetsRefresh').disabled = false;
+        if (!failed) document.getElementById('myBetsStatus').textContent = 'Wyniki sprawdzone. Kolejne sprawdzenie za 5 min przy otwartym programie.';
+        if (myBetsRefreshAgain) { myBetsRefreshAgain = false; refreshMyBetsSettlements(true); }
+    }
+    function renderMyBets() {
+        const container = document.getElementById('myBetsList');
+        const active = activeMyBets();
+        const history = myBets.filter(b => b.archivedAt).sort((a, b) => Date.parse(b.matchStart || b.archivedAt) - Date.parse(a.matchStart || a.archivedAt));
+        document.getElementById('myBetsCount').textContent = active.length;
+        document.getElementById('myBetsActiveTab').textContent = `Aktywne (${active.length})`;
+        document.getElementById('myBetsHistoryTab').textContent = `Historyczne (${history.length})`;
+        document.getElementById('myBetsActiveTab').setAttribute('aria-selected', String(myBetsTab === 'active'));
+        document.getElementById('myBetsHistoryTab').setAttribute('aria-selected', String(myBetsTab === 'history'));
+        container.setAttribute('aria-labelledby', myBetsTab === 'active' ? 'myBetsActiveTab' : 'myBetsHistoryTab');
+        container.replaceChildren();
+        const visible = myBetsTab === 'active' ? active : history;
+        if (!visible.length) {
+            const empty = document.createElement('div'); empty.className = 'mybets-note';
+            empty.textContent = myBetsTab === 'active' ? 'Brak aktywnych typów. Dodaj typ prawym przyciskiem myszy.' : 'Po zakończeniu meczu zapisane typy pojawią się tutaj z wynikiem.';
+            container.appendChild(empty);
+        }
+        visible.forEach(b => {
+            const card = document.createElement('div'); card.className = 'item-card';
+            const addText = (text, cls) => { const node = document.createElement('div'); node.className = cls; node.textContent = text; card.appendChild(node); return node; };
+            const title = addText(b.playerName, 'card-title');
+            title.style.paddingRight = '15px';
+            const badge = document.createElement('span'); badge.innerHTML = renderLineupBadge(b.lineupStatus); title.appendChild(badge);
+            const when = Date.parse(b.matchStart);
+            addText((b.matchName || b.teamName || '') + (Number.isFinite(when) && when > 0 ? ' · ' + new Intl.DateTimeFormat('pl-PL', {timeZone: 'Europe/Warsaw', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'}).format(when) : ''), 'mybets-note');
+            addText(`${b.marketLabel || MARKET_LABELS[b.marketType] || b.marketType} (${b.isUnder ? 'under' : 'over'} ${b.line})`, 'card-sub');
+            addText(`@${Number(b.bookmakerOdds || 0).toFixed(2)} · HR: ${b.hitRate ?? '—'}% · ${b.bookmaker}`, 'mybets-note');
+            const result = addText(MYBET_RESULTS[b.settlementStatus] || MYBET_RESULTS.pending, 'mybets-note');
+            result.style.fontWeight = '700';
+            result.style.color = b.settlementStatus === 'won' ? 'var(--success)' : b.settlementStatus === 'lost' ? 'var(--danger)' : 'var(--accent)';
+            if (Number.isFinite(b.settlementValue)) {
+                addText(`Wynik: ${b.settlementValue}` + (b.includeSuperSub ? ` (${b.playerValue} + ${b.superSubValue} SuperSub)` : '') + (b.settlementSource === 'manual' ? ' · ręcznie' : ' · FootyMetrics'), 'mybets-note');
+            }
+            if (b.settlementNote) addText(b.settlementNote, 'mybets-note');
+            if (!myBetCanSettle(b)) addText('Starszy zapis bez danych meczu: rozliczenie ręczne.', 'mybets-note');
+            const actions = document.createElement('div'); actions.className = 'mybets-actions';
+            actions.addEventListener('click', event => event.stopPropagation());
+            const label = document.createElement('label'); label.className = 'mybets-note';
+            const sub = document.createElement('input'); sub.type = 'checkbox'; sub.checked = !!b.includeSuperSub;
+            sub.onchange = () => toggleMyBetSuperSub(b, sub.checked);
+            label.append(sub, document.createTextNode(' Dolicz zmiennika (SuperSub)')); actions.appendChild(label);
+            const select = document.createElement('select'); select.className = 'filter-select'; select.setAttribute('aria-label', 'Ręczna korekta wyniku');
+            for (const [value, text] of [['auto', 'Rozliczenie automatyczne'], ['won', 'Ręcznie: trafiony'], ['lost', 'Ręcznie: nietrafiony'], ['push', 'Ręcznie: zwrot'], ['void', 'Ręcznie: anulowany']]) {
+                const option = document.createElement('option'); option.value = value; option.textContent = text; select.appendChild(option);
+            }
+            select.value = b.settlementSource === 'manual' ? b.settlementStatus : 'auto';
+            select.onchange = () => setMyBetResult(b, select.value); actions.appendChild(select); card.appendChild(actions);
+            const del = document.createElement('button'); del.className = 'card-del'; del.textContent = '✕'; del.title = 'Usuń typ';
+            del.onclick = event => { event.stopPropagation(); removeMyBet(b.id); }; card.appendChild(del);
+            if (Array.isArray(b.sampleValues) && b.sampleValues.length) {
+                addText('Kliknij, aby zobaczyć zapisaną próbkę analizy', 'mybets-note'); card.onclick = () => openSampleChart(b);
+            } else { card.style.cursor = 'default'; }
             container.appendChild(card);
         });
-
-        if (document.getElementById('riskModal').classList.contains('is-open')) {
-            renderRisk();
-        }
+        if (document.getElementById('riskModal').classList.contains('is-open')) renderRisk();
     }
 
     function closeRisk() { document.getElementById('riskModal').classList.remove('is-open'); }
     function closeRiskOnBackdrop(e) { if (e.target === document.getElementById('riskModal')) closeRisk(); }
 
     function openRiskModal() {
-        if (myBets.length === 0) {
+        if (activeMyBets().length === 0) {
             alert('Dodaj najpierw zdarzenia do MyBets (prawy przycisk myszy na wierszu w tabeli).');
             return;
         }
@@ -2494,7 +2615,7 @@
 
     function renderRisk() {
         const bankroll = Math.max(5, parseFloat(document.getElementById('riskBankroll').value) || 100);
-        const legs = myBets.filter(b => b.bookmakerOdds && b.bookmakerOdds > 1.05);
+        const legs = activeMyBets().filter(b => b.bookmakerOdds && b.bookmakerOdds > 1.05);
 
         if (legs.length === 0) {
             document.getElementById('optimizerCards').innerHTML = `<div style="grid-column:1/-1; padding:12px; background:var(--bg-input); border-radius:6px; color:var(--text-muted);">Brak typów z kursem w MyBets. Dodaj typy klikając na nie PPM w tabeli.</div>`;
