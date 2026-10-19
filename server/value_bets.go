@@ -1422,7 +1422,8 @@ type NormalizedProp struct {
 }
 
 type PlayerStatHistory struct {
-	footyData *footyTable
+	footyData       *footyTable
+	footyPlayerPage string
 	// Public analysis IDs belong to FootyMetrics. SofaScore IDs are optional,
 	// resolved only when the user opens this player's chart.
 	SofaPlayerID             int                                    `json:"sofaPlayerId,omitempty"`
@@ -2329,22 +2330,25 @@ func isShotInsideBox(x, y float64) bool {
 // be used in SofaScore URLs; chart enrichment resolves that namespace separately.
 
 type footyTeam struct {
+	Type string `json:"type"`
 	APID int    `json:"apid"`
 	Name string `json:"name"`
 }
 type footyFixture struct {
-	APID      int       `json:"apid"`
-	Status    string    `json:"status"`
-	Timestamp time.Time `json:"timestamp"`
-	HomeID    int       `json:"hid"`
-	AwayID    int       `json:"aid"`
-	TeamID    int       `json:"tid"`
-	LeagueID  int       `json:"lid"`
-	Home      footyTeam `json:"Home"`
-	Away      footyTeam `json:"Away"`
-	Opponent  footyTeam `json:"opponent"`
+	MainDomestic *bool     `json:"mainDomestic"`
+	APID         int       `json:"apid"`
+	Status       string    `json:"status"`
+	Timestamp    time.Time `json:"timestamp"`
+	HomeID       int       `json:"hid"`
+	AwayID       int       `json:"aid"`
+	TeamID       int       `json:"tid"`
+	LeagueID     int       `json:"lid"`
+	Home         footyTeam `json:"Home"`
+	Away         footyTeam `json:"Away"`
+	Opponent     footyTeam `json:"opponent"`
 }
 type footyPlayer struct {
+	PageID    string          `json:"id"`
 	APID      int             `json:"apid"`
 	Name      string          `json:"name"`
 	ShortName string          `json:"shortName"`
@@ -2364,6 +2368,8 @@ func (player *footyPlayer) UnmarshalJSON(body []byte) error {
 		return err
 	}
 	team := bytes.TrimSpace(fields["team"])
+	pageID := bytes.TrimSpace(fields["id"])
+	delete(fields, "id")
 	delete(fields, "team")
 	cleaned, err := json.Marshal(fields)
 	if err != nil {
@@ -2373,6 +2379,15 @@ func (player *footyPlayer) UnmarshalJSON(body []byte) error {
 	var decoded wirePlayer
 	if err = json.Unmarshal(cleaned, &decoded); err != nil {
 		return err
+	}
+	// The site's public page ID is separate from the API/provider APID.
+	if len(pageID) > 0 && pageID[0] == '"' {
+		_ = json.Unmarshal(pageID, &decoded.PageID)
+	} else {
+		decoded.PageID = string(pageID)
+	}
+	if !regexp.MustCompile(`^[0-9]{1,12}$`).MatchString(decoded.PageID) {
+		decoded.PageID = ""
 	}
 	// /teams/table supplies shortName and slug, with no name field. Keep a
 	// human-readable name for results and retain the full slug as a matching
@@ -2413,6 +2428,7 @@ func (player *footyPlayer) UnmarshalJSON(body []byte) error {
 
 type footyRecord map[string]json.RawMessage
 type footyTable struct {
+	Leagues   map[string]footySeasonLeague      `json:"leagues"`
 	Fixtures  []footyFixture                    `json:"fixtures"`
 	PivotData map[string]map[string]footyRecord `json:"pivotData"`
 	Players   []footyPlayer                     `json:"players"`
@@ -5430,6 +5446,19 @@ var sourceLocks = func() [256]chan struct{} {
 }()
 
 func sourceJSON(ctx context.Context, key string, ttl time.Duration, load func() ([]byte, error), validate func([]byte) error) ([]byte, bool, error) {
+	return sourceBody(ctx, key, ttl, load, func(body []byte) error {
+		if !json.Valid(body) {
+			return fmt.Errorf("odpowiedź źródła nie jest JSON")
+		}
+		if validate != nil {
+			return validate(body)
+		}
+		return nil
+	})
+}
+
+// The cache stores bytes; each source supplies its own format validation.
+func sourceBody(ctx context.Context, key string, ttl time.Duration, load func() ([]byte, error), validate func([]byte) error) ([]byte, bool, error) {
 	digest := sha256.Sum256([]byte(key))
 	lock := sourceLocks[digest[0]]
 	select {
@@ -5452,9 +5481,6 @@ func sourceJSON(ctx context.Context, key string, ttl time.Duration, load func() 
 	body, err := load()
 	if err != nil {
 		return nil, false, err
-	}
-	if !json.Valid(body) {
-		return nil, false, fmt.Errorf("odpowiedź źródła nie jest JSON")
 	}
 	if validate != nil {
 		if err = validate(body); err != nil {
@@ -5503,7 +5529,15 @@ func getFootyJSON(client *ResilientClient, endpoint string, target any) error {
 	if strings.HasSuffix(endpoint, "/lineup") {
 		ttl = time.Minute
 	}
-	body, _, err := sourceJSON(client.ctx, "footy/"+endpoint, ttl, func() ([]byte, error) {
+	body, err := getFootyBody(client, endpoint, ttl, "application/json")
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(body, target)
+}
+
+func getFootyBody(client *ResilientClient, endpoint string, ttl time.Duration, accept string) ([]byte, error) {
+	load := func() ([]byte, error) {
 		select {
 		case footySlot <- struct{}{}:
 		case <-client.ctx.Done():
@@ -5514,7 +5548,7 @@ func getFootyJSON(client *ResilientClient, endpoint string, target any) error {
 		if err != nil {
 			return nil, err
 		}
-		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Accept", accept)
 		req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36")
 		req.Header.Set("Referer", "https://www.footymetrics.com/")
 		if cookie := strings.TrimSpace(os.Getenv("VALUE_BETS_FOOTY_COOKIE")); cookie != "" {
@@ -5529,12 +5563,20 @@ func getFootyJSON(client *ResilientClient, endpoint string, target any) error {
 			return nil, fmt.Errorf("FootyMetrics HTTP %d", resp.StatusCode)
 		}
 		return readBounded(resp.Body, 32<<20)
-	}, nil)
-	if err != nil {
-		return err
 	}
-	return json.Unmarshal(body, target)
+	if accept == "text/html" {
+		body, _, err := sourceBody(client.ctx, "footy-page/"+endpoint, ttl, load, func(body []byte) error {
+			if !bytes.Contains(body, []byte("self.__next_f.push(")) {
+				return fmt.Errorf("FootyMetrics: strona HTML nie zawiera danych zawodnika (możliwa blokada źródła)")
+			}
+			return nil
+		})
+		return body, err
+	}
+	body, _, err := sourceJSON(client.ctx, "footy/"+endpoint, ttl, load, nil)
+	return body, err
 }
+
 func getSofaTeamRefresh(client *ResilientClient, teamID string) (sofaTeamRefreshState, error) {
 	client.state.mu.Lock()
 	cached, ok := client.state.teamRefresh[teamID]
@@ -5661,6 +5703,12 @@ func fetchPlayerHistory(client *ResilientClient, player SofaPlayerDetails, teamN
 		return nil, fmt.Errorf("FootyMetrics: brak potwierdzonych występów %s w wybranym zakresie", player.Name)
 	}
 	full.footyData = &historyTable
+	for _, providerPlayer := range bundle.Table.Players {
+		if providerPlayer.APID == id && providerPlayer.PageID != "" && providerPlayer.Slug != "" && !strings.Contains(providerPlayer.Slug, "/") {
+			full.footyPlayerPage = "/players/" + providerPlayer.PageID + "/" + url.PathEscape(providerPlayer.Slug)
+			break
+		}
+	}
 	full.PlayerAliases = []string{player.Name, player.ShortName, strings.ReplaceAll(player.Slug, "-", " ")}
 	enrichFootyReplacements(client, full, historyTable, markets, limit)
 	full.HistoryNotes = append(full.HistoryNotes, "SofaScore jest pobierany dopiero po otwarciu wykresu. Korekta profilu EV = 1.")
@@ -6054,15 +6102,17 @@ func fetchAnalysisMatchContext(client *ResilientClient, homeID, awayID string, p
 }
 
 type analysisTask struct {
-	ctx         context.Context
-	cancel      context.CancelFunc
-	mu          sync.Mutex
-	job         AnalysisJob
-	histories   map[int]*PlayerStatHistory
-	fixture     statsFixture
-	calculation *analysisCalculation
-	seed        CalendarEvent
-	chartGate   chan struct{}
+	ctx               context.Context
+	cancel            context.CancelFunc
+	mu                sync.Mutex
+	job               AnalysisJob
+	histories         map[int]*PlayerStatHistory
+	fixture           statsFixture
+	calculation       *analysisCalculation
+	seed              CalendarEvent
+	chartGate         chan struct{}
+	appearanceGate    chan struct{}
+	seasonAppearances map[int]seasonAppearanceCounts
 	// These fields are accessed only while holding chartGate. Initial results
 	// and histories stay immutable when charts receive optional enrichment.
 	chartHistories    map[string]*PlayerStatHistory
@@ -6552,6 +6602,7 @@ func (s *calendarServer) handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/analyses/{id}/sample", s.analysisSample)
 	mux.HandleFunc("POST /api/v1/markets/prepare", s.prepareMatch)
 	mux.HandleFunc("POST /api/v1/mybets/settle", s.settleMyBets)
+	mux.HandleFunc("POST /api/v1/analyses/{id}/appearances", s.analysisAppearances)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		clientID := r.Header.Get("X-ValueBets-Client")
 		if clientID != "" && !relayClientIDPattern.MatchString(clientID) {
@@ -6644,7 +6695,7 @@ func (s *calendarServer) startAnalysis(w http.ResponseWriter, r *http.Request) {
 	id := fmt.Sprintf("%x", bytes)
 	clientID, _ := r.Context().Value(sofaRelayContextKey{}).(string)
 	ctx, cancel := context.WithTimeout(context.WithValue(s.ctx, sofaRelayContextKey{}, clientID), 22*time.Minute)
-	task := &analysisTask{ctx: ctx, cancel: cancel, chartGate: make(chan struct{}, 1), job: AnalysisJob{ID: id, Status: "queued", Stage: "queued", Message: "Oczekiwanie na analizę", CreatedAt: time.Now().UTC(), Request: query, Warnings: []string{}}}
+	task := &analysisTask{ctx: ctx, cancel: cancel, chartGate: make(chan struct{}, 1), appearanceGate: make(chan struct{}, 1), job: AnalysisJob{ID: id, Status: "queued", Stage: "queued", Message: "Oczekiwanie na analizę", CreatedAt: time.Now().UTC(), Request: query, Warnings: []string{}}}
 	s.mu.Lock()
 	for key, old := range s.jobs {
 		job := old.snapshot()
@@ -8085,4 +8136,367 @@ func settleFootyBet(client *ResilientClient, bet myBetSettlementRequest) myBetSe
 	}
 	out.Note = "Statystyka FootyMetrics po FT; wynik można skorygować ręcznie."
 	return out
+}
+
+// Season counts use complete provider seasons, independently of the EV sample.
+type footySeasonLeague struct {
+	APID int    `json:"apid"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+type footySeasonOption struct {
+	Short string `json:"short"`
+	APIDs string `json:"apids"`
+}
+type footySeasonStat struct {
+	Main   bool `json:"main"`
+	Season struct {
+		Short  string            `json:"short"`
+		League footySeasonLeague `json:"League"`
+	} `json:"Season"`
+}
+type seasonAppearanceCounts struct {
+	All      *int   `json:"all"`
+	Domestic *int   `json:"domestic"`
+	Europe   *int   `json:"europe"`
+	National *int   `json:"national"`
+	Season   string `json:"season"`
+	Note     string `json:"note"`
+}
+
+// Read JSON values from the published Next.js data stream, without executing JS.
+func footyPageValues(page []byte, key string) []json.RawMessage {
+	var stream strings.Builder
+	text := string(page)
+	const marker = "self.__next_f.push("
+	for {
+		pos := strings.Index(text, marker)
+		if pos < 0 {
+			break
+		}
+		text = text[pos+len(marker):]
+		var parts []json.RawMessage
+		if json.NewDecoder(strings.NewReader(text)).Decode(&parts) != nil || len(parts) < 2 {
+			continue
+		}
+		var kind int
+		var payload string
+		if json.Unmarshal(parts[0], &kind) == nil && kind == 1 && json.Unmarshal(parts[1], &payload) == nil {
+			stream.WriteString(payload)
+		}
+	}
+	text = stream.String()
+	needle := `"` + key + `":`
+	var values []json.RawMessage
+	for {
+		pos := strings.Index(text, needle)
+		if pos < 0 {
+			break
+		}
+		text = text[pos+len(needle):]
+		var value json.RawMessage
+		if json.NewDecoder(strings.NewReader(text)).Decode(&value) == nil {
+			values = append(values, value)
+		}
+	}
+	return values
+}
+
+func footySeasonWindow(short string, zone *time.Location) (time.Time, time.Time, bool) {
+	parts := strings.Split(short, "/")
+	if len(parts) < 1 || len(parts) > 2 {
+		return time.Time{}, time.Time{}, false
+	}
+	parse := func(text string) int {
+		n, err := strconv.Atoi(text)
+		if err != nil {
+			return 0
+		}
+		if len(text) == 2 {
+			n += 2000
+		}
+		if n < 2000 || n > 2100 {
+			return 0
+		}
+		return n
+	}
+	year := parse(parts[0])
+	if year == 0 {
+		return time.Time{}, time.Time{}, false
+	}
+	if len(parts) == 1 {
+		return time.Date(year, 1, 1, 0, 0, 0, 0, zone), time.Date(year+1, 1, 1, 0, 0, 0, 0, zone), true
+	}
+	end := parse(parts[1])
+	if end <= year {
+		return time.Time{}, time.Time{}, false
+	}
+	return time.Date(year, 7, 1, 0, 0, 0, 0, zone), time.Date(end, 7, 1, 0, 0, 0, 0, zone), true
+}
+
+func (s *calendarServer) analysisAppearances(w http.ResponseWriter, r *http.Request) {
+	var query struct {
+		PlayerIDs []int `json:"playerIds"`
+	}
+	if err := decodeAPIRequest(w, r, &query); err != nil {
+		apiError(w, 400, err)
+		return
+	}
+	if len(query.PlayerIDs) < 1 || len(query.PlayerIDs) > 5 {
+		apiError(w, 400, fmt.Errorf("dozwolone 1–5 zawodników"))
+		return
+	}
+	task := s.clientTask(r, r.PathValue("id"))
+	if task == nil {
+		apiError(w, 404, fmt.Errorf("analiza wygasła; wykonaj ją ponownie"))
+		return
+	}
+	task.mu.Lock()
+	histories := map[int]*PlayerStatHistory{}
+	for _, id := range query.PlayerIDs {
+		if hist := task.histories[id]; hist != nil {
+			histories[id] = hist
+		}
+	}
+	ready := task.job.Status == "completed"
+	cutoff := task.fixture.StartTime
+	task.mu.Unlock()
+	if !ready || len(histories) != len(query.PlayerIDs) {
+		apiError(w, 409, fmt.Errorf("brak zakończonej analizy tych zawodników"))
+		return
+	}
+	select {
+	case task.appearanceGate <- struct{}{}:
+		defer func() { <-task.appearanceGate }()
+	case <-r.Context().Done():
+		return
+	}
+	if task.seasonAppearances == nil {
+		task.seasonAppearances = map[int]seasonAppearanceCounts{}
+	}
+	result := map[int]seasonAppearanceCounts{}
+	for _, id := range query.PlayerIDs {
+		if cached, ok := task.seasonAppearances[id]; ok {
+			result[id] = cached
+			continue
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		client, err := newSofaClient(ctx, nil)
+		if err != nil {
+			cancel()
+			result[id] = seasonAppearanceCounts{Note: err.Error()}
+			continue
+		}
+		counts := countFootySeasonAppearances(client, histories[id], cutoff)
+		client.tlsClient.CloseIdleConnections()
+		cancel()
+		result[id] = counts
+		if counts.Note != "" {
+			log.Printf("[SEASON-APPEARANCES] analysis=%s player_id=%d name=%q season=%q note=%q", r.PathValue("id"), id, histories[id].FullName, counts.Season, counts.Note)
+		} else if counts.All != nil && counts.Domestic != nil && counts.Europe != nil && counts.National != nil {
+			log.Printf("[SEASON-APPEARANCES] analysis=%s player_id=%d season=%q counts=%d/%d/%d/%d", r.PathValue("id"), id, counts.Season, *counts.All, *counts.Domestic, *counts.Europe, *counts.National)
+		}
+		if counts.All != nil && counts.Domestic != nil && counts.Europe != nil && counts.National != nil {
+			task.seasonAppearances[id] = counts
+		}
+	}
+	jsonResponse(w, 200, result)
+}
+
+func countFootySeasonAppearances(client *ResilientClient, hist *PlayerStatHistory, cutoff time.Time) seasonAppearanceCounts {
+	out := seasonAppearanceCounts{}
+	fail := func(err error) seasonAppearanceCounts { out.Note = err.Error(); return out }
+	if hist.footyPlayerPage == "" {
+		return fail(fmt.Errorf("FootyMetrics: brak potwierdzonego adresu strony zawodnika dla danych sezonu"))
+	}
+	page, err := getFootyBody(client, hist.footyPlayerPage, 15*time.Minute, "text/html")
+	if err != nil {
+		return fail(err)
+	}
+	verified := false
+	for _, raw := range footyPageValues(page, "player") {
+		var player footyPlayer
+		if json.Unmarshal(raw, &player) == nil && player.APID == hist.SourcePlayerID {
+			verified = true
+			break
+		}
+	}
+	if !verified {
+		return fail(fmt.Errorf("FootyMetrics: nie potwierdzono zawodnika w metadanych sezonu"))
+	}
+	var options []footySeasonOption
+	for _, raw := range footyPageValues(page, "initialData") {
+		var data struct {
+			Seasons []footySeasonOption `json:"seasons"`
+		}
+		if json.Unmarshal(raw, &data) == nil && len(data.Seasons) > 0 {
+			options = data.Seasons
+			break
+		}
+	}
+	mainShort := ""
+	mainLeagues := map[string]bool{}
+	for _, raw := range footyPageValues(page, "seasons") {
+		var stats []footySeasonStat
+		if json.Unmarshal(raw, &stats) != nil {
+			continue
+		}
+		for _, stat := range stats {
+			if stat.Main && stat.Season.Short != "" {
+				mainShort = stat.Season.Short
+				mainLeagues[stat.Season.League.ID] = true
+			}
+		}
+	}
+	zone, err := time.LoadLocation("Europe/Warsaw")
+	if err != nil {
+		return fail(err)
+	}
+	if _, _, ok := footySeasonWindow(mainShort, zone); !ok || len(options) == 0 {
+		return fail(fmt.Errorf("FootyMetrics: brak jednoznacznego sezonu ligi klubowej"))
+	}
+	year := cutoff.In(zone).Year()
+	if strings.Contains(mainShort, "/") {
+		if cutoff.In(zone).Month() < 7 {
+			year--
+		}
+		out.Season = fmt.Sprintf("%d/%d", year, year+1)
+	} else {
+		out.Season = strconv.Itoa(year)
+	}
+	start, end, _ := footySeasonWindow(out.Season, zone)
+	ids := map[int]bool{}
+	for _, option := range options {
+		a, b, ok := footySeasonWindow(option.Short, zone)
+		if !ok || !a.Before(end) || !b.After(start) {
+			continue
+		}
+		for _, text := range strings.Split(option.APIDs, ",") {
+			if id, err := strconv.Atoi(strings.TrimSpace(text)); err == nil && id > 0 {
+				ids[id] = true
+			}
+		}
+	}
+	if len(ids) == 0 {
+		return fail(fmt.Errorf("FootyMetrics: brak pełnego zestawu sezonów dla okresu %s", out.Season))
+	}
+	ordered := make([]int, 0, len(ids))
+	for id := range ids {
+		ordered = append(ordered, id)
+	}
+	sort.Ints(ordered)
+	seasonIDs := make([]string, 0, len(ordered))
+	for _, id := range ordered {
+		seasonIDs = append(seasonIDs, strconv.Itoa(id))
+	}
+	q := url.Values{"stat": {"shots"}, "id": {strconv.Itoa(hist.SourcePlayerID)}, "tid": {strconv.Itoa(hist.SourceTeamID)}, "period": {"s-" + strings.Join(seasonIDs, ",")}, "started": {"false"}, "location": {"both"}, "scope": {"all"}, "l": {""}, "p": {""}, "dl": {"true"}, "se": {"false"}, "sm": {"easier"}}
+	var table footyTable
+	if err := getFootyJSON(client, "/api/front/players/table?"+q.Encode(), &table); err != nil {
+		return fail(err)
+	}
+	if table.PivotData == nil || table.Leagues == nil {
+		return fail(fmt.Errorf("FootyMetrics: niepełna odpowiedź pełnego sezonu"))
+	}
+	all, domestic, europe, national := 0, 0, 0, 0
+	seen := map[int]bool{}
+	kinds := map[int]string{}
+	unknown := false
+	for _, fixture := range table.Fixtures {
+		if fixture.APID <= 0 || seen[fixture.APID] || fixture.Timestamp.Before(start) || !fixture.Timestamp.Before(end) || !fixture.Timestamp.Before(cutoff) {
+			continue
+		}
+		seen[fixture.APID] = true
+		record := table.PivotData[strconv.Itoa(hist.SourcePlayerID)][strconv.Itoa(fixture.APID)]
+		minutes, played := footyCount(record, "mins")
+		if !played || minutes <= 0 || minutes > 150 {
+			continue
+		}
+		all++
+		kind, ok := kinds[fixture.LeagueID]
+		if !ok {
+			league := table.Leagues[strconv.Itoa(fixture.LeagueID)]
+			if mainLeagues[league.ID] && league.ID != "" {
+				kind = "domestic"
+			} else {
+				kind = footySeasonCompetitionKind(client, league, fixture)
+			}
+			kinds[fixture.LeagueID] = kind
+		}
+		switch kind {
+		case "domestic":
+			domestic++
+		case "europe":
+			europe++
+		case "national":
+			national++
+		case "other":
+		default:
+			unknown = true
+		}
+	}
+	out.All = &all
+	if !unknown {
+		out.Domestic = &domestic
+		out.Europe = &europe
+		out.National = &national
+	} else {
+		out.Note = "Nie potwierdzono kategorii części rozgrywek; brak danych nie jest zerem. Kliknij, aby ponowić."
+	}
+	return out
+}
+
+func footySeasonCompetitionKind(client *ResilientClient, league footySeasonLeague, playedFixture footyFixture) string {
+	switch strings.ToLower(strings.TrimSpace(league.Name)) {
+	case "champions league", "uefa champions league", "europa league", "uefa europa league", "europa conference league", "uefa europa conference league", "conference league", "uefa conference league", "uefa super cup", "european super cup":
+		return "europe"
+	case "uefa nations league", "world cup", "friendly international", "european championship", "euro qualification":
+		return "national"
+	}
+	if strings.HasPrefix(strings.ToLower(league.Name), "wc qualification ") {
+		return "national"
+	}
+	classify := func(fixture footyFixture) string {
+		h, a := strings.ToLower(fixture.Home.Type), strings.ToLower(fixture.Away.Type)
+		if h == "national" && a == "national" {
+			return "national"
+		}
+		if fixture.MainDomestic != nil && *fixture.MainDomestic {
+			return "domestic"
+		}
+		if fixture.MainDomestic != nil && !*fixture.MainDomestic && h == "club" && a == "club" {
+			return "other"
+		}
+		return ""
+	}
+	if regexp.MustCompile(`^[0-9]{1,12}$`).MatchString(league.ID) {
+		var fixtures []footyFixture
+		if getFootyJSON(client, "/api/front/fixtures/league?league="+league.ID, &fixtures) == nil {
+			for _, fixture := range fixtures {
+				if kind := classify(fixture); kind != "" {
+					return kind
+				}
+			}
+		}
+	}
+	// Some international competitions have an empty league feed. Confirm the
+	// exact played event in the date calendar instead of assuming its category.
+	zone, err := time.LoadLocation("Europe/Warsaw")
+	if err != nil || playedFixture.Timestamp.IsZero() {
+		return ""
+	}
+	q := url.Values{"date": {playedFixture.Timestamp.In(zone).Format("2006-01-02")}, "tz": {"Europe/Warsaw"}, "late": {"1"}}
+	var groups []struct {
+		Fixtures []footyFixture `json:"fixtures"`
+		Late     []footyFixture `json:"late"`
+	}
+	if getFootyJSON(client, "/api/front/fixtures?"+q.Encode(), &groups) == nil {
+		for _, group := range groups {
+			for _, fixture := range append(group.Fixtures, group.Late...) {
+				if fixture.APID == playedFixture.APID {
+					return classify(fixture)
+				}
+			}
+		}
+	}
+	return ""
 }

@@ -1,10 +1,50 @@
 [
   {
-    "timestamp": "2026-10-19 12:01:18",
+    "timestamp": "2026-10-19 14:02:14",
     "title": "Wisła Płock vs Radomiak Radom",
     "sbUrl": "https://superbet.pl/kursy/pilka-nozna/wisla-plock-vs-radomiak-radom-14127705?mdt=o",
     "betclicUrl": "https://www.betclic.pl/pilka-nozna-s1/Wis%C5%82a%20P%C5%82ock-RKS%20Radomiak-m1250882451685376",
     "stsUrl": "https://www.sts.pl/kursy/pilka-nozna/f2915795",
+    "homeStatsId": "",
+    "awayStatsId": "",
+    "sampleLimit": 10
+  },
+  {
+    "timestamp": "2026-10-19 12:25:07",
+    "title": "Rodez vs Montpellier",
+    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/rodez-vs-montpellier-14114102?mdt=o",
+    "betclicUrl": "https://www.betclic.pl/pilka-nozna-s1/Rodez%20Aveyron-Montpellier-m1250661693915136",
+    "stsUrl": "https://www.sts.pl/kursy/pilka-nozna/f2868291",
+    "homeStatsId": "",
+    "awayStatsId": "",
+    "sampleLimit": 10
+  },
+  {
+    "timestamp": "2026-10-19 12:22:08",
+    "title": "Al Shabab vs Al Faisaly",
+    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/al-shabab-vs-al-faisaly-14242867?mdt=o",
+    "betclicUrl": "https://www.betclic.pl/pilka-nozna-s1/Al%20Shabab-Al%20Faisaly%20FC-m1253475484700672",
+    "stsUrl": "https://www.sts.pl/kursy/pilka-nozna/f3106659",
+    "homeStatsId": "",
+    "awayStatsId": "",
+    "sampleLimit": 10
+  },
+  {
+    "timestamp": "2026-10-19 12:17:24",
+    "title": "Viborg vs Midtjylland",
+    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/viborg-vs-midtjylland-15105153?mdt=o",
+    "betclicUrl": "https://www.betclic.pl/pilka-nozna-s1/Viborg-FC%20Midtjylland-m1250088392335360",
+    "stsUrl": "https://www.sts.pl/kursy/pilka-nozna/f2867524",
+    "homeStatsId": "",
+    "awayStatsId": "",
+    "sampleLimit": 10
+  },
+  {
+    "timestamp": "2026-10-19 12:16:12",
+    "title": "Degerfors vs Kalmar FF",
+    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/degerfors-vs-kalmar-ff-14142752?mdt=o",
+    "betclicUrl": "https://www.betclic.pl/pilka-nozna-s1/Degerfors%20IF-Kalmar%20FF-m1250719226142720",
+    "stsUrl": "https://www.sts.pl/kursy/pilka-nozna/f2219062",
     "homeStatsId": "",
     "awayStatsId": "",
     "sampleLimit": 10

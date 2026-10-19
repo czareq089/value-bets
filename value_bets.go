@@ -796,6 +796,21 @@ func (a *App) GetAnalysisSample(analysisID string, limit int) ([]AnalyzedBet, er
 	return result, err
 }
 
+func (a *App) GetSeasonAppearances(analysisID string, playerIDs []int) (map[string]any, error) {
+	if !regexp.MustCompile(`^[a-f0-9]{24}$`).MatchString(analysisID) || len(playerIDs) < 1 || len(playerIDs) > 5 {
+		return nil, fmt.Errorf("niepoprawna analiza lub lista zawodników")
+	}
+	body, err := json.Marshal(map[string]any{"playerIds": playerIDs})
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(a.calendarContext(), 3*time.Minute)
+	defer cancel()
+	var result map[string]any
+	err = a.serverRequest(ctx, http.MethodPost, "/api/v1/analyses/"+analysisID+"/appearances", body, &result)
+	return result, err
+}
+
 func (a *App) GetRelatedStats(analysisID string, playerID int, baseMarket, market string, limit int) (map[string]any, error) {
 	if !regexp.MustCompile(`^[a-f0-9]{24}$`).MatchString(analysisID) || playerID <= 0 || limit < 1 || limit > 30 {
 		return nil, fmt.Errorf("niepoprawna próbka")

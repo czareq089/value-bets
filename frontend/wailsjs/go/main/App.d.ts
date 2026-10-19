@@ -34,6 +34,8 @@ export function GetRelatedStats(arg1:string,arg2:number,arg3:string,arg4:string,
 
 export function GetSTSCalendar(arg1:string):Promise<main.SuperbetCalendar>;
 
+export function GetSeasonAppearances(arg1:string,arg2:Array<number>):Promise<Record<string, any>>;
+
 export function GetSofaBrowserState():Promise<main.SofaBrowserState>;
 
 export function GetSuperbetCalendar(arg1:string):Promise<main.SuperbetCalendar>;

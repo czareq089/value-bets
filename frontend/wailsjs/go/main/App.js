@@ -66,6 +66,10 @@ export function GetSTSCalendar(arg1) {
   return window['go']['main']['App']['GetSTSCalendar'](arg1);
 }
 
+export function GetSeasonAppearances(arg1, arg2) {
+  return window['go']['main']['App']['GetSeasonAppearances'](arg1, arg2);
+}
+
 export function GetSofaBrowserState() {
   return window['go']['main']['App']['GetSofaBrowserState']();
 }

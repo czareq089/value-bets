@@ -75,6 +75,7 @@
         .item-card .card-date { font-size: 10px; color: var(--text-muted); margin-bottom: 3px; }
         .item-card .card-title { font-weight: 700; color: #fff; margin-bottom: 4px; }
         .item-card .card-sub { font-size: 11px; color: var(--text-muted); }
+        .season-appearances { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--accent); font-size: 12px; }
         .card-del { position: absolute; right: 6px; top: 6px; color: var(--danger); border: none; background: transparent; cursor: pointer; font-weight: bold; }
 
         .main-container { flex: 1; display: flex; flex-direction: column; padding: 14px 18px; overflow-y: auto; min-width: 800px; }
@@ -206,6 +207,11 @@
         .chart-extra-panel { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px; }
         .chart-extra-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
         .chart-extra-note { font-size: 12px; color: var(--text-muted); margin: 8px 0; }
+        .chart-lines-table { max-height: 310px; overflow: auto; border: 1px solid var(--border); border-radius: 7px; }
+        .chart-lines-table table { min-width: 760px; }
+        .chart-lines-table th { cursor: default; }
+        .chart-lines-table tr[aria-current="true"] { background: rgba(56, 189, 248, 0.1); }
+        .chart-lines-table .result-row:focus { outline: 1px solid var(--accent); outline-offset: -1px; }
         .lineup-tabs { display: flex; gap: 6px; }
         .lineup-tabs button[aria-selected="true"] { border-color: var(--accent); color: var(--accent); }
         /* SofaScore footer: 132px height + 16px top margin in the supplied widget markup. */
@@ -518,11 +524,12 @@
         </div>
     </div>
 
+    <div id="seasonAppearancesStatus" role="status" style="font-size:11px;color:var(--text-muted);margin:0 0 8px;" hidden></div>
     <div class="table-wrap">
         <table>
             <thead id="tableHead"></thead>
             <tbody id="resultsBody">
-            <tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--text-muted);">Uzupełnij linki bukmacherów i kliknij Analizuj.</td></tr>
+            <tr><td colspan="12" style="text-align:center; padding: 25px; color: var(--text-muted);">Uzupełnij linki bukmacherów i kliknij Analizuj.</td></tr>
             </tbody>
         </table>
     </div>
@@ -590,6 +597,23 @@
                 </div>
             </div>
         </div>
+        <section class="chart-extra-panel" aria-labelledby="chartLinesTitle">
+            <div class="chart-extra-toolbar">
+                <b id="chartLinesTitle">Inne linie tego rynku</b>
+                <select id="chartLinesScope" class="filter-select" aria-label="Zakres linii" onchange="renderChartLines()">
+                    <option value="higher">Wyższe linie</option>
+                    <option value="all">Wszystkie linie</option>
+                </select>
+                <button id="chartLinesRetry" type="button" class="filter-select" onclick="loadChartLines(currentChartBet, true)" hidden>Ponów</button>
+            </div>
+            <div id="chartLinesStatus" class="chart-extra-note" role="status"></div>
+            <div id="chartLinesTable" class="chart-lines-table" hidden>
+                <table aria-labelledby="chartLinesTitle">
+                    <thead><tr><th scope="col">Buk</th><th scope="col">Linia</th><th scope="col">Kurs</th><th scope="col">Fair kurs</th><th scope="col">Hit-Rate</th><th scope="col">Edge</th><th scope="col">EV (podatek)</th><th scope="col">Próbka</th><th scope="col">Ocena</th></tr></thead>
+                    <tbody id="chartLinesBody"></tbody>
+                </table>
+            </div>
+        </section>
         <section class="chart-extra-panel" aria-label="Składy SofaScore">
             <div class="chart-extra-toolbar">
                 <b>Składy SofaScore</b>
@@ -872,6 +896,7 @@
         currentHomeSlug = "";
         currentAwaySlug = "";
         rawBets = [];
+        document.getElementById('seasonAppearancesStatus').hidden = true;
         for (const entry of sampleViewCache.values()) if (entry.timer) clearTimeout(entry.timer);
         sampleViewCache.clear();
         sampleViewSource = rawBets;
@@ -882,7 +907,7 @@
         updateStats();
 
         document.getElementById('resultsBody').innerHTML =
-            '<tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--text-muted);">Uzupełnij linki bukmacherów i kliknij Analizuj.</td></tr>';
+            '<tr><td colspan="12" style="text-align:center; padding: 25px; color: var(--text-muted);">Uzupełnij linki bukmacherów i kliknij Analizuj.</td></tr>';
     }
 
     function toggleDropdown(id) {
@@ -1209,6 +1234,7 @@
                 ${th('bookmaker', 'Buk')}
                 ${th('playerName', 'Zawodnik')}
                 ${th('marketLabel', 'Rynek')}
+                <th title="Występy z minutami > 0 w bieżącym sezonie: łącznie / liga krajowa / europejskie puchary klubowe / reprezentacja. Licznik niezależny od próbki." style="cursor:help;">Mecze sezonu</th>
                 ${th('line', 'Linia')}
                 ${th('bookmakerOdds', 'Kurs')}
                 ${th('fairOdds', 'Fair Kurs')}
@@ -1222,6 +1248,7 @@
             document.getElementById('tableHead').innerHTML = `<tr>
                 ${th('playerName', 'Zawodnik')}
                 ${th('marketType', 'Rynek')}
+                <th title="Występy z minutami > 0 w bieżącym sezonie: łącznie / liga krajowa / europejskie puchary klubowe / reprezentacja. Licznik niezależny od próbki." style="cursor:help;">Mecze sezonu</th>
                 ${th('line', 'Linia')}
                 ${th('fairOdds', 'Fair Kurs')}
                 ${th('hitRate', 'Hit-Rate')}
@@ -1325,13 +1352,14 @@
         document.getElementById('analysisStrip').hidden = false;
         document.getElementById('cancelAnalysisButton').hidden = false;
         document.getElementById('analysisLabel').textContent = 'Wysyłanie zlecenia na serwer';
-        tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 40px; color: var(--accent);">
+        tbody.innerHTML = `<tr><td colspan="12" style="text-align:center; padding: 40px; color: var(--accent);">
             <div style="font-size:16px; font-weight:700; margin-bottom:8px;">Pobieranie kursów bukmacherskich i historii FootyMetrics...</div>
             <div style="font-size:12px; color:var(--text-muted);">Drużyny, zawodnicy, składy i historia z FootyMetrics oraz ważony model EV. SofaScore jest pobierany dopiero po otwarciu wykresu.</div>
         </td></tr>`;
 
         try {
             rawBets = await window.go.main.App.AnalyzeThreeBookmakers(sb, betclic, sts, home, away, limit, selectedTournaments);
+            loadSeasonAppearances(rawBets);
 
 
             const progress = await window.go.main.App.GetAnalysisProgress();
@@ -1376,7 +1404,7 @@
         } catch (e) {
             document.getElementById('analysisLabel').textContent = String(e);
             alert("Błąd analizy: " + e);
-            tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--danger);">Wystąpił błąd podczas analizy. Sprawdź terminal.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="12" style="text-align:center; padding: 25px; color: var(--danger);">Wystąpił błąd podczas analizy. Sprawdź terminal.</td></tr>`;
         } finally {
             analysisRunning = false;
             document.getElementById('cancelAnalysisButton').hidden = true;
@@ -1571,7 +1599,7 @@
             const body = document.getElementById('resultsBody');
             body.replaceChildren();
             const row = document.createElement('tr'), cell = document.createElement('td');
-            cell.colSpan = compareMode ? 10 : 11;
+            cell.colSpan = compareMode ? 11 : 12;
             cell.style.cssText = 'text-align:center;padding:25px;color:var(--text-muted)';
             cell.textContent = view.error || `Przeliczanie ostatnich ${maxSample} meczów…`;
             if (view.error) {
@@ -1642,6 +1670,7 @@
         document.getElementById('chartModal').classList.remove('is-open');
         document.getElementById('lineupWidget').removeAttribute('src');
         currentChartBet = null;
+        chartLinesState = null;
     }
 
     function closeChartOnBackdrop(event) {
@@ -1672,6 +1701,7 @@
         }
 
         currentChartBet = bet;
+        chartLinesState = null;
         useSuperSub = false;
         selectedMatchIndexForShotmap = null;
 
@@ -1680,6 +1710,7 @@
         renderSuperSubToggle(bet);
         drawCurrentBetChart();
         document.getElementById('chartModal').classList.add('is-open');
+        loadChartLines(bet);
         loadRelatedStats();
         loadCurrentLineup();
         loadChartShotmaps(bet);
@@ -1758,7 +1789,140 @@
         extra.appendChild(notes);
         renderShotmap(bet, selectedMatchIndexForShotmap);
         drawRelatedStats();
+        renderChartLines();
         renderLineupWidget();
+    }
+
+    let chartLinesState = null;
+    const chartLinesSampleCache = new Map();
+
+    function sameChartMarket(a, b) {
+        return !!a.analysisId && a.analysisId === b.analysisId && Number(a.playerId) > 0 &&
+            Number(a.playerId) === Number(b.playerId) && a.marketType === b.marketType && !!a.isUnder === !!b.isUnder;
+    }
+
+    function sameChartSample(a, b) {
+        return ['sampleValues', 'sampleDates', 'sampleOpponents', 'sampleMinutes', 'samplePositions']
+            .every(field => JSON.stringify(a[field] || []) === JSON.stringify(b[field] || []));
+    }
+
+    async function loadChartLines(bet, force = false) {
+        if (!bet) return;
+        const state = {bet};
+        chartLinesState = state;
+        renderChartLines();
+        try {
+            if (!bet.analysisId || !bet.playerId) throw new Error('Ten zapis nie zawiera identyfikatora analizy. Wykonaj analizę meczu ponownie.');
+            // Use all offers before the main table filters, retaining the exact chart sample.
+            const sources = [rawBets, ...Array.from(sampleViewCache.values(), entry => entry.bets).filter(Array.isArray)];
+            let source = sources.find(bets => bets.some(offer => sameChartMarket(offer, bet) && sameChartSample(offer, bet)));
+            if (!source) {
+                const limit = bet.sampleValues.length;
+                const key = `${bet.analysisId}|${limit}`;
+                if (force) chartLinesSampleCache.delete(key);
+                let pending = chartLinesSampleCache.get(key);
+                if (!pending) {
+                    if (!window.go?.main?.App?.GetAnalysisSample) throw new Error('Uruchom aktualnego klienta, aby pobrać inne linie.');
+                    pending = window.go.main.App.GetAnalysisSample(bet.analysisId, limit);
+                    chartLinesSampleCache.set(key, pending);
+                    // Keep offers for recently opened saved analyses; no bookmaker or SofaScore requests.
+                    while (chartLinesSampleCache.size > 8) chartLinesSampleCache.delete(chartLinesSampleCache.keys().next().value);
+                }
+                try {
+                    source = await pending;
+                    if (!Array.isArray(source)) throw new Error('Serwer nie zwrócił ofert dla tej próbki.');
+                } catch (error) {
+                    if (chartLinesSampleCache.get(key) === pending) chartLinesSampleCache.delete(key);
+                    throw error;
+                }
+            }
+            state.offers = source.filter(offer => sameChartMarket(offer, bet) && sameChartSample(offer, bet));
+            if (!state.offers.length) throw new Error('Nie można odtworzyć tej samej próbki. Wykonaj analizę meczu ponownie.');
+        } catch (error) {
+            state.error = String(error);
+        }
+        if (chartLinesState === state && currentChartBet === bet) renderChartLines();
+    }
+
+    function verdictBadge(verdict) {
+        if (verdict === 'VALUE') return '<span class="badge-value">🟢 VALUE</span>';
+        if (verdict === 'TRAP') return '<span class="badge-trap">🔴 PUŁAPKA</span>';
+        return '<span class="badge-neutral">NEUTRALNY</span>';
+    }
+
+    function renderChartLines() {
+        const bet = currentChartBet;
+        const state = chartLinesState;
+        const status = document.getElementById('chartLinesStatus');
+        const wrapper = document.getElementById('chartLinesTable');
+        const body = document.getElementById('chartLinesBody');
+        const retry = document.getElementById('chartLinesRetry');
+        body.replaceChildren();
+        wrapper.hidden = true;
+        retry.hidden = true;
+        if (!bet) { status.textContent = ''; return; }
+        if (!state || state.bet !== bet || (!state.offers && !state.error)) {
+            status.textContent = 'Wczytywanie ofert dla tej samej próbki…';
+            return;
+        }
+        if (state.error) {
+            status.textContent = state.error;
+            retry.hidden = false;
+            return;
+        }
+        const higherOnly = document.getElementById('chartLinesScope').value === 'higher';
+        const offers = state.offers.filter(offer => !higherOnly || offer.line > bet.line)
+            .sort((a, b) => a.line - b.line || BOOKMAKERS.indexOf(a.bookmaker) - BOOKMAKERS.indexOf(b.bookmaker));
+        if (!offers.length) {
+            status.textContent = higherOnly
+                ? `W tej analizie nie ma wyższych linii niż ${bet.isUnder ? 'under' : 'over'} ${bet.line}.`
+                : 'W tej analizie nie ma innych ofert tego rynku.';
+            return;
+        }
+        status.textContent = `Oferty z tej analizy · ta sama próbka: ${bet.sampleValues.length} meczów · ${bet.isUnder ? 'under' : 'over'}. ` +
+            'Kursy, fair, HR, Edge, EV i ocena jak w widoku głównym, bez jego filtrów. Model bez SuperSub. LPM: wykres linii · PPM: MyBets.';
+        const bestOdds = new Map();
+        for (const offer of offers) bestOdds.set(offer.line, Math.max(bestOdds.get(offer.line) || 0, offer.bookmakerOdds));
+        for (const offer of offers) {
+            const row = document.createElement('tr');
+            row.className = 'result-row';
+            row.tabIndex = 0;
+            row.title = 'Kliknij, aby otworzyć wykres tej linii. Prawy przycisk myszy: MyBets.';
+            if (offer.line === bet.line && (!bet.bookmaker || offer.bookmaker === bet.bookmaker)) row.setAttribute('aria-current', 'true');
+            const addCell = text => {
+                const cell = document.createElement('td');
+                cell.textContent = text;
+                row.appendChild(cell);
+                return cell;
+            };
+            const bookmaker = document.createElement('span');
+            bookmaker.className = `badge-bm bm-${offer.bookmaker}`;
+            bookmaker.textContent = offer.bookmaker;
+            addCell('').appendChild(bookmaker);
+            addCell(`${offer.isUnder ? 'under' : 'over'} ${offer.line}`);
+            const odds = addCell(Number(offer.bookmakerOdds).toFixed(2));
+            odds.style.fontWeight = '700';
+            if (offer.bookmakerOdds === bestOdds.get(offer.line)) {
+                odds.className = 'best-odds';
+                odds.title = 'Najwyższy kurs dla tej linii w dostępnych ofertach analizy.';
+            }
+            addCell(Number(offer.fairOdds).toFixed(2));
+            const hr = addCell(`${offer.hitRate}%`);
+            hr.style.cssText = 'font-weight:700;color:var(--accent)';
+            for (const value of [offer.edgePercent, offer.evWithTax]) {
+                const cell = addCell(`${value > 0 ? '+' : ''}${value}%`);
+                cell.style.color = value >= 0 ? 'var(--success)' : 'var(--danger)';
+            }
+            addCell(`${offer.matchesSample} meczów`);
+            addCell('').innerHTML = verdictBadge(offer.verdict);
+            row.onclick = () => openSampleChart(offer);
+            row.onkeydown = event => {
+                if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openSampleChart(offer); }
+            };
+            row.oncontextmenu = event => { event.preventDefault(); addToMyBets(offer); };
+            body.appendChild(row);
+        }
+        wrapper.hidden = false;
     }
 
     const SHOT_MARKETS = ['SHOTS_TOTAL', 'SHOTS_ON_TARGET', 'SHOTS_OFF_TARGET', 'SHOTS_BLOCKED',
@@ -2283,20 +2447,84 @@
         return '';
     }
 
+    const seasonAppearanceCache = new Map();
+    function seasonAppearanceKey(bet) { return `${bet.analysisId}|${bet.playerId}`; }
+    function fillSeasonAppearanceCell(cell, bet) {
+        const entry = seasonAppearanceCache.get(seasonAppearanceKey(bet));
+        const counts = entry?.data;
+        if (entry?.loading) {
+            cell.textContent = '…'; cell.title = 'Pobieranie pełnego sezonu FootyMetrics…'; return;
+        }
+        cell.textContent = ['all', 'domestic', 'europe', 'national'].map(key => Number.isInteger(counts?.[key]) ? counts[key] : '—').join('/');
+        const note = entry?.error || counts?.note || '';
+        cell.title = `Sezon ${counts?.season || '—'} · Łącznie / liga krajowa / europejskie puchary klubowe / reprezentacja. Wyłącznie występy z minutami > 0; niezależnie od próbki.` + (note ? ` ${note}` : '');
+        if (entry?.error || (counts && ['all', 'domestic', 'europe', 'national'].some(key => !Number.isInteger(counts[key])))) {
+            cell.style.cursor = 'pointer'; cell.title += ' Kliknij, aby ponowić.';
+            cell.onclick = event => { event.stopPropagation(); loadSeasonAppearances(rawBets, bet.playerId); };
+        }
+    }
+    function renderSeasonAppearanceStatus(source) {
+        if (source !== rawBets) return;
+        const status = document.getElementById('seasonAppearancesStatus');
+        const unique = [...new Map(source.map(b => [seasonAppearanceKey(b), b])).values()];
+        const entries = unique.map(b => seasonAppearanceCache.get(seasonAppearanceKey(b)));
+        const loading = entries.filter(entry => entry?.loading).length;
+        const complete = entries.filter(entry => ['all', 'domestic', 'europe', 'national'].every(key => Number.isInteger(entry?.data?.[key]))).length;
+        const problems = entries.map(entry => entry?.error || entry?.data?.note).filter(Boolean);
+        status.hidden = !unique.length;
+        status.textContent = `Mecze sezonu: ${complete}/${unique.length} zawodników.` +
+            (loading ? ` Pobieranie: ${loading}.` : '') + (problems.length ? ` ${String(problems[0]).slice(0, 400)}` : '');
+        status.style.color = problems.length ? 'var(--sb-color)' : 'var(--text-muted)';
+    }
+    async function loadSeasonAppearances(source, retryPlayerId = null) {
+        if (!Array.isArray(source) || !source.length) return;
+        const analysisId = source[0].analysisId;
+        const unavailable = !analysisId ? 'Brak identyfikatora analizy — wykonaj nową analizę.' :
+            !window.go?.main?.App?.GetSeasonAppearances ? 'Klient nie obsługuje liczników sezonu. Zbuduj i uruchom aktualną wersję klienta.' : '';
+        if (unavailable) {
+            for (const bet of source) seasonAppearanceCache.set(seasonAppearanceKey(bet), {error: unavailable});
+            renderSeasonAppearanceStatus(source);
+            if (source === rawBets) renderFiltered();
+            return;
+        }
+        const players = [...new Set(source.filter(b => b.analysisId === analysisId).map(b => b.playerId))]
+            .filter(id => Number.isInteger(id) && id > 0 && (retryPlayerId === null || id === retryPlayerId))
+            .filter(id => { const entry = seasonAppearanceCache.get(`${analysisId}|${id}`); return !entry || (retryPlayerId !== null && !entry.loading); });
+        for (const id of players) seasonAppearanceCache.set(`${analysisId}|${id}`, {loading: true});
+        renderSeasonAppearanceStatus(source);
+        if (retryPlayerId !== null) renderFiltered();
+        for (let offset = 0; offset < players.length; offset += 3) {
+            if (source !== rawBets) {
+                for (const id of players.slice(offset)) seasonAppearanceCache.delete(`${analysisId}|${id}`);
+                return;
+            }
+            const batch = players.slice(offset, offset + 3);
+            try {
+                const result = await window.go.main.App.GetSeasonAppearances(analysisId, batch);
+                for (const id of batch) {
+                    const data = result?.[String(id)];
+                    seasonAppearanceCache.set(`${analysisId}|${id}`, data ? {data} : {error: 'Brak odpowiedzi licznika sezonu.'});
+                }
+            } catch (error) {
+                for (const id of batch) seasonAppearanceCache.set(`${analysisId}|${id}`, {error: String(error)});
+            }
+            renderSeasonAppearanceStatus(source);
+            if (source === rawBets) renderFiltered();
+        }
+    }
+
     function renderListMode(filtered) {
         const tbody = document.getElementById("resultsBody");
         tbody.innerHTML = "";
         if (filtered.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--text-muted);">Brak zakładów spełniających kryteria.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="12" style="text-align:center; padding: 25px; color: var(--text-muted);">Brak zakładów spełniających kryteria.</td></tr>';
             return;
         }
 
         filtered.forEach(b => {
             const tr = document.createElement("tr");
             tr.className = 'result-row';
-            let badge = '<span class="badge-neutral">NEUTRALNY</span>';
-            if (b.verdict === "VALUE") badge = '<span class="badge-value">🟢 VALUE</span>';
-            if (b.verdict === "TRAP") badge = '<span class="badge-trap">🔴 PUŁAPKA</span>';
+            const badge = verdictBadge(b.verdict);
 
             const lineupBadge = renderLineupBadge(b.lineupStatus);
 
@@ -2304,6 +2532,7 @@
                 <td><span class="badge-bm bm-${b.bookmaker}">${b.bookmaker}</span></td>
                 <td><b>${b.playerName}</b>${lineupBadge}</td>
                 <td>${b.marketLabel}<span class="tag-src" title="Historia statystyk: FootyMetrics">FOOTYMETRICS</span></td>
+                <td class="season-appearances"></td>
                 <td>${b.isUnder ? 'under' : 'over'} ${b.line}</td>
                 <td><b>${b.bookmakerOdds.toFixed(2)}</b></td>
                 <td>${b.fairOdds.toFixed(2)}</td>
@@ -2314,6 +2543,7 @@
                 <td>${badge}</td>
             `;
 
+            fillSeasonAppearanceCell(tr.querySelector('.season-appearances'), b);
             tr.oncontextmenu = (e) => {
                 e.preventDefault();
                 addToMyBets(b);
@@ -2327,7 +2557,7 @@
         const tbody = document.getElementById("resultsBody");
         tbody.innerHTML = "";
         if (rows.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; padding: 25px; color: var(--text-muted);">Brak zdarzeń spełniających kryteria.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--text-muted);">Brak zdarzeń spełniających kryteria.</td></tr>';
             return;
         }
 
@@ -2360,6 +2590,7 @@
             tr.innerHTML = `
                 <td><b>${g.playerName}</b>${lineupBadge}</td>
                 <td>${MARKET_LABELS[g.marketType] || g.marketType}<span class="tag-src" title="Historia statystyk: FootyMetrics">FOOTYMETRICS</span></td>
+                <td class="season-appearances"></td>
                 <td>${g.isUnder ? 'under' : 'over'} ${g.line}</td>
                 <td>${g.fairOdds.toFixed(2)}</td>
                 <td style="font-weight:700; color:var(--accent);">${g.hitRate}%</td>
@@ -2368,6 +2599,7 @@
                 ${bmCells}
             `;
 
+            fillSeasonAppearanceCell(tr.querySelector('.season-appearances'), g);
             tr.querySelectorAll('.bm-cell').forEach(cell => {
                 const bmKey = cell.dataset.bm;
                 const o = g.books[bmKey];
