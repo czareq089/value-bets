@@ -195,6 +195,20 @@
         }
         .sample-chart { display: block; width: 100%; min-height: 330px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 7px; }
 
+        .chart-extra-panel { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px; }
+        .chart-extra-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
+        .chart-extra-note { font-size: 12px; color: var(--text-muted); margin: 8px 0; }
+        .lineup-tabs { display: flex; gap: 6px; }
+        .lineup-tabs button[aria-selected="true"] { border-color: var(--accent); color: var(--accent); }
+        /* SofaScore footer: 132px height + 16px top margin in the supplied widget markup. */
+        .lineup-widget-viewport {
+            --lineup-widget-height: 786px;
+            --lineup-footer-height: 148px;
+            height: calc(var(--lineup-widget-height) - var(--lineup-footer-height));
+            width: 100%; max-width: 800px; margin: 0 auto; overflow: hidden; border-radius: 7px;
+        }
+        .lineup-widget { display: block; height: var(--lineup-widget-height); width: 100%; border: 0; }
+        .lineup-widget-viewport[hidden], .lineup-widget[hidden] { display: none; }
         .shotmap-panel {
             background: var(--bg-input);
             border: 1px solid var(--border);
@@ -312,7 +326,7 @@
             <option value="">Wszystkie rozgrywki</option>
         </select>
         <label style="font-size:11px; color:var(--text-muted);"><input type="checkbox" id="calendarBuilderOnly" onchange="renderSuperbetCalendar()"> BetBuilder (Superbet)</label>
-        <label style="font-size:11px;color:var(--text-muted)"><input type="checkbox" id="calendarAllThreeOnly" checked onchange="renderSuperbetCalendar()"> U wszystkich 3 bukmacherów</label>
+        <label style="font-size:11px;color:var(--text-muted)"><input type="checkbox" id="calendarAllThreeOnly" onchange="renderSuperbetCalendar()"> U wszystkich 3 bukmacherów</label>
         <label style="font-size:11px;color:var(--text-muted)"><input type="checkbox" id="calendarReadyOnly" onchange="renderSuperbetCalendar()"> Tylko potwierdzone rynki zawodników</label>
         <div id="calendarStatus" class="calendar-status" role="status"></div>
         <div id="calendarCacheInfo" style="font-size:11px; color:var(--text-muted); margin:4px 0;"></div>
@@ -530,6 +544,16 @@
                     <span class="legend-item"><span class="legend-swatch" style="background:var(--accent)"></span>linia zakładu</span>
                     <span class="legend-item"><span style="width:14px; height:2px; background:#10b981; display:inline-block;"></span>rozegrane minuty (oś prawa)</span>
                 </div>
+                <section id="relatedStatsPanel" class="chart-extra-panel" hidden>
+                    <div class="chart-extra-toolbar">
+                        <label for="relatedStatSelect">Powiązana statystyka</label>
+                        <select id="relatedStatSelect" class="filter-select" onchange="loadRelatedStats()"></select>
+                        <button id="relatedStatsRetry" type="button" class="filter-select" onclick="loadRelatedStats(true)" hidden>Ponów</button>
+                    </div>
+                    <div id="relatedStatSummary" class="chart-extra-note" aria-live="polite"></div>
+                    <svg id="relatedStatChart" class="sample-chart" role="img" aria-label="Powiązana statystyka dla tych samych meczów"></svg>
+                    <div class="chart-extra-note">Te same mecze co powyżej · niebieskie słupki: liczba · zielona linia: minuty · ?: brak danych.</div>
+                </section>
             </div>
 
             <!-- MINI MAPA STRZAŁÓW SOFASCORE -->
@@ -558,6 +582,22 @@
                 </div>
             </div>
         </div>
+        <section class="chart-extra-panel" aria-label="Składy SofaScore">
+            <div class="chart-extra-toolbar">
+                <b>Składy SofaScore</b>
+                <nav class="lineup-tabs" role="tablist" aria-label="Wybór meczu składu">
+                    <button id="lineupCurrentTab" type="button" role="tab" class="filter-select" aria-controls="lineupPanel" aria-selected="true" onclick="selectLineupScope('current')">Analizowany mecz</button>
+                    <button id="lineupHistoryTab" type="button" role="tab" class="filter-select" aria-controls="lineupPanel" aria-selected="false" onclick="selectLineupScope('history')">Mecz z historii</button>
+                </nav>
+                <button id="lineupRetry" type="button" class="filter-select" onclick="loadCurrentLineup(true)" hidden>Ponów</button>
+            </div>
+            <div id="lineupPanel" role="tabpanel" aria-labelledby="lineupCurrentTab">
+                <div id="lineupStatus" class="chart-extra-note" aria-live="polite"></div>
+                <div id="lineupWidgetViewport" class="lineup-widget-viewport" hidden>
+                    <iframe id="lineupWidget" class="lineup-widget" title="Składy meczu SofaScore" scrolling="no" loading="lazy" hidden></iframe>
+                </div>
+            </div>
+        </section>
     </div>
 </div>
 
@@ -1042,8 +1082,7 @@
             card.type = 'button';
             card.className = `item-card calendar-card${event.id === calendarSelectedID ? ' selected' : ''}`;
             const eligibility = event.analysisEligibility || {status: 'pending', reason: 'Oczekiwanie na kwalifikację'};
-            const hasAllLinks = BOOKMAKERS.every(book => eligibility.links?.[book]);
-            card.disabled = calendarSelecting || !hasAllLinks || eligibility.status === 'inactive';
+            card.disabled = calendarSelecting || eligibility.status === 'inactive';
             const time = document.createElement('div');
             time.className = 'card-date';
             time.textContent = new Intl.DateTimeFormat('pl-PL', {timeZone: 'Europe/Warsaw', hour: '2-digit', minute: '2-digit'}).format(new Date(event.startTime));
@@ -1062,7 +1101,8 @@
             const builder = document.createElement('div');
             builder.className = 'card-sub';
             builder.style.color = 'var(--sb-color)';
-            const statusLabels = {available: '✓ 3 bukmacherów · rynki zawodników potwierdzone', pending: '⏳ 3 bukmacherów · sprawdzanie rynków', unavailable: 'Niedostępny u wszystkich 3 lub brak rynków', error: 'Błąd sprawdzania — wybierz, aby ponowić', inactive: 'Mecz rozpoczęty'};
+            const linked = BOOKMAKERS.filter(book => eligibility.links?.[book]).length;
+            const statusLabels = {available: `✓ Rynki potwierdzone · linki: ${linked}/3`, pending: `⏳ Sprawdzanie rynków · linki: ${linked}/3`, unavailable: `Brak potwierdzonych rynków · linki: ${linked}/3`, error: 'Błąd sprawdzania — wybierz, aby ponowić', inactive: 'Mecz rozpoczęty'};
             builder.textContent = statusLabels[eligibility.status] || eligibility.status;
             builder.title = eligibility.reason || '';
             builder.style.color = eligibility.status === 'available' ? 'var(--success)' : (eligibility.status === 'error' ? 'var(--danger)' : 'var(--text-muted)');
@@ -1095,42 +1135,43 @@
 
     async function selectSuperbetCalendarEvent(event) {
         if (calendarSelecting || analysisRunning) return;
-        const links = event.analysisEligibility?.links || {};
-        if (!BOOKMAKERS.every(book => links[book])) {
-            document.getElementById('calendarStatus').textContent = event.analysisEligibility?.reason || 'Mecz nie jest potwierdzony u wszystkich trzech bukmacherów.';
-            return;
-        }
+        const links = {...(event.analysisEligibility?.links || {})};
+        const sourceBook = event.bookmaker || document.getElementById('calendarBookmaker').value;
+        if (event.url) links[sourceBook] = event.url;
+
         clearAllInputs();
         const selection = calendarSelection;
         calendarSelecting = true;
         calendarSelectedID = event.id;
         const analyze = document.getElementById('btnAnalyze');
         analyze.disabled = true;
-        for (const book of BOOKMAKERS) document.getElementById(CALENDAR_INPUTS[book]).value = links[book];
+        for (const book of BOOKMAKERS) document.getElementById(CALENDAR_INPUTS[book]).value = links[book] || '';
         renderSuperbetCalendar();
-        document.getElementById('calendarStatus').textContent = 'Sprawdzanie aktualnych rynków zawodników u wszystkich trzech bukmacherów…';
+        currentHomeSlug = event.home || ''; currentAwaySlug = event.away || '';
+        currentMatchKey = `${event.home}|${event.away}|${event.startTime}`;
+        document.getElementById('calendarStatus').textContent = 'Linki uzupełnione. Sprawdzanie dostępnych ofert…';
         let qualified = false;
         let message = '';
         try {
-            const prepared = await window.go.main.App.PrepareCalendarMatch(links.SUPERBET, links.BETCLIC, links.STS);
+            const prepared = await window.go.main.App.PrepareCalendarMatch(links.SUPERBET || '', links.BETCLIC || '', links.STS || '');
             if (selection !== calendarSelection) return;
             qualified = prepared.qualified;
+            event.analysisEligibility ||= {links};
             event.analysisEligibility.status = qualified ? 'available' : 'unavailable';
+            event.analysisEligibility.links = links;
+            event.analysisEligibility.reason = prepared.reason || '';
             if (!qualified) {
-                message = prepared.reason || 'Brak rynków zawodników u co najmniej jednego bukmachera.';
+                message = prepared.reason || 'Brak potwierdzonych rynków. Możesz ponowić pobieranie przyciskiem Analizuj.';
                 event.analysisEligibility.reason = message;
                 return;
             }
-            currentHomeSlug = event.home || '';
-            currentAwaySlug = event.away || '';
-            currentMatchKey = `${event.home}|${event.away}|${event.startTime}`;
-            message = 'Rynki zawodników dostępne u wszystkich trzech. Kliknij Analizuj — dopasowanie FootyMetrics odbędzie się na serwerze.';
+            message = 'Dostępna oferta do analizy. Kliknij Analizuj.' + (prepared.reason ? ' ' + prepared.reason : '');
         } catch (error) {
             message = String(error);
         } finally {
             if (selection !== calendarSelection) return;
             calendarSelecting = false;
-            analyze.disabled = !qualified;
+            analyze.disabled = !BOOKMAKERS.some(book => document.getElementById(CALENDAR_INPUTS[book]).value.trim());
             renderSuperbetCalendar();
             document.getElementById('calendarStatus').textContent = message;
         }
@@ -1250,7 +1291,7 @@
         const sb = document.getElementById('sbInput').value.trim();
         const betclic = document.getElementById('betclicInput').value.trim();
         const sts = document.getElementById('stsInput').value.trim();
-        if (!sb || !betclic || !sts) { alert('Wymagane są linki do tego samego meczu u wszystkich trzech bukmacherów.'); return; }
+        if (!sb && !betclic && !sts) { alert('Podaj co najmniej jeden link do meczu.'); return; }
         let home = '';
         let away = '';
         const limit = parseInt(document.getElementById('matchSlider').value, 10) || 10;
@@ -1578,6 +1619,8 @@
 
     function closeChart() {
         document.getElementById('chartModal').classList.remove('is-open');
+        document.getElementById('lineupWidget').removeAttribute('src');
+        currentChartBet = null;
     }
 
     function closeChartOnBackdrop(event) {
@@ -1611,9 +1654,13 @@
         useSuperSub = false;
         selectedMatchIndexForShotmap = null;
 
+        lineupScope = 'current';
+        setupRelatedStats(bet);
         renderSuperSubToggle(bet);
         drawCurrentBetChart();
         document.getElementById('chartModal').classList.add('is-open');
+        loadRelatedStats();
+        loadCurrentLineup();
         loadChartShotmaps(bet);
     }
 
@@ -1689,6 +1736,120 @@
         notes.textContent = [...(bet.historyNotes || []), ...(model?.notes || [])].join(' · ');
         extra.appendChild(notes);
         renderShotmap(bet, selectedMatchIndexForShotmap);
+        drawRelatedStats();
+        renderLineupWidget();
+    }
+
+    const SHOT_MARKETS = ['SHOTS_TOTAL', 'SHOTS_ON_TARGET', 'SHOTS_OFF_TARGET', 'SHOTS_BLOCKED',
+        'SHOTS_INSIDE_BOX', 'SHOTS_OUTSIDE_BOX', 'SHOTS_ON_TARGET_INSIDE_BOX', 'SHOTS_ON_TARGET_OUTSIDE_BOX'];
+    const relatedStatCache = new Map();
+    function setupRelatedStats(bet) {
+        const panel = document.getElementById('relatedStatsPanel');
+        panel.hidden = !SHOT_MARKETS.includes(bet.marketType);
+        const select = document.getElementById('relatedStatSelect');
+        select.replaceChildren();
+        if (panel.hidden) return;
+        SHOT_MARKETS.filter(market => market !== bet.marketType).forEach(market => {
+            const option = document.createElement('option');
+            option.value = market;
+            option.textContent = MARKET_LABELS[market];
+            select.appendChild(option);
+        });
+        select.value = bet.marketType === 'SHOTS_TOTAL' ? 'SHOTS_ON_TARGET' : 'SHOTS_TOTAL';
+    }
+    function relatedStatKey(bet, market) {
+        return `${bet.analysisId}|${bet.playerId}|${bet.marketType}|${market}|${bet.sampleValues.length}`;
+    }
+    async function loadRelatedStats(force = false) {
+        const bet = currentChartBet;
+        if (!bet || !SHOT_MARKETS.includes(bet.marketType)) return;
+        const market = document.getElementById('relatedStatSelect').value;
+        const key = relatedStatKey(bet, market);
+        let entry = relatedStatCache.get(key);
+        if (!entry || force) {
+            entry = {status: 'loading'};
+            relatedStatCache.set(key, entry);
+            drawRelatedStats();
+            try {
+                if (!bet.analysisId || !window.go?.main?.App?.GetRelatedStats) throw new Error('Wykonaj analizę ponownie, aby pobrać powiązane statystyki.');
+                entry.data = await window.go.main.App.GetRelatedStats(bet.analysisId, bet.playerId, bet.marketType, market, bet.sampleValues.length);
+                if (!Array.isArray(entry.data.sampleValues) || entry.data.sampleValues.length !== bet.sampleValues.length) throw new Error('Niezgodna próbka powiązanej statystyki');
+                entry.status = 'loaded';
+            } catch (error) { entry.status = 'error'; entry.error = String(error); }
+        }
+        if (currentChartBet === bet) drawRelatedStats();
+    }
+    function drawRelatedStats() {
+        const bet = currentChartBet;
+        if (!bet || !SHOT_MARKETS.includes(bet.marketType)) return;
+        const market = document.getElementById('relatedStatSelect').value;
+        const entry = relatedStatCache.get(relatedStatKey(bet, market));
+        const summary = document.getElementById('relatedStatSummary');
+        const svg = document.getElementById('relatedStatChart');
+        document.getElementById('relatedStatsRetry').hidden = entry?.status !== 'error';
+        svg.hidden = entry?.status !== 'loaded';
+        svg.style.display = entry?.status === 'loaded' ? '' : 'none';
+        if (entry?.status === 'error') { summary.textContent = entry.error; return; }
+        if (entry?.status !== 'loaded') { summary.textContent = 'Pobieranie powiązanej statystyki…'; return; }
+        const base = entry.data.sampleValues;
+        const values = useSuperSub ? base.map((_, i) => entry.data.sampleValuesSuperSub?.[i] ?? null) : base;
+        const known = values.filter(Number.isFinite);
+        const avg = known.length ? (known.reduce((a, b) => a + b, 0) / known.length).toFixed(2) : '—';
+        summary.textContent = `${MARKET_LABELS[market]} · Średnia: ${avg} · Dane: ${known.length}/${values.length}` + (useSuperSub ? ' · SuperSub' : '');
+        const deltas = useSuperSub ? values.map((v, i) => Number.isFinite(v) && Number.isFinite(base[i]) ? Math.max(0, v - base[i]) : 0) : [];
+        renderSampleChart(values, bet.sampleMinutes || [], bet.samplePositions || [], bet.sampleOpponents || [], bet.sampleDates || [], null, false, MARKET_LABELS[market], deltas, 'relatedStatChart');
+    }
+
+    let lineupScope = 'current';
+    const lineupEventCache = new Map();
+    function selectLineupScope(scope) {
+        lineupScope = scope;
+        renderLineupWidget();
+        if (scope === 'current') loadCurrentLineup();
+    }
+    async function loadCurrentLineup(force = false) {
+        const bet = currentChartBet;
+        if (!bet) return;
+        let entry = lineupEventCache.get(bet.analysisId);
+        if (!entry || force) {
+            entry = {status: 'loading'};
+            lineupEventCache.set(bet.analysisId, entry);
+            renderLineupWidget();
+            try {
+                if (!bet.analysisId || !window.go?.main?.App?.GetAnalysisLineupEvent) throw new Error('Wykonaj analizę ponownie, aby ustalić mecz SofaScore.');
+                entry.data = await window.go.main.App.GetAnalysisLineupEvent(bet.analysisId);
+                if (!Number.isSafeInteger(entry.data.eventId) || entry.data.eventId <= 0) throw new Error('Brak potwierdzonego ID SofaScore');
+                entry.status = 'loaded';
+            } catch (error) { entry.status = 'error'; entry.error = String(error); }
+        }
+        if (currentChartBet === bet) renderLineupWidget();
+    }
+    function renderLineupWidget() {
+        const bet = currentChartBet;
+        if (!bet) return;
+        const frame = document.getElementById('lineupWidget');
+        const status = document.getElementById('lineupStatus');
+        const current = lineupScope === 'current';
+        document.getElementById('lineupCurrentTab').setAttribute('aria-selected', String(current));
+        document.getElementById('lineupHistoryTab').setAttribute('aria-selected', String(!current));
+        document.getElementById('lineupPanel').setAttribute('aria-labelledby', current ? 'lineupCurrentTab' : 'lineupHistoryTab');
+        const entry = lineupEventCache.get(bet.analysisId);
+        document.getElementById('lineupRetry').hidden = !current || entry?.status !== 'error';
+        let eventId = 0;
+        if (current) {
+            eventId = entry?.data?.eventId || 0;
+            status.textContent = entry?.status === 'error' ? entry.error : eventId ? entry.data.match : 'Ustalanie meczu SofaScore…';
+        } else {
+            const index = selectedMatchIndexForShotmap ?? 0;
+            eventId = bet.sampleEventIds?.[index] || 0;
+            const match = `${bet.sampleDates?.[index] || ''} · ${bet.sampleOpponents?.[index] || 'Mecz ' + (index + 1)}`;
+            status.textContent = `${match} · Kliknij słupek, aby zmienić mecz.` + (eventId ? '' : bet.shotmapStatus === 'loading' ? ' Ustalanie ID SofaScore…' : ' Brak potwierdzonego ID SofaScore dla tego meczu.');
+        }
+        frame.hidden = !Number.isSafeInteger(eventId) || eventId <= 0;
+        document.getElementById('lineupWidgetViewport').hidden = frame.hidden;
+        if (frame.hidden) { frame.removeAttribute('src'); return; }
+        const src = `https://widgets.sofascore.com/en/embed/lineups?id=${eventId}&widgetTheme=dark`;
+        if (frame.getAttribute('src') !== src) frame.setAttribute('src', src);
     }
 
     const chartShotmapCache = new Map();
@@ -1732,6 +1893,7 @@
 
     function selectMatchForShotmap(index) {
         selectedMatchIndexForShotmap = index;
+        lineupScope = 'history';
         drawCurrentBetChart();
     }
 
@@ -1740,17 +1902,18 @@
         drawCurrentBetChart();
     }
 
-    function renderSampleChart(values, minutes, positions, opponents, dates, line, isUnder, marketLabel, superSubDeltas) {
+    function renderSampleChart(values, minutes, positions, opponents, dates, line, isUnder, marketLabel, superSubDeltas, targetId = 'sampleChart') {
         superSubDeltas = superSubDeltas || [];
         minutes = minutes || [];
-        const svg = document.getElementById('sampleChart');
+        const svg = document.getElementById(targetId);
+        const hasLine = typeof line === 'number' && Number.isFinite(line);
         const width = 820;
         const height = 340;
         const margin = { top: 32, right: 48, bottom: 62, left: 48 };
         const plotWidth = width - margin.left - margin.right;
         const plotHeight = height - margin.top - margin.bottom;
 
-        const rawMax = Math.max(1, line, ...values);
+        const rawMax = Math.max(1, hasLine ? line : 0, ...values.filter(Number.isFinite));
         const domainMax = Math.max(3, Math.ceil(rawMax + 0.8));
         const yFor = value => margin.top + plotHeight - (value / domainMax) * plotHeight;
 
@@ -1792,17 +1955,19 @@
             svg.appendChild(mLabel);
         }
 
-        const referenceY = yFor(line);
-        svg.appendChild(createSvgElement('line', {
-            x1: margin.left, y1: referenceY, x2: width - margin.right, y2: referenceY,
-            stroke: 'var(--accent)', 'stroke-width': 2, 'stroke-dasharray': '6 4'
-        }));
-        const lineLabel = createSvgElement('text', {
-            x: width - margin.right - 8, y: Math.max(margin.top + 12, referenceY - 6),
-            'text-anchor': 'end', fill: 'var(--accent)', 'font-size': 11, 'font-weight': 'bold'
-        });
-        lineLabel.textContent = `linia ${line}`;
-        svg.appendChild(lineLabel);
+        if (hasLine) {
+            const referenceY = yFor(line);
+            svg.appendChild(createSvgElement('line', {
+                x1: margin.left, y1: referenceY, x2: width - margin.right, y2: referenceY,
+                stroke: 'var(--accent)', 'stroke-width': 2, 'stroke-dasharray': '6 4'
+            }));
+            const lineLabel = createSvgElement('text', {
+                x: width - margin.right - 8, y: Math.max(margin.top + 12, referenceY - 6),
+                'text-anchor': 'end', fill: 'var(--accent)', 'font-size': 11, 'font-weight': 'bold'
+            });
+            lineLabel.textContent = `linia ${line}`;
+            svg.appendChild(lineLabel);
+        }
 
         values.forEach((value, index) => {
             const known = typeof value === 'number';
@@ -1814,7 +1979,7 @@
 
             const bar = createSvgElement('rect', {
                 x, y, width: barWidth, height: barH,
-                fill: known ? (hit ? 'var(--success)' : 'var(--danger)') : 'var(--text-muted)',
+                fill: known ? (hasLine ? (hit ? 'var(--success)' : 'var(--danger)') : 'var(--accent)') : 'var(--text-muted)',
                 stroke: isSelected ? 'var(--accent)' : 'none',
                 'stroke-width': isSelected ? 3 : 0,
                 rx: 3,
@@ -1835,7 +2000,7 @@
 
             const delta = superSubDeltas[index] || 0;
             const tooltip = createSvgElement('title');
-            tooltip.textContent = `[Kliknij, by zobaczyć strzały na mapie] vs ${opp}${d}: ${known ? `wynik ${value}` : 'brak potwierdzonych danych SuperSub'}${delta > 0 ? ` (+${delta} SuperSub)` : ''}${posText}${minText}${ratingText}${known ? ` · ${hit ? 'Trafiony' : 'Nietrafiony'}` : ''}`;
+            tooltip.textContent = `[Kliknij, by zobaczyć strzały na mapie] vs ${opp}${d}: ${known ? `wynik ${value}` : 'brak potwierdzonych danych'}${delta > 0 ? ` (+${delta} SuperSub)` : ''}${posText}${minText}${ratingText}${known && hasLine ? ` · ${hit ? 'Trafiony' : 'Nietrafiony'}` : ''}`;
             bar.appendChild(tooltip);
             svg.appendChild(bar);
 

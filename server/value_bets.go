@@ -1755,7 +1755,9 @@ func extractIDAndSlug(rawURL string) (string, string, string) {
 	if decoded, err := url.PathUnescape(clean); err == nil {
 		clean = decoded
 	}
-	if idx := strings.Index(clean, "?"); idx != -1 {
+	if parsed, err := url.Parse(clean); err == nil && parsed.Host != "" {
+		clean = parsed.Path
+	} else if idx := strings.IndexAny(clean, "?#"); idx != -1 {
 		clean = clean[:idx]
 	}
 	clean = strings.TrimRight(clean, "/")
@@ -5158,6 +5160,7 @@ var calendarClubWords = map[string]bool{"fc": true, "cf": true, "afc": true, "fk
 var calendarGenericWords = map[string]bool{"real": true, "atletico": true, "athletic": true, "sporting": true, "racing": true, "nacional": true, "national": true, "america": true, "inter": true, "united": true, "city": true, "town": true, "deportivo": true, "club": true, "de": true, "da": true, "do": true, "the": true, "borussia": true, "dynamo": true, "dinamo": true, "olympique": true, "olympic": true, "hapoel": true, "maccabi": true, "red": true, "bull": true}
 
 var calendarTeamAliases = map[string]string{
+	"radomiak": "radomiak-radom", "rks-radomiak": "radomiak-radom",
 	"man-utd": "manchester-united", "manchester-utd": "manchester-united", "man-united": "manchester-united", "man-city": "manchester-city",
 	"psg": "paris-saint-germain", "paris-sg": "paris-saint-germain", "bayern-munich": "bayern-munchen",
 	"inter-mediolan": "inter", "inter-milan": "inter", "internazionale": "inter", "sporting-lizbona": "sporting-lisboa", "sporting-lisbon": "sporting-lisboa", "sporting-cp": "sporting-lisboa",
@@ -5913,10 +5916,8 @@ func historyMetricKnown(hist *PlayerStatHistory, market CanonicalMarket, i int) 
 	return !exists || (i < len(mask) && mask[i])
 }
 
-func (task *analysisTask) enrichChartIdentity(client *ResilientClient, hist *PlayerStatHistory) error {
-	if hist.SofaPlayerID > 0 {
-		return nil
-	}
+// Caller holds chartGate; identifiers here always belong to SofaScore.
+func (task *analysisTask) ensureChartTeams(client *ResilientClient) error {
 	if task.sofaTeams.HomeID == "" || task.sofaTeams.AwayID == "" {
 		gender := "M"
 		if isWomenEvent(task.seed) {
@@ -5924,9 +5925,19 @@ func (task *analysisTask) enrichChartIdentity(client *ResilientClient, hist *Pla
 		}
 		detected := detectTeamsBySlugs(client, calendarTeamSlug(task.seed.Home), calendarTeamSlug(task.seed.Away), sofaMatchContext{StartTime: task.fixture.StartTime, Gender: gender})
 		if detected.HomeID == "" || detected.AwayID == "" {
-			return fmt.Errorf("SofaScore: nie potwierdzono drużyn dla wykresu: %s", strings.Join(detected.Warnings, "; "))
+			return fmt.Errorf("SofaScore: nie potwierdzono drużyn dla składu i wykresu: %s", strings.Join(detected.Warnings, "; "))
 		}
 		task.sofaTeams = detected
+	}
+	return nil
+}
+
+func (task *analysisTask) enrichChartIdentity(client *ResilientClient, hist *PlayerStatHistory) error {
+	if hist.SofaPlayerID > 0 {
+		return nil
+	}
+	if err := task.ensureChartTeams(client); err != nil {
+		return err
 	}
 	teamID := task.sofaTeams.HomeID
 	if hist.TeamSide == "AWAY" {
@@ -6050,9 +6061,10 @@ type analysisTask struct {
 	chartGate   chan struct{}
 	// These fields are accessed only while holding chartGate. Initial results
 	// and histories stay immutable when charts receive optional enrichment.
-	chartHistories map[string]*PlayerStatHistory
-	sofaTeams      TeamDetectionResult
-	sofaSquads     map[string][]SofaPlayerDetails
+	chartHistories    map[string]*PlayerStatHistory
+	sofaTeams         TeamDetectionResult
+	sofaLineupEventID int
+	sofaSquads        map[string][]SofaPlayerDetails
 }
 
 // Immutable inputs retained for changing sample length without provider calls.
@@ -6099,41 +6111,90 @@ func (s *calendarServer) collect(ctx context.Context, book, date string, force b
 	return nil, fmt.Errorf("nieobsługiwany bukmacher")
 }
 func (s *calendarServer) statsFixtureForMatch(client *ResilientClient, homeID, awayID string, expected time.Time) (statsFixture, bool, error) {
+	if expected.IsZero() {
+		return statsFixture{}, false, fmt.Errorf("brak terminu analizowanego meczu")
+	}
 	matches := map[int]statsFixture{}
 	var failure error
 	for _, teamID := range []string{homeID, awayID} {
-		raw, err := client.GetSofa("/team/" + teamID + "/events/next/0")
-		if err != nil {
-			failure = err
-			continue
-		}
-		var response SofaTeamEventsResponse
-		if err = json.Unmarshal(raw, &response); err != nil {
-			failure = err
-			continue
-		}
-		for _, event := range response.Events {
-			h, a := strconv.Itoa(event.HomeTeam.ID), strconv.Itoa(event.AwayTeam.ID)
-			if !((h == homeID && a == awayID) || (h == awayID && a == homeID)) || event.ID <= 0 || event.StartTS <= 0 || event.Status.Code >= 100 || event.Status.Type == "canceled" || event.Status.Type == "postponed" {
+		for _, page := range []string{"next/0", "last/0"} {
+			raw, err := client.GetSofa("/team/" + teamID + "/events/" + page)
+			if err != nil {
+				failure = err
 				continue
 			}
-			start := time.Unix(event.StartTS, 0).UTC()
-			if start.Before(time.Now()) {
+			var response SofaTeamEventsResponse
+			if err = json.Unmarshal(raw, &response); err != nil {
+				failure = err
 				continue
 			}
-			if !expected.IsZero() && start.Sub(expected).Abs() > 10*time.Minute {
-				continue
+			for _, event := range response.Events {
+				h, a := strconv.Itoa(event.HomeTeam.ID), strconv.Itoa(event.AwayTeam.ID)
+				if h != homeID || a != awayID || event.ID <= 0 || event.StartTS <= 0 || event.Status.Type == "canceled" || event.Status.Type == "postponed" {
+					continue
+				}
+				start := time.Unix(event.StartTS, 0).UTC()
+				if start.Sub(expected).Abs() > 10*time.Minute {
+					continue
+				}
+				matches[event.ID] = statsFixture{ID: strconv.Itoa(event.ID), HomeID: h, AwayID: a, StartTime: start, ValidUntil: start}
 			}
-			matches[event.ID] = statsFixture{ID: strconv.Itoa(event.ID), HomeID: h, AwayID: a, StartTime: start, ValidUntil: start}
+			if len(matches) > 0 {
+				break
+			}
 		}
 	}
 	if len(matches) != 1 {
-		return statsFixture{}, false, fmt.Errorf("SofaScore: wymagany jeden zgodny przyszły mecz, znaleziono %d (błąd źródła: %v)", len(matches), failure)
+		return statsFixture{}, false, fmt.Errorf("SofaScore: wymagany jeden mecz zgodny z drużynami i terminem, znaleziono %d (błąd źródła: %v)", len(matches), failure)
 	}
 	for _, fixture := range matches {
-		return fixture, fixture.HomeID != homeID, nil
+		return fixture, false, nil
 	}
 	return statsFixture{}, false, fmt.Errorf("brak meczu")
+}
+
+func (s *calendarServer) analysisLineupEvent(w http.ResponseWriter, r *http.Request) {
+	task := s.clientTask(r, r.PathValue("id"))
+	if task == nil {
+		apiError(w, 404, fmt.Errorf("analiza wygasła; wykonaj analizę ponownie"))
+		return
+	}
+	task.mu.Lock()
+	ready := task.job.Status == "completed"
+	task.mu.Unlock()
+	if !ready {
+		apiError(w, 409, fmt.Errorf("analiza nie jest zakończona"))
+		return
+	}
+	select {
+	case task.chartGate <- struct{}{}:
+		defer func() { <-task.chartGate }()
+	case <-r.Context().Done():
+		return
+	}
+	if task.sofaLineupEventID <= 0 {
+		client, err := newSofaClient(r.Context(), nil)
+		if err != nil {
+			apiError(w, 500, err)
+			return
+		}
+		defer client.tlsClient.CloseIdleConnections()
+		if err = task.ensureChartTeams(client); err != nil {
+			apiError(w, 502, err)
+			return
+		}
+		fixture, _, err := s.statsFixtureForMatch(client, task.sofaTeams.HomeID, task.sofaTeams.AwayID, task.fixture.StartTime)
+		if err != nil {
+			apiError(w, 502, err)
+			return
+		}
+		task.sofaLineupEventID, err = strconv.Atoi(fixture.ID)
+		if err != nil {
+			apiError(w, 502, err)
+			return
+		}
+	}
+	jsonResponse(w, 200, map[string]any{"eventId": task.sofaLineupEventID, "match": task.seed.Home + " — " + task.seed.Away})
 }
 
 func (s *calendarServer) analyze(task *analysisTask) ([]AnalyzedBet, error) {
@@ -6143,23 +6204,28 @@ func (s *calendarServer) analyze(task *analysisTask) ([]AnalyzedBet, error) {
 		return nil, err
 	}
 	defer client.tlsClient.CloseIdleConnections()
-	seed, err := s.verifyBookmakerFixtures(task.ctx, query)
+	seed, verified, warnings, err := s.verifyBookmakerFixtures(task.ctx, query)
 	if err != nil {
 		return nil, err
+	}
+	for _, warning := range warnings {
+		task.warn(warning)
 	}
 	task.report("offers", "Pobieranie ofert bukmacherów", 0, 0)
 	var props []NormalizedProp
 	for _, source := range []struct{ Book, URL string }{{"SUPERBET", query.SuperbetURL}, {"BETCLIC", query.BetclicURL}, {"STS", query.STSURL}} {
-		if source.URL == "" {
+		if _, ok := verified[source.Book]; !ok {
 			continue
 		}
 		id, _, _ := extractIDAndSlug(source.URL)
 		rows, readErr := fetchMatchProps(task.ctx, source.Book, id)
 		if readErr != nil {
-			return nil, fmt.Errorf("%s: nie potwierdzono aktualnych rynków zawodników: %w", source.Book, readErr)
+			task.warn(fmt.Sprintf("%s pominięty: nie odczytano rynków zawodników: %v", source.Book, readErr))
+			continue
 		}
 		if len(rows) == 0 {
-			return nil, fmt.Errorf("%s: brak obsługiwanych rynków zawodników; mecz nie kwalifikuje się do analizy trzech bukmacherów", source.Book)
+			task.warn(source.Book + ": brak obsługiwanych rynków zawodników")
+			continue
 		}
 		props = append(props, rows...)
 	}
@@ -6273,16 +6339,20 @@ func (s *calendarServer) analyze(task *analysisTask) ([]AnalyzedBet, error) {
 }
 
 // Verify every supplied offer against source identities before comparing prices.
-func (s *calendarServer) verifyBookmakerFixtures(ctx context.Context, query AnalysisRequest) (CalendarEvent, error) {
+func (s *calendarServer) verifyBookmakerFixtures(ctx context.Context, query AnalysisRequest) (CalendarEvent, map[string]CalendarEvent, []string, error) {
 	var seed CalendarEvent
+	matches := map[string]CalendarEvent{}
+	var warnings []string
 	for _, source := range []struct{ book, link string }{{"SUPERBET", query.SuperbetURL}, {"BETCLIC", query.BetclicURL}, {"STS", query.STSURL}} {
 		if source.link == "" {
 			continue
 		}
 		event, err := s.bookmakerFixture(ctx, source.book, source.link)
 		if err != nil {
-			return CalendarEvent{}, fmt.Errorf("weryfikacja meczu %s: %w", source.book, err)
+			warnings = append(warnings, fmt.Sprintf("%s pominięty: nie potwierdzono meczu: %v", source.book, err))
+			continue
 		}
+		matches[source.book] = event
 		if seed.ID == "" {
 			seed = event
 			continue
@@ -6290,10 +6360,13 @@ func (s *calendarServer) verifyBookmakerFixtures(ctx context.Context, query Anal
 		a, errA := time.Parse(time.RFC3339, seed.StartTime)
 		b, errB := time.Parse(time.RFC3339, event.StartTime)
 		if errA != nil || errB != nil || a.Sub(b).Abs() > 10*time.Minute || !footyTeamNameMatches(seed.Home, event.Home) || !footyTeamNameMatches(seed.Away, event.Away) {
-			return CalendarEvent{}, fmt.Errorf("link %s dotyczy innego meczu lub terminu: %s — %s (%s)", source.book, event.Home, event.Away, event.StartTime)
+			return CalendarEvent{}, nil, warnings, fmt.Errorf("link %s dotyczy innego meczu lub terminu: %s — %s (%s)", source.book, event.Home, event.Away, event.StartTime)
 		}
 	}
-	return seed, nil
+	if len(matches) == 0 {
+		return CalendarEvent{}, nil, warnings, fmt.Errorf("nie potwierdzono żadnego z podanych meczów: %s", strings.Join(warnings, "; "))
+	}
+	return seed, matches, warnings, nil
 }
 
 func (s *calendarServer) bookmakerFixture(ctx context.Context, book, link string) (CalendarEvent, error) {
@@ -6467,6 +6540,8 @@ func (s *calendarServer) handler() http.Handler {
 		jsonResponse(w, 200, true)
 	})
 	mux.HandleFunc("POST /api/v1/analyses/shotmaps", s.analysisShotmaps)
+	mux.HandleFunc("POST /api/v1/analyses/related", s.analysisRelatedStats)
+	mux.HandleFunc("GET /api/v1/analyses/{id}/lineup-event", s.analysisLineupEvent)
 	mux.HandleFunc("POST /api/v1/analyses/{id}/sample", s.analysisSample)
 	mux.HandleFunc("POST /api/v1/markets/prepare", s.prepareMatch)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -6837,6 +6912,74 @@ func (s *calendarServer) analysisShotmaps(w http.ResponseWriter, r *http.Request
 	}
 	jsonResponse(w, 200, map[string]any{"sampleShots": shots, "sampleShotmapAvailable": available, "sampleSubShotmapAvailable": subAvailable, "sampleEventIds": hist.EventIDs, "sampleRatings": hist.Ratings, "sampleValuesSuperSub": hist.MetricValuesWithSuperSub[query.Market], "sampleSuperSubAvailable": hist.SuperSubAvailability[query.Market], "notes": notes})
 }
+
+func shotMarket(market CanonicalMarket) bool {
+	switch market {
+	case MarketShotsTotal, MarketShotsOnTarget, MarketShotsOffTarget, MarketShotsBlocked,
+		MarketShotsInsideBox, MarketShotsOutsideBox, MarketShotsOnTargetInsideBox, MarketShotsOnTargetOutsideBox:
+		return true
+	}
+	return false
+}
+
+func (s *calendarServer) analysisRelatedStats(w http.ResponseWriter, r *http.Request) {
+	var query struct {
+		AnalysisID string          `json:"analysisId"`
+		PlayerID   int             `json:"playerId"`
+		BaseMarket CanonicalMarket `json:"baseMarket"`
+		Market     CanonicalMarket `json:"market"`
+		Limit      int             `json:"limit"`
+	}
+	if err := decodeAPIRequest(w, r, &query); err != nil {
+		apiError(w, 400, err)
+		return
+	}
+	if query.Limit < 1 || query.Limit > 30 || !shotMarket(query.BaseMarket) || !shotMarket(query.Market) {
+		apiError(w, 400, fmt.Errorf("niepoprawna statystyka powiązana"))
+		return
+	}
+	task := s.clientTask(r, query.AnalysisID)
+	if task == nil {
+		apiError(w, 404, fmt.Errorf("analiza wygasła; wykonaj analizę ponownie"))
+		return
+	}
+	task.mu.Lock()
+	history := task.histories[query.PlayerID]
+	valid := false
+	for _, bet := range task.job.Result {
+		if bet.PlayerID == query.PlayerID && bet.MarketType == query.BaseMarket {
+			valid = true
+			break
+		}
+	}
+	task.mu.Unlock()
+	if !valid || history == nil {
+		apiError(w, 409, fmt.Errorf("brak próbki podstawowej"))
+		return
+	}
+	base := latestMetricHistory(history, query.BaseMarket, query.Limit)
+	indexes := map[int]int{}
+	for i, id := range history.SourceEventIDs {
+		if id > 0 {
+			indexes[id] = i
+		}
+	}
+	values, subValues := make([]*int, base.Matches), make([]*int, base.Matches)
+	for i, id := range base.SourceEventIDs {
+		j, found := indexes[id]
+		if !found || !historyMetricKnown(history, query.Market, j) {
+			continue
+		}
+		value := history.MetricValues[query.Market][j]
+		values[i] = &value
+		mask := history.SuperSubAvailability[query.Market]
+		if j < len(mask) && mask[j] && j < len(history.MetricValuesWithSuperSub[query.Market]) {
+			sub := history.MetricValuesWithSuperSub[query.Market][j]
+			subValues[i] = &sub
+		}
+	}
+	jsonResponse(w, 200, map[string]any{"market": query.Market, "sampleValues": values, "sampleValuesSuperSub": subValues, "sampleSourceEventIds": base.SourceEventIDs})
+}
 func main() {
 	listen := flag.String("listen", "127.0.0.1:8090", "HTTP listen address")
 	dir := flag.String("data-dir", "data", "Existing calendar and team cache directory")
@@ -6980,8 +7123,8 @@ func validateAnalysisRequest(query *AnalysisRequest) error {
 		}
 		count++
 	}
-	if count != 3 {
-		return fmt.Errorf("analiza wymaga linków do tego samego meczu w Superbet, Betclic i STS")
+	if count == 0 {
+		return fmt.Errorf("analiza wymaga co najmniej jednego linku do meczu")
 	}
 	return nil
 }
@@ -7291,6 +7434,9 @@ func indexCalendarOffers(bundle calendarDayBundle) calendarOfferIndex {
 		return key
 	}
 	for book, calendar := range bundle.Calendars {
+		if bundle.Errors[book] != "" {
+			continue
+		}
 		index[book] = map[int64][]calendarOfferCandidate{}
 		seen := map[string]bool{}
 		for _, event := range calendar.Events {
@@ -7324,8 +7470,13 @@ func matchCalendarOffers(seed CalendarEvent, index calendarOfferIndex) (map[stri
 			}
 		}
 		if count != 1 {
-			return nil, fmt.Errorf("%s: liczba jednoznacznych dopasowań meczu: %d", book, count)
+			// A missing or ambiguous provider must not discard verified links
+			// from the others. Ambiguous candidates are never auto-selected.
+			delete(matches, book)
 		}
+	}
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("brak jednoznacznego dopasowania w dostępnych kalendarzach")
 	}
 	for _, left := range matches {
 		for _, right := range matches {
@@ -7397,42 +7548,52 @@ func (s *calendarServer) qualifiedCalendar(ctx context.Context, book, date strin
 			eligibility.Status, eligibility.Reason = "inactive", "mecz rozpoczęty lub niepoprawny termin"
 			continue
 		}
-		if len(bundle.Errors) > 0 {
-			eligibility.Status, eligibility.Reason = "error", "nie potwierdzono aktualności wszystkich trzech kalendarzy"
-			continue
-		}
 		matches, err := matchCalendarOffers(*event, index)
-		if err != nil {
-			eligibility.Status, eligibility.Reason = "unavailable", err.Error()
+		if matches == nil {
+			matches = map[string]CalendarEvent{}
+		}
+		if bundle.Errors[book] == "" {
+			matches[book] = *event
+		}
+		if len(matches) == 0 {
+			eligibility.Status, eligibility.Reason = "error", fmt.Sprintf("brak aktualnych linków: %v", err)
 			continue
 		}
-		for _, other := range serverBookmakers {
-			eligibility.Links[other] = matches[other].URL
+		for other, match := range matches {
+			eligibility.Links[other] = match.URL
 		}
-		eligibility.Status = "available"
-		for _, other := range serverBookmakers {
-			state, valid := s.cachedMarketAvailability(other, matches[other])
-			if other == book && valid {
+		available, pending, failed := 0, false, false
+		for other, match := range matches {
+			state, valid := s.cachedMarketAvailability(other, match)
+			if !valid {
+				pending = true
+				continue
+			}
+			if other == book {
 				copy := state
 				event.MarketAvailability = &copy
-			}
-			if !valid {
-				eligibility.Status, eligibility.Reason = "pending", "mecz u wszystkich trzech; trwa sprawdzanie rynków zawodników"
-				continue
 			}
 			if eligibility.ExpiresAt.IsZero() || state.ExpiresAt.Before(eligibility.ExpiresAt) {
 				eligibility.ExpiresAt = state.ExpiresAt
 			}
-			if state.Status == "error" {
-				eligibility.Status, eligibility.Reason = "error", other+": "+state.Error
-				break
+			if state.Status == "available" {
+				available++
 			}
-			if state.Status != "available" {
-				eligibility.Status, eligibility.Reason = "unavailable", other+": brak obsługiwanych rynków zawodników"
-				break
+			if state.Status == "error" {
+				failed = true
 			}
 		}
-		if eligibility.Status == "pending" {
+		switch {
+		case available > 0:
+			eligibility.Status, eligibility.Reason = "available", fmt.Sprintf("rynki zawodników potwierdzone u %d z %d dopasowanych bukmacherów", available, len(matches))
+		case pending:
+			eligibility.Status, eligibility.Reason = "pending", "sprawdzanie rynków u dostępnych bukmacherów"
+		case failed:
+			eligibility.Status, eligibility.Reason = "error", "błąd odczytu rynków; wybierz mecz, aby ponowić"
+		default:
+			eligibility.Status, eligibility.Reason = "unavailable", "brak potwierdzonych rynków zawodników; linki pozostają dostępne"
+		}
+		if pending {
 			s.queueQualification(matches)
 		}
 	}
@@ -7683,9 +7844,12 @@ func (s *calendarServer) qualificationWorker() {
 			return
 		case matches := <-s.qualificationQueue:
 			var workers sync.WaitGroup
-			for _, book := range serverBookmakers {
+			for book, event := range matches {
 				workers.Add(1)
-				go func(book string) { defer workers.Done(); s.checkMatchMarkets(s.ctx, book, matches[book], false) }(book)
+				go func(book string, event CalendarEvent) {
+					defer workers.Done()
+					s.checkMatchMarkets(s.ctx, book, event, false)
+				}(book, event)
 			}
 			workers.Wait()
 			s.qualificationMu.Lock()
@@ -7704,47 +7868,26 @@ func (s *calendarServer) prepareMatch(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 400, err)
 		return
 	}
-	seed, err := s.verifyBookmakerFixtures(r.Context(), query)
+	_, matches, warnings, err := s.verifyBookmakerFixtures(r.Context(), query)
 	if err != nil {
 		apiError(w, 400, err)
 		return
 	}
-	start, _ := time.Parse(time.RFC3339, seed.StartTime)
-	zone, _ := time.LoadLocation("Europe/Warsaw")
-	bundle, err := s.loadCalendarDay(r.Context(), start.In(zone).Format("2006-01-02"), false)
-	if err != nil {
-		apiError(w, 502, err)
-		return
+	prepared := MatchPreparation{Links: map[string]string{}, Sources: map[string]MatchMarketAvailability{}}
+	results := make(chan MatchMarketAvailability, len(matches))
+	for book, event := range matches {
+		prepared.Links[book] = event.URL
+		go func(book string, event CalendarEvent) { results <- s.checkMatchMarkets(r.Context(), book, event, true) }(book, event)
 	}
-	if len(bundle.Errors) > 0 {
-		apiError(w, 502, fmt.Errorf("nie potwierdzono aktualności trzech kalendarzy: %v", bundle.Errors))
-		return
-	}
-	matches, err := matchCalendarOffers(seed, indexCalendarOffers(bundle))
-	if err != nil {
-		apiError(w, 400, err)
-		return
-	}
-	for _, source := range []struct{ book, link string }{{"SUPERBET", query.SuperbetURL}, {"BETCLIC", query.BetclicURL}, {"STS", query.STSURL}} {
-		id, _, _ := extractIDAndSlug(source.link)
-		if matches[source.book].ID != id {
-			apiError(w, 400, fmt.Errorf("%s: link wskazuje inne wydarzenie", source.book))
-			return
-		}
-	}
-	prepared := MatchPreparation{Qualified: true, Links: map[string]string{}, Sources: map[string]MatchMarketAvailability{}}
-	results := make(chan MatchMarketAvailability, 3)
-	for _, book := range serverBookmakers {
-		prepared.Links[book] = matches[book].URL
-		go func(book string) { results <- s.checkMatchMarkets(r.Context(), book, matches[book], true) }(book)
-	}
-	for range serverBookmakers {
+	for range matches {
 		state := <-results
 		prepared.Sources[state.Bookmaker] = state
-		if state.Status != "available" || len(state.Markets) == 0 {
-			prepared.Qualified = false
-			prepared.Reason += state.Bookmaker + ": " + state.Status + " " + state.Error + "; "
+		if state.Status == "available" && len(state.Markets) > 0 {
+			prepared.Qualified = true
+		} else {
+			warnings = append(warnings, strings.TrimSpace(state.Bookmaker+": "+state.Status+" "+state.Error))
 		}
 	}
+	prepared.Reason = strings.Join(warnings, "; ")
 	jsonResponse(w, 200, prepared)
 }

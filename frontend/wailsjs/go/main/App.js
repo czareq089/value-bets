@@ -34,6 +34,10 @@ export function DetectTeamsFromURL(arg1) {
   return window['go']['main']['App']['DetectTeamsFromURL'](arg1);
 }
 
+export function GetAnalysisLineupEvent(arg1) {
+  return window['go']['main']['App']['GetAnalysisLineupEvent'](arg1);
+}
+
 export function GetAnalysisProgress() {
   return window['go']['main']['App']['GetAnalysisProgress']();
 }
@@ -52,6 +56,10 @@ export function GetAvailableTournaments(arg1, arg2) {
 
 export function GetBetclicCalendar(arg1) {
   return window['go']['main']['App']['GetBetclicCalendar'](arg1);
+}
+
+export function GetRelatedStats(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['GetRelatedStats'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function GetSTSCalendar(arg1) {

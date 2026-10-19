@@ -741,6 +741,36 @@ func (a *App) GetAnalysisSample(analysisID string, limit int) ([]AnalyzedBet, er
 	return result, err
 }
 
+func (a *App) GetRelatedStats(analysisID string, playerID int, baseMarket, market string, limit int) (map[string]any, error) {
+	if !regexp.MustCompile(`^[a-f0-9]{24}$`).MatchString(analysisID) || playerID <= 0 || limit < 1 || limit > 30 {
+		return nil, fmt.Errorf("niepoprawna próbka")
+	}
+	ctx, cancel := context.WithTimeout(a.calendarContext(), 20*time.Second)
+	defer cancel()
+	body, err := json.Marshal(map[string]any{"analysisId": analysisID, "playerId": playerID, "baseMarket": baseMarket, "market": market, "limit": limit})
+	if err != nil {
+		return nil, err
+	}
+	var result map[string]any
+	err = a.serverRequest(ctx, http.MethodPost, "/api/v1/analyses/related", body, &result)
+	return result, err
+}
+
+// Resolve the optional widget only after a chart is opened.
+func (a *App) GetAnalysisLineupEvent(analysisID string) (map[string]any, error) {
+	if !regexp.MustCompile(`^[a-f0-9]{24}$`).MatchString(analysisID) {
+		return nil, fmt.Errorf("niepoprawna analiza")
+	}
+	if err := a.ensureSofaRelay(a.calendarContext()); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(a.calendarContext(), 7*time.Minute)
+	defer cancel()
+	var result map[string]any
+	err := a.serverRequest(ctx, http.MethodGet, "/api/v1/analyses/"+analysisID+"/lineup-event", nil, &result)
+	return result, err
+}
+
 // VALUE_BETS_SERVER_URL overrides the server address without rebuilding the client.
 func serverBaseURL() string {
 	if value := strings.TrimSpace(os.Getenv("VALUE_BETS_SERVER_URL")); value != "" {

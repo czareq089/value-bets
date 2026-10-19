@@ -18,6 +18,8 @@ export function DetectCalendarTeams(arg1:string,arg2:string):Promise<main.TeamDe
 
 export function DetectTeamsFromURL(arg1:string):Promise<main.TeamDetectionResult>;
 
+export function GetAnalysisLineupEvent(arg1:string):Promise<Record<string, any>>;
+
 export function GetAnalysisProgress():Promise<main.AnalysisJob>;
 
 export function GetAnalysisSample(arg1:string,arg2:number):Promise<Array<main.AnalyzedBet>>;
@@ -27,6 +29,8 @@ export function GetAnalysisShotmaps(arg1:string,arg2:number,arg3:string,arg4:str
 export function GetAvailableTournaments(arg1:string,arg2:string):Promise<Array<main.LeagueOption>>;
 
 export function GetBetclicCalendar(arg1:string):Promise<main.SuperbetCalendar>;
+
+export function GetRelatedStats(arg1:string,arg2:number,arg3:string,arg4:string,arg5:number):Promise<Record<string, any>>;
 
 export function GetSTSCalendar(arg1:string):Promise<main.SuperbetCalendar>;
 

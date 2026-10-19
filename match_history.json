@@ -1,52 +1,12 @@
 [
   {
-    "timestamp": "2026-10-17 20:46:53",
-    "title": "Botafogo RJ vs Chapecoense",
-    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/botafogo-rj-vs-chapecoense-14142779?mdt=o",
-    "betclicUrl": "https://www.betclic.pl/pilka-nozna-s1/Botafogo-Chapecoense%20SC-m1248065508868096",
-    "stsUrl": "https://www.sts.pl/kursy/pilka-nozna/f2219181",
+    "timestamp": "2026-10-19 12:01:18",
+    "title": "Wisła Płock vs Radomiak Radom",
+    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/wisla-plock-vs-radomiak-radom-14127705?mdt=o",
+    "betclicUrl": "https://www.betclic.pl/pilka-nozna-s1/Wis%C5%82a%20P%C5%82ock-RKS%20Radomiak-m1250882451685376",
+    "stsUrl": "https://www.sts.pl/kursy/pilka-nozna/f2915795",
     "homeStatsId": "",
     "awayStatsId": "",
     "sampleLimit": 10
-  },
-  {
-    "timestamp": "2026-10-17 20:43:51",
-    "title": "Sparta Rotterdam vs Willem II Tilburg",
-    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/sparta-rotterdam-vs-willem-ii-tilburg-14127847?mdt=o",
-    "betclicUrl": "https://www.betclic.pl/pilka-nozna-s1/Sparta%20Rotterdam-Willem%20II-m1230820437164032",
-    "stsUrl": "https://www.sts.pl/kursy/pilka-nozna/f2915880",
-    "homeStatsId": "",
-    "awayStatsId": "",
-    "sampleLimit": 10
-  },
-  {
-    "timestamp": "2026-10-17 20:40:09",
-    "title": "Valencia vs Athletic Bilbao",
-    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/valencia-vs-athletic-bilbao-14142835?mdt=o",
-    "betclicUrl": "https://www.betclic.pl/pilka-nozna-s1/Valencia-Athletic%20Bilbao-m1231457791016960",
-    "stsUrl": "https://www.sts.pl/kursy/pilka-nozna/f3101959",
-    "homeStatsId": "",
-    "awayStatsId": "",
-    "sampleLimit": 10
-  },
-  {
-    "timestamp": "2026-10-17 20:25:29",
-    "title": "Lille vs Brest",
-    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/lille-vs-brest-14127841?mdt=o",
-    "betclicUrl": "https://www.betclic.pl/pilka-nozna-s1/Lille-Brest-m1230958401454080",
-    "stsUrl": "https://www.sts.pl/kursy/pilka-nozna/f2867466",
-    "homeStatsId": "",
-    "awayStatsId": "",
-    "sampleLimit": 10
-  },
-  {
-    "timestamp": "2026-10-17 20:06:34",
-    "title": "Troyes vs Lens",
-    "sbUrl": "https://superbet.pl/kursy/pilka-nozna/troyes-vs-lens-14127846?mdt=o",
-    "betclicUrl": "https://www.betclic.pl/pilka-nozna-s1/Troyes-RC%20Lens-m1230957595099136",
-    "stsUrl": "https://www.sts.pl/kursy/pilka-nozna/f2868319",
-    "homeStatsId": "",
-    "awayStatsId": "",
-    "sampleLimit": 7
   }
 ]
