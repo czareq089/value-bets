@@ -5,3 +5,7 @@
 /bookmaker_calendar_cache.json
 /logs/
 /.calendar-cache-*.tmp
+/client_bookmaker_calendar_cache.json
+/.calendar-client-*.tmp
+/server/data/
+/server/logs/

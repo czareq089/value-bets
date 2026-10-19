@@ -1,5 +1,42 @@
 export namespace main {
 	
+	export class AnalysisEligibility {
+	    status: string;
+	    reason?: string;
+	    links: Record<string, string>;
+	    // Go type: time
+	    expiresAt?: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new AnalysisEligibility(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.status = source["status"];
+	        this.reason = source["reason"];
+	        this.links = source["links"];
+	        this.expiresAt = this.convertValues(source["expiresAt"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ShotCoordinate {
 	    x: number;
 	    y: number;
@@ -22,7 +59,52 @@ export namespace main {
 	        this.isSub = source["isSub"];
 	    }
 	}
+	export class FairModelDetails {
+	    version: string;
+	    distribution: string;
+	    probability: number;
+	    baseMean: number;
+	    expectedCount: number;
+	    matchupFactor: number;
+	    effectiveSample: number;
+	    contextMatches: number;
+	    role: string;
+	    venue: string;
+	    teamId: string;
+	    opponentId: string;
+	    features: string[];
+	    notes: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new FairModelDetails(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.version = source["version"];
+	        this.distribution = source["distribution"];
+	        this.probability = source["probability"];
+	        this.baseMean = source["baseMean"];
+	        this.expectedCount = source["expectedCount"];
+	        this.matchupFactor = source["matchupFactor"];
+	        this.effectiveSample = source["effectiveSample"];
+	        this.contextMatches = source["contextMatches"];
+	        this.role = source["role"];
+	        this.venue = source["venue"];
+	        this.teamId = source["teamId"];
+	        this.opponentId = source["opponentId"];
+	        this.features = source["features"];
+	        this.notes = source["notes"];
+	    }
+	}
 	export class AnalyzedBet {
+	    sampleEventIds?: number[];
+	    historyNotes?: string[];
+	    analysisId?: string;
+	    playerId: number;
+	    contextPending?: boolean;
+	    sampleRatings: number[];
+	    fairModel?: FairModelDetails;
 	    bookmaker: string;
 	    playerName: string;
 	    marketType: string;
@@ -37,6 +119,7 @@ export namespace main {
 	    matchesSample: number;
 	    sampleValues: number[];
 	    sampleValuesSuperSub: number[];
+	    sampleSuperSubAvailable?: boolean[];
 	    sampleMinutes: number[];
 	    samplePositions: string[];
 	    sampleOpponents: string[];
@@ -56,6 +139,13 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sampleEventIds = source["sampleEventIds"];
+	        this.historyNotes = source["historyNotes"];
+	        this.analysisId = source["analysisId"];
+	        this.playerId = source["playerId"];
+	        this.contextPending = source["contextPending"];
+	        this.sampleRatings = source["sampleRatings"];
+	        this.fairModel = this.convertValues(source["fairModel"], FairModelDetails);
 	        this.bookmaker = source["bookmaker"];
 	        this.playerName = source["playerName"];
 	        this.marketType = source["marketType"];
@@ -70,6 +160,7 @@ export namespace main {
 	        this.matchesSample = source["matchesSample"];
 	        this.sampleValues = source["sampleValues"];
 	        this.sampleValuesSuperSub = source["sampleValuesSuperSub"];
+	        this.sampleSuperSubAvailable = source["sampleSuperSubAvailable"];
 	        this.sampleMinutes = source["sampleMinutes"];
 	        this.samplePositions = source["samplePositions"];
 	        this.sampleOpponents = source["sampleOpponents"];
@@ -102,6 +193,99 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class AnalysisRequest {
+	    superbetUrl: string;
+	    betclicUrl: string;
+	    stsUrl: string;
+	    homeId: string;
+	    awayId: string;
+	    matchLimit: number;
+	    tournamentIds: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AnalysisRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.superbetUrl = source["superbetUrl"];
+	        this.betclicUrl = source["betclicUrl"];
+	        this.stsUrl = source["stsUrl"];
+	        this.homeId = source["homeId"];
+	        this.awayId = source["awayId"];
+	        this.matchLimit = source["matchLimit"];
+	        this.tournamentIds = source["tournamentIds"];
+	    }
+	}
+	export class AnalysisJob {
+	    fixtureId?: string;
+	    // Go type: time
+	    startTime?: any;
+	    resultRevision: number;
+	    id: string;
+	    match: string;
+	    status: string;
+	    stage: string;
+	    message: string;
+	    playersDone: number;
+	    playersTotal: number;
+	    // Go type: time
+	    createdAt: any;
+	    // Go type: time
+	    startedAt?: any;
+	    // Go type: time
+	    finishedAt?: any;
+	    request: AnalysisRequest;
+	    warnings: string[];
+	    result?: AnalyzedBet[];
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AnalysisJob(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.fixtureId = source["fixtureId"];
+	        this.startTime = this.convertValues(source["startTime"], null);
+	        this.resultRevision = source["resultRevision"];
+	        this.id = source["id"];
+	        this.match = source["match"];
+	        this.status = source["status"];
+	        this.stage = source["stage"];
+	        this.message = source["message"];
+	        this.playersDone = source["playersDone"];
+	        this.playersTotal = source["playersTotal"];
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.startedAt = this.convertValues(source["startedAt"], null);
+	        this.finishedAt = this.convertValues(source["finishedAt"], null);
+	        this.request = this.convertValues(source["request"], AnalysisRequest);
+	        this.warnings = source["warnings"];
+	        this.result = this.convertValues(source["result"], AnalyzedBet);
+	        this.error = source["error"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	
 	export class LeagueOption {
 	    id: number;
 	    name: string;
@@ -142,7 +326,100 @@ export namespace main {
 	        this.sampleLimit = source["sampleLimit"];
 	    }
 	}
+	export class MatchMarketAvailability {
+	    bookmaker: string;
+	    eventId: string;
+	    status: string;
+	    markets: string[];
+	    // Go type: time
+	    checkedAt: any;
+	    // Go type: time
+	    expiresAt: any;
+	    error?: string;
+	    home?: string;
+	    away?: string;
+	    // Go type: time
+	    startTime?: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new MatchMarketAvailability(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.bookmaker = source["bookmaker"];
+	        this.eventId = source["eventId"];
+	        this.status = source["status"];
+	        this.markets = source["markets"];
+	        this.checkedAt = this.convertValues(source["checkedAt"], null);
+	        this.expiresAt = this.convertValues(source["expiresAt"], null);
+	        this.error = source["error"];
+	        this.home = source["home"];
+	        this.away = source["away"];
+	        this.startTime = this.convertValues(source["startTime"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class MatchPreparation {
+	    qualified: boolean;
+	    reason?: string;
+	    links: Record<string, string>;
+	    sources: Record<string, MatchMarketAvailability>;
+	
+	    static createFrom(source: any = {}) {
+	        return new MatchPreparation(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.qualified = source["qualified"];
+	        this.reason = source["reason"];
+	        this.links = source["links"];
+	        this.sources = this.convertValues(source["sources"], MatchMarketAvailability, true);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class MyBetItem {
+	    analysisId?: string;
+	    playerId?: number;
+	    sampleEventIds?: number[];
+	    historyNotes?: string[];
+	    sampleRatings: number[];
+	    fairModel?: FairModelDetails;
 	    id: string;
 	    bookmaker: string;
 	    playerName: string;
@@ -158,6 +435,7 @@ export namespace main {
 	    matchesSample: number;
 	    sampleValues: number[];
 	    sampleValuesSuperSub: number[];
+	    sampleSuperSubAvailable?: boolean[];
 	    sampleMinutes: number[];
 	    samplePositions: string[];
 	    sampleOpponents: string[];
@@ -177,6 +455,12 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.analysisId = source["analysisId"];
+	        this.playerId = source["playerId"];
+	        this.sampleEventIds = source["sampleEventIds"];
+	        this.historyNotes = source["historyNotes"];
+	        this.sampleRatings = source["sampleRatings"];
+	        this.fairModel = this.convertValues(source["fairModel"], FairModelDetails);
 	        this.id = source["id"];
 	        this.bookmaker = source["bookmaker"];
 	        this.playerName = source["playerName"];
@@ -192,6 +476,7 @@ export namespace main {
 	        this.matchesSample = source["matchesSample"];
 	        this.sampleValues = source["sampleValues"];
 	        this.sampleValuesSuperSub = source["sampleValuesSuperSub"];
+	        this.sampleSuperSubAvailable = source["sampleSuperSubAvailable"];
 	        this.sampleMinutes = source["sampleMinutes"];
 	        this.samplePositions = source["samplePositions"];
 	        this.sampleOpponents = source["sampleOpponents"];
@@ -224,40 +509,30 @@ export namespace main {
 		    return a;
 		}
 	}
-	export class PrefetchProgress {
-	    running: boolean;
-	    day: string;
-	    completed: number;
-	    total: number;
-	    cached: number;
-	    skipped: number;
-	    failed: number;
-	    currentMatch: string;
-	    playersDone: number;
-	    playersTotal: number;
+	
+	export class SofaBrowserState {
+	    status: string;
 	    message: string;
+	    address: string;
+	    pending: boolean;
+	    browser: string;
 	
 	    static createFrom(source: any = {}) {
-	        return new PrefetchProgress(source);
+	        return new SofaBrowserState(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.running = source["running"];
-	        this.day = source["day"];
-	        this.completed = source["completed"];
-	        this.total = source["total"];
-	        this.cached = source["cached"];
-	        this.skipped = source["skipped"];
-	        this.failed = source["failed"];
-	        this.currentMatch = source["currentMatch"];
-	        this.playersDone = source["playersDone"];
-	        this.playersTotal = source["playersTotal"];
+	        this.status = source["status"];
 	        this.message = source["message"];
+	        this.address = source["address"];
+	        this.pending = source["pending"];
+	        this.browser = source["browser"];
 	    }
 	}
-	
 	export class SuperbetCalendarEvent {
+	    analysisEligibility?: AnalysisEligibility;
+	    marketAvailability?: MatchMarketAvailability;
 	    id: string;
 	    home: string;
 	    away: string;
@@ -274,6 +549,8 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.analysisEligibility = this.convertValues(source["analysisEligibility"], AnalysisEligibility);
+	        this.marketAvailability = this.convertValues(source["marketAvailability"], MatchMarketAvailability);
 	        this.id = source["id"];
 	        this.home = source["home"];
 	        this.away = source["away"];
@@ -284,6 +561,24 @@ export namespace main {
 	        this.live = source["live"];
 	        this.betBuilder = source["betBuilder"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class SuperbetCalendar {
 	    date: string;
@@ -327,6 +622,7 @@ export namespace main {
 	    awaySlug: string;
 	    homeId: string;
 	    awayId: string;
+	    warnings: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new TeamDetectionResult(source);
@@ -338,6 +634,7 @@ export namespace main {
 	        this.awaySlug = source["awaySlug"];
 	        this.homeId = source["homeId"];
 	        this.awayId = source["awayId"];
+	        this.warnings = source["warnings"];
 	    }
 	}
 

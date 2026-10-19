@@ -6,8 +6,24 @@ export function AnalyzeThreeBookmakers(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
   return window['go']['main']['App']['AnalyzeThreeBookmakers'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
 }
 
+export function CancelAnalysis() {
+  return window['go']['main']['App']['CancelAnalysis']();
+}
+
+export function CancelSofaCaptcha() {
+  return window['go']['main']['App']['CancelSofaCaptcha']();
+}
+
+export function ContinueSofaCaptcha() {
+  return window['go']['main']['App']['ContinueSofaCaptcha']();
+}
+
 export function DeleteMatchHistory(arg1) {
   return window['go']['main']['App']['DeleteMatchHistory'](arg1);
+}
+
+export function DetectCalendarEventTeams(arg1, arg2, arg3) {
+  return window['go']['main']['App']['DetectCalendarEventTeams'](arg1, arg2, arg3);
 }
 
 export function DetectCalendarTeams(arg1, arg2) {
@@ -18,6 +34,18 @@ export function DetectTeamsFromURL(arg1) {
   return window['go']['main']['App']['DetectTeamsFromURL'](arg1);
 }
 
+export function GetAnalysisProgress() {
+  return window['go']['main']['App']['GetAnalysisProgress']();
+}
+
+export function GetAnalysisSample(arg1, arg2) {
+  return window['go']['main']['App']['GetAnalysisSample'](arg1, arg2);
+}
+
+export function GetAnalysisShotmaps(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['GetAnalysisShotmaps'](arg1, arg2, arg3, arg4, arg5);
+}
+
 export function GetAvailableTournaments(arg1, arg2) {
   return window['go']['main']['App']['GetAvailableTournaments'](arg1, arg2);
 }
@@ -26,12 +54,12 @@ export function GetBetclicCalendar(arg1) {
   return window['go']['main']['App']['GetBetclicCalendar'](arg1);
 }
 
-export function GetPrefetchProgress() {
-  return window['go']['main']['App']['GetPrefetchProgress']();
-}
-
 export function GetSTSCalendar(arg1) {
   return window['go']['main']['App']['GetSTSCalendar'](arg1);
+}
+
+export function GetSofaBrowserState() {
+  return window['go']['main']['App']['GetSofaBrowserState']();
 }
 
 export function GetSuperbetCalendar(arg1) {
@@ -44,6 +72,10 @@ export function LoadMatchHistory() {
 
 export function LoadMyBets() {
   return window['go']['main']['App']['LoadMyBets']();
+}
+
+export function PrepareCalendarMatch(arg1, arg2, arg3) {
+  return window['go']['main']['App']['PrepareCalendarMatch'](arg1, arg2, arg3);
 }
 
 export function RefreshBookmakerCalendar(arg1, arg2) {
@@ -62,10 +94,6 @@ export function SaveTeamSofaID(arg1, arg2) {
   return window['go']['main']['App']['SaveTeamSofaID'](arg1, arg2);
 }
 
-export function StartSuperbetPrefetch(arg1, arg2) {
-  return window['go']['main']['App']['StartSuperbetPrefetch'](arg1, arg2);
-}
-
-export function StopSuperbetPrefetch() {
-  return window['go']['main']['App']['StopSuperbetPrefetch']();
+export function SetSofaBrowser(arg1) {
+  return window['go']['main']['App']['SetSofaBrowser'](arg1);
 }

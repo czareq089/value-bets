@@ -71,15 +71,15 @@
 
         .main-container { flex: 1; display: flex; flex-direction: column; padding: 14px 18px; overflow-y: auto; min-width: 800px; }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-        .prefetch-strip { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; color: var(--text-muted); font-size: 10px; }
-        .prefetch-strip[hidden] { display: none; }
-        .prefetch-strip progress { width: 130px; height: 4px; accent-color: var(--accent); flex-shrink: 0; }
-        .prefetch-strip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .analysis-strip { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; color: var(--text-muted); font-size: 10px; }
+        .analysis-strip[hidden] { display: none; }
+        .analysis-strip progress { width: 130px; height: 4px; accent-color: var(--accent); flex-shrink: 0; }
+        .analysis-strip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .title-box h1 { font-size: 20px; font-weight: 800; color: var(--accent); }
         .panel { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
 
         .inputs-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 10px; }
-        .stats-grid { display: grid; grid-template-columns: 1fr 1fr 1.2fr auto; gap: 10px; align-items: end; }
+        .stats-grid { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; }
 
         .input-group label { display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 4px; font-weight: 600; }
         .input-group input { width: 100%; background: var(--bg-input); border: 1px solid var(--border); color: #fff; padding: 6px 10px; border-radius: 6px; font-size: 12px; height: 34px; outline: none; }
@@ -265,6 +265,29 @@
     </style>
 </head>
 <body>
+<div id="sofaBrowserNotice" role="status" aria-live="polite" style="display:none; position:fixed; top:12px; left:50%; transform:translateX(-50%); z-index:10000; width:min(900px,94vw); padding:14px; border:1px solid var(--accent); border-radius:10px; background:var(--bg-panel,#172033); box-shadow:0 8px 35px #0009;">
+    <b>SofaScore — ręczna weryfikacja</b>
+    <label style="display:block; margin-top:8px;">Przeglądarka:
+        <select id="sofaBrowserSelect" class="filter-select" onchange="selectSofaBrowser(this.value)">
+            <option value="floorp">Floorp — 9222</option>
+            <option value="chrome">Chrome — 9223</option>
+        </select>
+    </label>
+    <div id="sofaBrowserMessage" style="margin:8px 0;"></div>
+    <details id="sofaBrowserHelp" style="margin:8px 0; font-size:12px;">
+        <summary>Jak włączyć połączenie z przeglądarką</summary>
+        <p>Jeśli port Floorpa 9222 już działa, pozostaw w nim otwartą kartę SofaScore. W innym przypadku zamknij całkowicie Floorpa i uruchom go w PowerShellu:</p>
+        <code style="display:block; overflow-wrap:anywhere; user-select:text;">&amp; "C:\Program Files\Ablaze Floorp\floorp.exe" --remote-debugging-port 9222 "https://www.sofascore.com/"</code>
+        <p>Chrome na osobnym porcie 9223 i profilu ValueBets:</p>
+        <code style="display:block; overflow-wrap:anywhere; user-select:text;">&amp; "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9223 --user-data-dir="$env:LOCALAPPDATA\ValueBets\Chrome" "https://www.sofascore.com/"</code>
+        <p>Captchę rozwiązujesz ręcznie w wybranej przeglądarce. Adres lokalnego portu: <span id="sofaBrowserAddress"></span>. Porty przeglądarek pozostają lokalne. Oczekiwanie trwa maksymalnie 5 minut.</p>
+    </details>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button id="sofaBrowserContinue" class="btn-primary" onclick="continueSofaBrowser()">Rozwiązane / ponów</button>
+        <button id="sofaBrowserCancel" class="btn-ghost" onclick="cancelSofaBrowser()">Anuluj oczekiwanie</button>
+        <button id="sofaBrowserDismiss" class="btn-ghost" onclick="document.getElementById('sofaBrowserNotice').style.display='none'">Ukryj</button>
+    </div>
+</div>
 
 <div class="dock dock-calendar" id="dockCalendar">
     <div class="dock-header">
@@ -281,15 +304,18 @@
             <label for="calendarDate">Dzień (czas polski)</label>
             <div class="calendar-controls">
                 <input type="date" id="calendarDate" onchange="loadSuperbetCalendar()">
-                <button class="btn-ghost" id="calendarRefresh" onclick="loadSuperbetCalendar(true)" title="Odśwież wszystkie kalendarze">↻</button>
+                <button class="btn-ghost" id="calendarRefresh" onclick="loadSuperbetCalendar(true)" title="Pobierz ponownie od bukmacherów — pomija cache 2 h">↻</button>
             </div>
         </div>
         <input type="search" id="calendarSearch" class="search-box" style="flex:none; width:100%;" placeholder="Szukaj drużyny lub ligi…" oninput="renderSuperbetCalendar()" aria-label="Szukaj w kalendarzu">
         <select class="filter-select" id="calendarLeague" onchange="renderSuperbetCalendar()" aria-label="Rozgrywki kalendarza">
             <option value="">Wszystkie rozgrywki</option>
         </select>
-        <label style="font-size:11px; color:var(--text-muted);"><input type="checkbox" id="calendarBuilderOnly" onchange="renderSuperbetCalendar()"> Tylko mecze z BetBuilderem</label>
+        <label style="font-size:11px; color:var(--text-muted);"><input type="checkbox" id="calendarBuilderOnly" onchange="renderSuperbetCalendar()"> BetBuilder (Superbet)</label>
+        <label style="font-size:11px;color:var(--text-muted)"><input type="checkbox" id="calendarAllThreeOnly" checked onchange="renderSuperbetCalendar()"> U wszystkich 3 bukmacherów</label>
+        <label style="font-size:11px;color:var(--text-muted)"><input type="checkbox" id="calendarReadyOnly" onchange="renderSuperbetCalendar()"> Tylko potwierdzone rynki zawodników</label>
         <div id="calendarStatus" class="calendar-status" role="status"></div>
+        <div id="calendarCacheInfo" style="font-size:11px; color:var(--text-muted); margin:4px 0;"></div>
         <div id="calendarWarnings" class="calendar-status" style="color:var(--sb-color);"></div>
         <div id="calendarList" class="calendar-list"></div>
     </div>
@@ -306,14 +332,14 @@
 <div class="main-container">
     <div class="header">
         <div class="title-box">
-            <h1>ValueBets 3.0 <span style="font-size:13px; color:var(--accent); font-weight:600;">(Auto-SofaScore + Shotmap)</span></h1>
-            <p style="color: var(--text-muted); font-size: 12px;">Wklej link do meczu — ID drużyn z SofaScore pobiorą się automatycznie! LPM = wykres i mini-mapa, PPM = MyBets.</p>
+            <h1>ValueBets 3.0 <span style="font-size:13px; color:var(--accent); font-weight:600;">(FootyMetrics + SofaScore)</span></h1>
+            <p style="color: var(--text-muted); font-size: 12px;">Analiza z FootyMetrics bez oczekiwania na SofaScore. LPM = wykres i dodatki SofaScore, PPM = MyBets.</p>
         </div>
     </div>
 
-    <div id="prefetchStrip" class="prefetch-strip" hidden>
-        <progress id="prefetchBar" max="100" value="0" aria-label="Postęp pobierania w tle"></progress>
-        <span id="prefetchLabel" role="status"></span>
+    <div id="analysisStrip" class="analysis-strip" hidden>
+        <progress id="analysisBar" max="100" value="0" aria-label="Postęp analizy"></progress>
+        <span id="analysisLabel" role="status"></span><button type="button" id="cancelAnalysisButton" onclick="cancelCurrentAnalysis()">Anuluj analizę</button>
     </div>
 
     <div class="panel">
@@ -333,12 +359,12 @@
         </div>
 
         <div class="stats-grid">
-            <div class="input-group">
-                <label>SofaScore Gospodarze (Auto):</label>
+            <div class="input-group" style="display:none;">
+                <label>SofaScore Gospodarze (opcjonalne):</label>
                 <input type="text" id="homeIdInput" placeholder="Wykrywa się samo..." onchange="checkAndLoadTournaments()">
             </div>
-            <div class="input-group">
-                <label>SofaScore Goście (Auto):</label>
+            <div class="input-group" style="display:none;">
+                <label>SofaScore Goście (opcjonalne):</label>
                 <input type="text" id="awayIdInput" placeholder="Wykrywa się samo..." onchange="checkAndLoadTournaments()">
             </div>
             <div class="input-group">
@@ -381,11 +407,11 @@
             <span class="slider-val" id="hrRangeVal">0 – 100</span>
         </div>
         <div class="range-filter-block">
-            <label>Próbka (mecze):</label>
+            <label title="Dolna granica: minimum dostępnych występów. Górna: liczba najnowszych meczów do obliczeń; starsze są odcinane.">Próbka (mecze):</label>
             <div class="dual-range" id="sampleRangeWrap">
                 <div class="dual-range-track"><div class="dual-range-fill" id="sampleRangeFill"></div></div>
-                <input type="range" id="sampleMinSlider" min="1" max="30" step="1" value="1" oninput="onSampleRangeInput()">
-                <input type="range" id="sampleMaxSlider" min="1" max="30" step="1" value="30" oninput="onSampleRangeInput()">
+                <input type="range" id="sampleMinSlider" min="1" max="30" step="1" value="1" oninput="onSampleRangeInput(this)">
+                <input type="range" id="sampleMaxSlider" min="1" max="30" step="1" value="30" oninput="onSampleRangeInput(this)">
             </div>
             <span class="slider-val" id="sampleRangeVal">1 – 30</span>
         </div>
@@ -432,7 +458,9 @@
                 <label><input type="checkbox" class="market-cb" value="SHOTS_INSIDE_BOX" checked onchange="handleFilterChange()"> Strzały z pola karnego</label>
                 <label><input type="checkbox" class="market-cb" value="SHOTS_ON_TARGET_OUTSIDE_BOX" checked onchange="handleFilterChange()"> Celne strzały spoza pola karnego</label>
                 <label><input type="checkbox" class="market-cb" value="SHOTS_ON_TARGET_INSIDE_BOX" checked onchange="handleFilterChange()"> Celne strzały z pola karnego</label>
-                <label><input type="checkbox" class="market-cb" value="TACKLES" checked onchange="handleFilterChange()"> Odbiory</label>
+                <label><input type="checkbox" class="market-cb" value="PASSES" checked onchange="handleFilterChange()"> Podania ogółem</label>
+                <label><input type="checkbox" class="market-cb" value="ACCURATE_PASSES" checked onchange="handleFilterChange()"> Podania celne</label>
+                <label><input type="checkbox" class="market-cb" value="TACKLES" checked onchange="handleFilterChange()"> Odbiory wygrane</label>
                 <label><input type="checkbox" class="market-cb" value="FOULS_COMMITTED" checked onchange="handleFilterChange()"> Faule popełnione</label>
                 <label><input type="checkbox" class="market-cb" value="FOULS_DRAWN" checked onchange="handleFilterChange()"> Faule wywalczone</label>
                 <label><input type="checkbox" class="market-cb" value="INTERCEPTIONS" checked onchange="handleFilterChange()"> Przechwyty</label>
@@ -442,13 +470,8 @@
         </div>
 
         <label style="display:flex; align-items:center; gap:6px; background:var(--bg-card); border:1px solid var(--border); padding:0 10px; border-radius:6px; height:32px; font-size:12px; font-weight:700; cursor:pointer; user-select:none;">
-            <input type="checkbox" id="startingXIToggle" onchange="renderFiltered()" style="accent-color:var(--success); cursor:pointer;">
+            <input type="checkbox" id="startingXIToggle" title="Potwierdzona i przewidywana XI z FootyMetrics. Brak danych i ławka są pomijane." onchange="renderFiltered()" style="accent-color:var(--success); cursor:pointer;">
             🟢 Tylko Starting XI
-        </label>
-
-        <label style="display:flex; align-items:center; gap:6px; background:var(--bg-card); border:1px solid var(--border); padding:0 10px; border-radius:6px; height:32px; font-size:12px; font-weight:700; cursor:pointer; user-select:none;">
-            <input type="checkbox" id="bufferModeToggle" onchange="renderFiltered()" style="accent-color:var(--accent); cursor:pointer;">
-            🛡️ Buffer Mode (HR 100% + bufor śr.)
         </label>
 
         <select id="verdictFilter" class="filter-select" onchange="renderFiltered()">
@@ -497,6 +520,7 @@
         </div>
         <div class="chart-summary" id="chartSummary"></div>
 
+        <div id="chartModelDetails" style="font-size:11px;color:var(--text-muted);margin-bottom:12px"></div>
         <div class="chart-content-grid">
             <div>
                 <svg id="sampleChart" class="sample-chart" role="img" aria-labelledby="chartTitle chartSubtitle"></svg>
@@ -617,7 +641,42 @@
     const CALENDAR_METHODS = { SUPERBET: 'GetSuperbetCalendar', STS: 'GetSTSCalendar', BETCLIC: 'GetBetclicCalendar' };
     const CALENDAR_INPUTS = { SUPERBET: 'sbInput', STS: 'stsInput', BETCLIC: 'betclicInput' };
     const CALENDAR_LABELS = { SUPERBET: 'Superbet', STS: 'STS', BETCLIC: 'Betclic' };
-    let prefetchPolling = false;
+    let analysisPolling = false;
+    let analysisRunning = false;
+
+    function renderSofaBrowserState(state) {
+        const notice = document.getElementById('sofaBrowserNotice');
+        const visible = notice.style.display !== 'none';
+        const show = state.status === 'waiting' || state.status === 'error' ||
+            (visible && state.status === 'connecting');
+        notice.style.display = show ? 'block' : 'none';
+        document.getElementById('sofaBrowserMessage').textContent = state.message || '';
+        document.getElementById('sofaBrowserAddress').textContent = state.address || 'http://127.0.0.1:9222';
+        document.getElementById('sofaBrowserSelect').value = state.browser || 'floorp';
+        document.getElementById('sofaBrowserContinue').style.display = state.pending ? '' : 'none';
+        document.getElementById('sofaBrowserContinue').disabled = state.status === 'connecting';
+        document.getElementById('sofaBrowserCancel').style.display = state.pending ? '' : 'none';
+        document.getElementById('sofaBrowserDismiss').style.display = state.pending ? 'none' : '';
+        if (state.status === 'waiting' && state.message?.includes('niedostępne')) document.getElementById('sofaBrowserHelp').open = true;
+    }
+
+    async function continueSofaBrowser() {
+        try { await window.go.main.App.ContinueSofaCaptcha(); }
+        catch (error) { document.getElementById('sofaBrowserMessage').textContent = String(error); }
+    }
+
+    async function selectSofaBrowser(browser) {
+        try { await window.go.main.App.SetSofaBrowser(browser); }
+        catch (error) { document.getElementById('sofaBrowserMessage').textContent = String(error); }
+    }
+
+    async function cancelSofaBrowser() {
+        await window.go.main.App.CancelSofaCaptcha();
+        if (analysisRunning) {
+            try { await window.go.main.App.CancelAnalysis(); }
+            catch (error) { console.error('Anulowanie analizy:', error); }
+        }
+    }
 
     const MARKET_LABELS = {
         SHOTS_TOTAL: "Strzały",
@@ -628,7 +687,9 @@
         SHOTS_INSIDE_BOX: "Strzały z pola karnego",
         SHOTS_ON_TARGET_OUTSIDE_BOX: "Celne strzały spoza pola karnego",
         SHOTS_ON_TARGET_INSIDE_BOX: "Celne strzały z pola karnego",
-        TACKLES: "Odbiory",
+        TACKLES: "Odbiory wygrane",
+        PASSES: "Podania ogółem",
+        ACCURATE_PASSES: "Podania celne",
         DISPOSSESSED: "Straty piłki",
         FOULS_COMMITTED: "Faule popełnione",
         FOULS_DRAWN: "Faule wywalczone",
@@ -639,12 +700,17 @@
     const BOOKMAKERS = ["SUPERBET", "BETCLIC", "STS"];
 
     window.onload = async () => {
+        window.runtime?.EventsOn?.('sofa-browser-state', renderSofaBrowserState);
+        try {
+            if (window.go?.main?.App?.GetSofaBrowserState) renderSofaBrowserState(await window.go.main.App.GetSofaBrowserState());
+        } catch (error) { console.error('Stan sesji SofaScore:', error); }
         const dateParts = new Intl.DateTimeFormat('en-CA', {timeZone: 'Europe/Warsaw', year: 'numeric', month: '2-digit', day: '2-digit'}).formatToParts(new Date());
         const datePart = type => dateParts.find(part => part.type === type).value;
         document.getElementById('calendarDate').value = `${datePart('year')}-${datePart('month')}-${datePart('day')}`;
         loadSuperbetCalendar();
-        refreshPrefetchProgress();
-        setInterval(refreshPrefetchProgress, 1500);
+        refreshAnalysisProgress();
+        setInterval(refreshAnalysisProgress, 1500);
+        setInterval(refreshCalendarStatuses, 15000);
         renderTableHeaders();
         updateDropdownLabels();
 
@@ -722,11 +788,12 @@
         renderFiltered();
     }
 
-    function onSampleRangeInput() {
+    function onSampleRangeInput(changed) {
         const minEl = document.getElementById("sampleMinSlider");
         const maxEl = document.getElementById("sampleMaxSlider");
         if (parseFloat(minEl.value) > parseFloat(maxEl.value)) {
-            [minEl.value, maxEl.value] = [maxEl.value, minEl.value];
+            if (changed === minEl) maxEl.value = minEl.value;
+            else minEl.value = maxEl.value;
         }
         document.getElementById("sampleRangeVal").innerText = `${minEl.value} – ${maxEl.value}`;
         updateDualRangeFill(minEl, maxEl, document.getElementById("sampleRangeFill"));
@@ -745,6 +812,9 @@
         currentHomeSlug = "";
         currentAwaySlug = "";
         rawBets = [];
+        for (const entry of sampleViewCache.values()) if (entry.timer) clearTimeout(entry.timer);
+        sampleViewCache.clear();
+        sampleViewSource = rawBets;
 
         document.getElementById('leagueSelectorWrap').style.display = 'none';
         document.getElementById('leagueCheckboxes').innerHTML = '';
@@ -753,28 +823,6 @@
 
         document.getElementById('resultsBody').innerHTML =
             '<tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--text-muted);">Uzupełnij linki bukmacherów i kliknij Analizuj.</td></tr>';
-    }
-
-    function passesBufferMode(item, isValue) {
-        if (!isValue) return false;
-
-        const hasSuperSub = Array.isArray(item.sampleValuesSuperSub) &&
-            item.sampleValuesSuperSub.length === (item.sampleValues || []).length;
-
-        const vals = (!item.isUnder && hasSuperSub) ? item.sampleValuesSuperSub : (item.sampleValues || []);
-        if (!vals || vals.length === 0) return false;
-
-        if (item.isUnder) {
-            const maxAllowed = Math.floor(item.line);
-            const worstMatch = Math.max(...vals);
-            const allHit = vals.every(v => v <= maxAllowed);
-            return allHit && (worstMatch < maxAllowed);
-        } else {
-            const minRequired = Math.floor(item.line) + 1;
-            const worstMatch = Math.min(...vals);
-            const allHit = vals.every(v => v >= minRequired);
-            return allHit && (worstMatch > minRequired);
-        }
     }
 
     function toggleDropdown(id) {
@@ -858,46 +906,41 @@
         }
     }
 
-    async function refreshPrefetchProgress() {
-        if (prefetchPolling || !window.go?.main?.App?.GetPrefetchProgress) return;
-        prefetchPolling = true;
+    async function refreshAnalysisProgress() {
+        if (!analysisRunning || analysisPolling || !window.go?.main?.App?.GetAnalysisProgress) return;
+        analysisPolling = true;
         try {
-            const state = await window.go.main.App.GetPrefetchProgress();
-            const strip = document.getElementById('prefetchStrip');
-            const bar = document.getElementById('prefetchBar');
-            const label = document.getElementById('prefetchLabel');
-            strip.hidden = !state.running && !state.message;
-            if (state.running && !state.total) bar.removeAttribute('value');
-            else bar.value = state.total ? Math.min(100, state.completed / state.total * 100) : 0;
-            const date = state.day ? state.day.slice(5).split('-').reverse().join('.') : '';
-            const counts = state.total ? ` · ${state.completed}/${state.total} meczów` : '';
-            const players = state.running && state.playersTotal ? ` · zawodnicy ${state.playersDone}/${state.playersTotal}` : '';
-            const details = state.running && state.currentMatch ? ` · ${state.currentMatch}` : ` · ${state.message || ''}`;
-            const errors = state.failed ? ` · błędy: ${state.failed}` : '';
-            label.textContent = `W tle${date ? ' · ' + date : ''}${counts}${players}${details}${errors}`;
-            strip.title = state.message || '';
-        } catch (error) {
-            console.error('Błąd odczytu postępu pobierania w tle:', error);
-        } finally {
-            prefetchPolling = false;
-        }
+            const state = await window.go.main.App.GetAnalysisProgress();
+            document.getElementById('analysisStrip').hidden = false;
+            const bar = document.getElementById('analysisBar');
+            if (state.playersTotal > 0) bar.value = Math.round(100 * state.playersDone / state.playersTotal);
+            else bar.removeAttribute('value');
+            document.getElementById('analysisLabel').textContent = state.message || 'Oczekiwanie na serwer';
+            document.getElementById('analysisLabel').title = (state.warnings || []).join('\n');
+        } finally { analysisPolling = false; }
+    }
+
+    async function cancelCurrentAnalysis() {
+        try { await window.go.main.App.CancelAnalysis(); }
+        catch (error) { document.getElementById('analysisLabel').textContent = String(error); }
     }
 
     function cancelCalendarSelection() {
         const wasSelecting = calendarSelecting;
         const hadSelection = calendarSelectedID !== null;
         calendarSelection++;
-        if (wasSelecting) document.getElementById('btnAnalyze').disabled = false;
+        if ((wasSelecting || hadSelection) && !analysisRunning) document.getElementById('btnAnalyze').disabled = false;
         calendarSelecting = false;
         calendarSelectedID = null;
         if (wasSelecting || hadSelection) renderSuperbetCalendar();
     }
 
     function fetchBookmakerCalendar(bookmaker, date, force = false) {
+        force = force === true;
         const key = `${date}:${bookmaker}`;
         const cached = calendarCache.get(key);
         if (cached?.promise) return cached.promise;
-        if (!force && cached?.result && Date.now() - cached.fetchedAt < 2 * 60 * 60 * 1000) {
+        if (!force && cached?.result && Date.now() - cached.checkedAt < 15000) {
             return Promise.resolve(cached.result);
         }
         const entry = {};
@@ -915,6 +958,7 @@
             };
             // Use the source timestamp, not the time a disk cache hit reached the UI.
             entry.fetchedAt = Date.parse(result.fetchedAt) || Date.now();
+            entry.checkedAt = Date.now();
             entry.promise = null;
             return entry.result;
         }).catch(error => {
@@ -925,13 +969,14 @@
     }
 
     async function loadSuperbetCalendar(force = false) {
+        force = force === true;
         const date = document.getElementById('calendarDate').value;
         if (!date) return;
         const bookmaker = document.getElementById('calendarBookmaker').value;
         if (force) calendarCache.clear();
         cancelCalendarSelection();
         const builderOnly = document.getElementById('calendarBuilderOnly');
-        builderOnly.disabled = bookmaker === 'BETCLIC';
+        builderOnly.disabled = bookmaker !== 'SUPERBET';
         if (builderOnly.disabled) builderOnly.checked = false;
         const request = ++calendarRequest;
         calendarSelectedID = null;
@@ -941,17 +986,12 @@
         calendarEvents = [];
         document.getElementById('calendarList').replaceChildren();
         document.getElementById('calendarWarnings').textContent = '';
-        status.textContent = 'Pobieranie kalendarza…';
-        // Warm all sources concurrently; a click joins the same pending requests.
-        BOOKMAKERS.filter(source => source !== bookmaker).forEach(source => {
-            fetchBookmakerCalendar(source, date, force).catch(error => {
-                console.error(`Kalendarz ${CALENDAR_LABELS[source]} (${date}):`, error);
-            });
-        });
+        status.textContent = force ? 'Wymuszone pobieranie od bukmacherów…' : 'Wczytywanie kalendarza z serwera / cache…';
         try {
             const result = await fetchBookmakerCalendar(bookmaker, date, force);
             if (request !== calendarRequest) return;
             calendarEvents = result.events;
+            renderCalendarCacheInfo(result);
             document.getElementById('calendarWarnings').textContent = (result.warnings || []).join(' · ');
             const select = document.getElementById('calendarLeague');
             const previous = select.value;
@@ -970,12 +1010,25 @@
         }
     }
 
+    function renderCalendarCacheInfo(calendar) {
+        const target = document.getElementById('calendarCacheInfo');
+        const fetchedAt = Date.parse(calendar?.fetchedAt);
+        if (!Number.isFinite(fetchedAt)) { target.textContent = ''; return; }
+        const refreshAt = fetchedAt + 2 * 60 * 60 * 1000;
+        const format = new Intl.DateTimeFormat('pl-PL', {timeZone: 'Europe/Warsaw', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'});
+        target.textContent = `Dane z ${format.format(fetchedAt)} · ` +
+            (Date.now() < refreshAt ? `odświeżenie po ${format.format(refreshAt)}` : 'cache wymaga odświeżenia');
+    }
+
     function renderSuperbetCalendar() {
         const normalize = text => String(text || '').toLowerCase().replace(/ł/g, 'l').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
         const search = normalize(document.getElementById('calendarSearch').value.trim());
         const league = document.getElementById('calendarLeague').value;
         const builderOnly = document.getElementById('calendarBuilderOnly').checked;
-        const events = calendarEvents.filter(event => (!builderOnly || event.betBuilder) &&
+        const allThreeOnly = document.getElementById('calendarAllThreeOnly').checked;
+        const readyOnly = document.getElementById('calendarReadyOnly').checked;
+        const events = calendarEvents.filter(event => (!allThreeOnly || BOOKMAKERS.every(book => event.analysisEligibility?.links?.[book])) &&
+            (!readyOnly || event.analysisEligibility?.status === 'available') && (!builderOnly || event.betBuilder) &&
             (!league || JSON.stringify([event.country, event.competition]) === league) &&
             normalize(`${event.home} ${event.away} ${event.competition} ${event.country}`).includes(search));
         const list = document.getElementById('calendarList');
@@ -988,7 +1041,9 @@
             const card = document.createElement('button');
             card.type = 'button';
             card.className = `item-card calendar-card${event.id === calendarSelectedID ? ' selected' : ''}`;
-            card.disabled = calendarSelecting;
+            const eligibility = event.analysisEligibility || {status: 'pending', reason: 'Oczekiwanie na kwalifikację'};
+            const hasAllLinks = BOOKMAKERS.every(book => eligibility.links?.[book]);
+            card.disabled = calendarSelecting || !hasAllLinks || eligibility.status === 'inactive';
             const time = document.createElement('div');
             time.className = 'card-date';
             time.textContent = new Intl.DateTimeFormat('pl-PL', {timeZone: 'Europe/Warsaw', hour: '2-digit', minute: '2-digit'}).format(new Date(event.startTime));
@@ -1007,120 +1062,42 @@
             const builder = document.createElement('div');
             builder.className = 'card-sub';
             builder.style.color = 'var(--sb-color)';
-            builder.textContent = event.bookmaker === 'BETCLIC' ? 'Rynki zawodników sprawdzimy podczas analizy' : (event.betBuilder ? 'BetBuilder dostępny' : '');
+            const statusLabels = {available: '✓ 3 bukmacherów · rynki zawodników potwierdzone', pending: '⏳ 3 bukmacherów · sprawdzanie rynków', unavailable: 'Niedostępny u wszystkich 3 lub brak rynków', error: 'Błąd sprawdzania — wybierz, aby ponowić', inactive: 'Mecz rozpoczęty'};
+            builder.textContent = statusLabels[eligibility.status] || eligibility.status;
+            builder.title = eligibility.reason || '';
+            builder.style.color = eligibility.status === 'available' ? 'var(--success)' : (eligibility.status === 'error' ? 'var(--danger)' : 'var(--text-muted)');
+            card.title = eligibility.reason || '';
             card.append(time, title, competition, builder);
             card.onclick = () => selectSuperbetCalendarEvent(event);
             list.appendChild(card);
         });
     }
 
-    function calendarTeamName(name) {
-        const normalized = String(name || '').toLowerCase().replace(/ł/g, 'l').replace(/ß/g, 'ss')
-            .replace(/ø/g, 'o').replace(/đ/g, 'd').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-            .replace(/u\s*[-.]?\s*(\d{2})\b/g, 'u$1').replace(/[^a-z0-9]+/g, ' ').trim();
-        const clubWords = new Set(['fc', 'cf', 'afc', 'fk', 'sk', 'ks', 'sc', 'ac', 'ssc', 'as', 'rc', 'cd']);
-        const qualifiers = [];
-        const words = normalized.split(/\s+/).filter(word => {
-            if (/^u\d{2}$/.test(word)) { qualifiers.push(word); return false; }
-            if (['women', 'woman', 'ladies', 'kobiety', 'fem', 'feminino', 'femenino', 'femminile'].includes(word)) {
-                qualifiers.push('women'); return false;
-            }
-            return !clubWords.has(word);
-        });
-        while (words.length) {
-            const last = words[words.length - 1];
-            if (['k', 'w', 'f'].includes(last)) qualifiers.push('women');
-            else if (['b', 'ii', 'res', 'reserves', 'rezerwy'].includes(last)) qualifiers.push('reserves');
-            else if (['iii', 'iv'].includes(last)) qualifiers.push(last);
-            else break;
-            words.pop();
-        }
-        let core = words.join(' ');
-        const aliases = {
-            'man utd': 'manchester united', 'manchester utd': 'manchester united', 'man united': 'manchester united',
-            'man city': 'manchester city', 'psg': 'paris saint germain', 'paris sg': 'paris saint germain',
-            'bayern monachium': 'bayern munich', 'bayern munchen': 'bayern munich',
-            'inter mediolan': 'inter', 'inter milan': 'inter', 'internazionale': 'inter',
-            'atletico madryt': 'atletico madrid', 'real madryt': 'real madrid',
-            'sporting lizbona': 'sporting lisboa', 'sporting lisbon': 'sporting lisboa', 'sporting cp': 'sporting lisboa',
-            'juventus turyn': 'juventus', 'ajax amsterdam': 'ajax', 'benfica lizbona': 'benfica',
-            'arsenal londyn': 'arsenal', 'chelsea londyn': 'chelsea', 'tottenham londyn': 'tottenham',
-            'tottenham hotspur': 'tottenham', 'west ham united': 'west ham',
-            'bvb': 'borussia dortmund', 'borussia m gladbach': 'borussia monchengladbach',
-            'borussia moenchengladbach': 'borussia monchengladbach'
-        };
-        core = aliases[core] || core;
-        return { core, qualifiers: [...new Set(qualifiers)].sort().join('|') };
-    }
-
-    function calendarTeamSimilarity(leftName, rightName) {
-        const left = calendarTeamName(leftName), right = calendarTeamName(rightName);
-        if (!left.core || !right.core || left.qualifiers !== right.qualifiers) return 0;
-        if (left.core === right.core) return 1;
-        const leftText = left.core.replace(/\s/g, ''), rightText = right.core.replace(/\s/g, '');
-        if (Math.min(leftText.length, rightText.length) < 5) return 0;
-        const pairs = text => {
-            const counts = new Map();
-            for (let i = 0; i < text.length - 1; i++) {
-                const pair = text.slice(i, i + 2);
-                counts.set(pair, (counts.get(pair) || 0) + 1);
-            }
-            return counts;
-        };
-        const a = pairs(leftText), b = pairs(rightText);
-        let common = 0;
-        for (const [pair, count] of a) common += Math.min(count, b.get(pair) || 0);
-        return 2 * common / (leftText.length + rightText.length - 2);
-    }
-
-    function matchCalendarEvent(selected, events) {
-        const selectedTime = Date.parse(selected.startTime);
-        if (!Number.isFinite(selectedTime)) return { reason: 'niepoprawny termin wybranego meczu' };
-        const candidates = [];
-        for (const candidate of events) {
-            if (!candidate.url) continue;
-            const difference = Math.abs(Date.parse(candidate.startTime) - selectedTime);
-            if (!Number.isFinite(difference) || difference > 10 * 60 * 1000) continue;
-            // Keep home/away orientation and youth, reserve and women's qualifiers.
-            const home = calendarTeamSimilarity(selected.home, candidate.home);
-            const away = calendarTeamSimilarity(selected.away, candidate.away);
-            const score = (home + away) / 2;
-            if (Math.min(home, away) >= 0.88 && score >= 0.94) {
-                candidates.push({ event: candidate, score: score - difference / (10 * 60 * 1000) * 0.01 });
-            }
-        }
-        candidates.sort((a, b) => b.score - a.score);
-        if (!candidates.length) return { reason: 'nie znaleziono zgodnego meczu w kalendarzu' };
-        if (candidates.length > 1 && candidates[0].score - candidates[1].score < 0.06) {
-            return { reason: 'kilka podobnych wydarzeń — wybierz link ręcznie' };
-        }
-        return { event: candidates[0].event };
-    }
-
-    async function fillCalendarLinks(event, selection) {
-        return Promise.all(BOOKMAKERS.map(async bookmaker => {
-            if (bookmaker === event.bookmaker) return { bookmaker, matched: true };
-            try {
-                const calendar = await fetchBookmakerCalendar(bookmaker, event.calendarDate);
-                if (selection !== calendarSelection) return { bookmaker, cancelled: true };
-                const match = matchCalendarEvent(event, calendar.events);
-                if (!match.event) return { bookmaker, reason: match.reason };
-                const input = document.getElementById(CALENDAR_INPUTS[bookmaker]);
-                // Preserve a link the user typed while calendars were loading.
-                if (!input.value.trim()) input.value = match.event.url;
-                console.info(`Dopasowanie ${CALENDAR_LABELS[bookmaker]}:`, event.id, match.event.id,
-                    `${match.event.home} – ${match.event.away}`, match.event.startTime);
-                return { bookmaker, matched: true };
-            } catch (error) {
-                return { bookmaker, reason: `błąd pobierania: ${error.message || error}` };
-            }
-        }));
+    let calendarStatusPolling = false;
+    async function refreshCalendarStatuses() {
+        if (calendarStatusPolling || calendarSelecting || analysisRunning || document.getElementById('calendarRefresh').disabled) return;
+        const date = document.getElementById('calendarDate').value;
+        const bookmaker = document.getElementById('calendarBookmaker').value;
+        const revision = calendarRequest;
+        if (!date) return;
+        calendarStatusPolling = true;
+        try {
+            const result = await fetchBookmakerCalendar(bookmaker, date);
+            if (revision !== calendarRequest || date !== document.getElementById('calendarDate').value || bookmaker !== document.getElementById('calendarBookmaker').value) return;
+            calendarEvents = result.events;
+            renderCalendarCacheInfo(result);
+            document.getElementById('calendarWarnings').textContent = (result.warnings || []).join(' · ');
+            renderSuperbetCalendar();
+        } catch (error) {
+            document.getElementById('calendarWarnings').textContent = String(error);
+        } finally { calendarStatusPolling = false; }
     }
 
     async function selectSuperbetCalendarEvent(event) {
-        if (calendarSelecting) return;
-        if (document.getElementById('btnAnalyze').disabled) {
-            document.getElementById('calendarStatus').textContent = 'Poczekaj na zakończenie bieżącej analizy.';
+        if (calendarSelecting || analysisRunning) return;
+        const links = event.analysisEligibility?.links || {};
+        if (!BOOKMAKERS.every(book => links[book])) {
+            document.getElementById('calendarStatus').textContent = event.analysisEligibility?.reason || 'Mecz nie jest potwierdzony u wszystkich trzech bukmacherów.';
             return;
         }
         clearAllInputs();
@@ -1129,42 +1106,33 @@
         calendarSelectedID = event.id;
         const analyze = document.getElementById('btnAnalyze');
         analyze.disabled = true;
-        document.getElementById(CALENDAR_INPUTS[event.bookmaker]).value = event.url;
+        for (const book of BOOKMAKERS) document.getElementById(CALENDAR_INPUTS[book]).value = links[book];
         renderSuperbetCalendar();
-        document.getElementById('calendarStatus').textContent = 'Uzupełnianie linków Superbet, STS i Betclic oraz drużyn SofaScore…';
-        let links = [], teamError = '', linkError = '';
+        document.getElementById('calendarStatus').textContent = 'Sprawdzanie aktualnych rynków zawodników u wszystkich trzech bukmacherów…';
+        let qualified = false;
+        let message = '';
         try {
-            const results = await Promise.allSettled([
-                fillCalendarLinks(event, selection),
-                (async () => {
-                    const detected = await window.go.main.App.DetectCalendarTeams(event.home, event.away);
-                    if (selection !== calendarSelection) return;
-                    currentHomeSlug = detected.homeSlug || '';
-                    currentAwaySlug = detected.awaySlug || '';
-                    const home = document.getElementById('homeIdInput'), away = document.getElementById('awayIdInput');
-                    if (!home.value.trim()) home.value = detected.homeId || '';
-                    if (!away.value.trim()) away.value = detected.awayId || '';
-                    currentMatchKey = home.value && away.value ? [home.value, away.value].sort().join('|') : null;
-                })()
-            ]);
+            const prepared = await window.go.main.App.PrepareCalendarMatch(links.SUPERBET, links.BETCLIC, links.STS);
             if (selection !== calendarSelection) return;
-            if (results[0].status === 'fulfilled') links = results[0].value;
-            else linkError = `Nie udało się uzupełnić linków: ${results[0].reason?.message || results[0].reason}`;
-            if (results[1].status === 'rejected') teamError = `SofaScore: ${results[1].reason?.message || results[1].reason}`;
-            await checkAndLoadTournaments();
+            qualified = prepared.qualified;
+            event.analysisEligibility.status = qualified ? 'available' : 'unavailable';
+            if (!qualified) {
+                message = prepared.reason || 'Brak rynków zawodników u co najmniej jednego bukmachera.';
+                event.analysisEligibility.reason = message;
+                return;
+            }
+            currentHomeSlug = event.home || '';
+            currentAwaySlug = event.away || '';
+            currentMatchKey = `${event.home}|${event.away}|${event.startTime}`;
+            message = 'Rynki zawodników dostępne u wszystkich trzech. Kliknij Analizuj — dopasowanie FootyMetrics odbędzie się na serwerze.';
+        } catch (error) {
+            message = String(error);
         } finally {
             if (selection !== calendarSelection) return;
             calendarSelecting = false;
-            analyze.disabled = false;
+            analyze.disabled = !qualified;
             renderSuperbetCalendar();
-            const found = document.getElementById('homeIdInput').value && document.getElementById('awayIdInput').value;
-            const matched = links.filter(link => link.matched).map(link => CALENDAR_LABELS[link.bookmaker]);
-            const missing = links.filter(link => link.reason).map(link => `${CALENDAR_LABELS[link.bookmaker]}: ${link.reason}`);
-            document.getElementById('calendarStatus').textContent = [
-                matched.length ? `Linki: ${matched.join(', ')}.` : '',
-                found ? 'Mecz wybrany. Kliknij Analizuj.' : 'Sprawdź ID drużyn przed analizą.',
-                ...missing, linkError, teamError
-            ].filter(Boolean).join(' ');
+            document.getElementById('calendarStatus').textContent = message;
         }
     }
 
@@ -1225,64 +1193,22 @@
         });
     }
 
-    async function checkAndLoadTournaments() {
-        const home = document.getElementById('homeIdInput').value.trim();
-        const away = document.getElementById('awayIdInput').value.trim();
-        const selection = calendarSelection;
-        if (!home) return;
-
-        try {
-            if (window.go?.main?.App?.GetAvailableTournaments) {
-                const list = await window.go.main.App.GetAvailableTournaments(home, away);
-                if (selection !== calendarSelection ||
-                    home !== document.getElementById('homeIdInput').value.trim() ||
-                    away !== document.getElementById('awayIdInput').value.trim()) return;
-                const container = document.getElementById('leagueCheckboxes');
-                const wrap = document.getElementById('leagueSelectorWrap');
-                if (!list || list.length === 0) {
-                    wrap.style.display = 'none';
-                    return;
-                }
-                container.innerHTML = list.map(l => `
-                    <label style="margin-right:12px; cursor:pointer;">
-                        <input type="checkbox" class="league-cb" value="${l.id}"> ${l.name}
-                    </label>
-                `).join('');
-                wrap.style.display = 'block';
-            }
-        } catch(e) {}
+    function checkAndLoadTournaments() {
+        // Legacy saved analyses contain SofaScore league IDs. Do not send them
+        // to a FootyMetrics sample or fetch SofaScore while selecting a match.
+        document.getElementById('leagueSelectorWrap').style.display = 'none';
+        document.getElementById('leagueCheckboxes').replaceChildren();
     }
 
-    async function handleUrlChange(url, source) {
+    function handleUrlChange(url, source) {
         if (!url || url.length < 15) return;
         cancelCalendarSelection();
-        try {
-            const detected = await window.go.main.App.DetectTeamsFromURL(url);
-            if (!detected.homeSlug && !detected.awaySlug) return;
-
-            const key = (detected.homeId && detected.awayId)
-                ? [detected.homeId, detected.awayId].sort().join('|')
-                : null;
-
-            if (key !== null && currentMatchKey !== null && currentMatchKey !== key) {
-                const fieldMap = { sb: 'sbInput', betclic: 'betclicInput', sts: 'stsInput' };
-                for (const [k, id] of Object.entries(fieldMap)) {
-                    if (k !== source) document.getElementById(id).value = '';
-                }
-                document.getElementById('homeIdInput').value = '';
-                document.getElementById('awayIdInput').value = '';
-                document.getElementById('leagueSelectorWrap').style.display = 'none';
-            }
-            if (key !== null) currentMatchKey = key;
-
-            currentHomeSlug = detected.homeSlug || currentHomeSlug;
-            currentAwaySlug = detected.awaySlug || currentAwaySlug;
-
-            if (detected.homeId) document.getElementById('homeIdInput').value = detected.homeId;
-            if (detected.awayId) document.getElementById('awayIdInput').value = detected.awayId;
-
-            checkAndLoadTournaments();
-        } catch (e) {}
+        currentHomeSlug = '';
+        currentAwaySlug = '';
+        currentMatchKey = null;
+        document.getElementById('homeIdInput').value = '';
+        document.getElementById('awayIdInput').value = '';
+        checkAndLoadTournaments();
     }
 
     function syncMinOddsSliderRange() {
@@ -1324,42 +1250,36 @@
         const sb = document.getElementById('sbInput').value.trim();
         const betclic = document.getElementById('betclicInput').value.trim();
         const sts = document.getElementById('stsInput').value.trim();
-        let home = document.getElementById('homeIdInput').value.trim();
-        let away = document.getElementById('awayIdInput').value.trim();
+        if (!sb || !betclic || !sts) { alert('Wymagane są linki do tego samego meczu u wszystkich trzech bukmacherów.'); return; }
+        let home = '';
+        let away = '';
         const limit = parseInt(document.getElementById('matchSlider').value, 10) || 10;
 
-        const checkedBoxes = Array.from(document.querySelectorAll('.league-cb:checked'));
-        let selectedTournaments = "";
-        if (checkedBoxes.length > 0) {
-            selectedTournaments = checkedBoxes.map(cb => cb.value).join(',');
-        } else {
-            selectedTournaments = "ALL";
-        }
+        const selectedTournaments = 'ALL';
 
         btn.disabled = true;
         btn.style.opacity = "0.7";
         btn.innerHTML = `⏳ Analizowanie...`;
+        analysisRunning = true;
+        document.getElementById('analysisStrip').hidden = false;
+        document.getElementById('cancelAnalysisButton').hidden = false;
+        document.getElementById('analysisLabel').textContent = 'Wysyłanie zlecenia na serwer';
         tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 40px; color: var(--accent);">
-            <div style="font-size:16px; font-weight:700; margin-bottom:8px;">Pobieranie kursów bukmacherskich, składów i statystyk...</div>
-            <div style="font-size:12px; color:var(--text-muted);">Auto-detekcja ID w SofaScore, pobieranie strumieni Betclic gRPC, STS WebSocket oraz SofaScore Shotmap & Incidents...</div>
+            <div style="font-size:16px; font-weight:700; margin-bottom:8px;">Pobieranie kursów bukmacherskich i historii FootyMetrics...</div>
+            <div style="font-size:12px; color:var(--text-muted);">Drużyny, zawodnicy, składy i historia z FootyMetrics oraz ważony model EV. SofaScore jest pobierany dopiero po otwarciu wykresu.</div>
         </td></tr>`;
 
         try {
             rawBets = await window.go.main.App.AnalyzeThreeBookmakers(sb, betclic, sts, home, away, limit, selectedTournaments);
 
-            if (!home && rawBets.length > 0) {
-                home = rawBets.find(b => b.teamSide === 'HOME')?.teamId || '';
-                document.getElementById('homeIdInput').value = home;
-            }
-            if (!away && rawBets.length > 0) {
-                away = rawBets.find(b => b.teamSide === 'AWAY')?.teamId || '';
-                document.getElementById('awayIdInput').value = away;
-            }
 
+            const progress = await window.go.main.App.GetAnalysisProgress();
+            document.getElementById('analysisLabel').textContent = (progress.warnings || []).length
+                ? 'Analiza zakończona z uwagami: ' + progress.warnings.join(' · ')
+                : `Analiza zakończona: ${rawBets.length} wyników`;
             updateTeamDropdown(rawBets);
             syncMinOddsSliderRange();
             renderFiltered();
-            updateStats();
 
             let title = "";
             if (currentHomeSlug && currentAwaySlug) {
@@ -1367,7 +1287,7 @@
             } else {
                 const sampleUrl = sb || betclic || sts;
                 if (sampleUrl) {
-                    const det = await window.go.main.App.DetectTeamsFromURL(sampleUrl);
+                    const det = {homeSlug: currentHomeSlug, awaySlug: currentAwaySlug};
                     if (det.homeSlug && det.awaySlug) {
                         title = `${det.homeSlug} vs ${det.awaySlug}`;
                     }
@@ -1393,9 +1313,12 @@
                 renderHistory(hist);
             }
         } catch (e) {
+            document.getElementById('analysisLabel').textContent = String(e);
             alert("Błąd analizy: " + e);
             tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--danger);">Wystąpił błąd podczas analizy. Sprawdź terminal.</td></tr>`;
         } finally {
+            analysisRunning = false;
+            document.getElementById('cancelAnalysisButton').hidden = true;
             btn.disabled = false;
             btn.style.opacity = "1";
             btn.innerHTML = `Analizuj`;
@@ -1413,7 +1336,7 @@
                 <button class="card-del" onclick="deleteHistoryEntry(${idx}, event)">✕</button>
                 <div class="card-title">${item.title}</div>
                 <div class="card-date">${item.timestamp || ''}${sampleText}</div>
-                <div class="card-sub">Sofa: ${item.homeStatsId || '-'} / ${item.awayStatsId || '-'}</div>
+                <div class="card-sub">Dopasowanie FootyMetrics podczas analizy</div>
             `;
             div.onclick = () => {
                 cancelCalendarSelection();
@@ -1438,10 +1361,10 @@
         });
     }
 
-    function updateStats() {
-        document.getElementById('statTotal').textContent = rawBets.length;
-        document.getElementById('statValue').textContent = rawBets.filter(b => b.verdict === 'VALUE').length;
-        document.getElementById('statTraps').textContent = rawBets.filter(b => b.verdict === 'TRAP').length;
+    function updateStats(bets = rawBets) {
+        document.getElementById('statTotal').textContent = bets.length;
+        document.getElementById('statValue').textContent = bets.filter(b => b.verdict === 'VALUE').length;
+        document.getElementById('statTraps').textContent = bets.filter(b => b.verdict === 'TRAP').length;
     }
 
     async function deleteHistoryEntry(index, evt) {
@@ -1469,6 +1392,12 @@
             const key = `${b.playerName}|${b.marketType}|${b.line}|${b.isUnder}`;
             if (!groups.has(key)) {
                 groups.set(key, {
+                    analysisId: b.analysisId,
+                    playerId: b.playerId,
+                    sampleEventIds: b.sampleEventIds || [],
+                    sampleRatings: b.sampleRatings || [],
+                    historyNotes: b.historyNotes || [],
+                    fairModel: b.fairModel,
                     playerName: b.playerName,
                     marketType: b.marketType,
                     marketLabel: b.marketLabel,
@@ -1479,6 +1408,7 @@
                     matchesSample: b.matchesSample,
                     sampleValues: b.sampleValues || [],
                     sampleValuesSuperSub: b.sampleValuesSuperSub || [],
+                    sampleSuperSubAvailable: b.sampleSuperSubAvailable,
                     sampleMinutes: b.sampleMinutes || [],
                     samplePositions: b.samplePositions || [],
                     sampleOpponents: b.sampleOpponents || [],
@@ -1513,6 +1443,52 @@
             .replace(/ł/g, 'l');
     }
 
+    let sampleViewSource = null;
+    const sampleViewCache = new Map();
+
+    function sampleView(limit) {
+        if (sampleViewSource !== rawBets) {
+            for (const entry of sampleViewCache.values()) if (entry.timer) clearTimeout(entry.timer);
+            sampleViewCache.clear();
+            sampleViewSource = rawBets;
+        }
+        if (rawBets.every(bet => bet.matchesSample <= limit)) return {bets: rawBets};
+        if (sampleViewCache.has(limit)) return sampleViewCache.get(limit);
+        // Coalesce slider movement; keep completed samples for immediate restore.
+        for (const [cap, entry] of sampleViewCache) {
+            if (entry.timer) { clearTimeout(entry.timer); sampleViewCache.delete(cap); }
+        }
+        const entry = {};
+        sampleViewCache.set(limit, entry);
+        const source = rawBets;
+        entry.timer = setTimeout(async () => {
+            entry.timer = null;
+            try {
+                const analysisIds = [...new Set(source.map(bet => bet.analysisId))];
+                if (analysisIds.length !== 1 || !analysisIds[0]) throw new Error('Przeliczenie próbki wymaga ponownej analizy meczu.');
+                if (!window.go?.main?.App?.GetAnalysisSample) throw new Error('Uruchom aktualnego klienta, aby zmieniać próbkę.');
+                const result = await window.go.main.App.GetAnalysisSample(analysisIds[0], limit);
+                if (!Array.isArray(result)) throw new Error('Serwer nie zwrócił przeliczonej próbki.');
+                entry.bets = result;
+            } catch (error) {
+                entry.error = String(error);
+            }
+            if (source === sampleViewSource) {
+                for (const [cap, cached] of sampleViewCache) {
+                    if (sampleViewCache.size <= 5) break;
+                    if (cap !== limit && (cached.bets || cached.error)) sampleViewCache.delete(cap);
+                }
+            }
+            if (source === rawBets && Number(document.getElementById('sampleMaxSlider').value) === limit) renderFiltered();
+        }, 180);
+        return entry;
+    }
+
+    function retrySampleView() {
+        sampleViewCache.delete(Number(document.getElementById('sampleMaxSlider').value));
+        renderFiltered();
+    }
+
     function renderFiltered() {
         const q = normalizeSearchText(document.getElementById("searchBox").value);
         const selectedBMs = Array.from(document.querySelectorAll('.bm-cb:checked')).map(cb => cb.value);
@@ -1520,7 +1496,6 @@
         const selectedTeam = document.getElementById("teamFilter")?.value || "ALL";
         const verdict = document.getElementById("verdictFilter").value;
         const onlyStartingXI = document.getElementById("startingXIToggle")?.checked;
-        const bufferMode = document.getElementById("bufferModeToggle")?.checked;
 
         const minOdds = parseFloat(document.getElementById("oddsMinSlider")?.value || "1.05");
         const maxOdds = parseFloat(document.getElementById("oddsMaxSlider")?.value || "5.00");
@@ -1529,29 +1504,41 @@
         const minSample = parseInt(document.getElementById("sampleMinSlider")?.value || "1", 10);
         const maxSample = parseInt(document.getElementById("sampleMaxSlider")?.value || "30", 10);
 
+        const view = sampleView(maxSample);
+        if (!view.bets) {
+            const body = document.getElementById('resultsBody');
+            body.replaceChildren();
+            const row = document.createElement('tr'), cell = document.createElement('td');
+            cell.colSpan = compareMode ? 10 : 11;
+            cell.style.cssText = 'text-align:center;padding:25px;color:var(--text-muted)';
+            cell.textContent = view.error || `Przeliczanie ostatnich ${maxSample} meczów…`;
+            if (view.error) {
+                const retry = document.createElement('button');
+                retry.className = 'btn-ghost'; retry.textContent = 'Ponów'; retry.onclick = retrySampleView;
+                cell.append(document.createTextNode(' '), retry);
+            }
+            row.appendChild(cell); body.appendChild(row);
+            return;
+        }
+        const bets = view.bets;
+        updateStats(bets.filter(bet => bet.matchesSample >= minSample));
+
         if (!compareMode) {
-            let filtered = rawBets.filter(b => {
+            let filtered = bets.filter(b => {
                 const matchQuery = normalizeSearchText(b.playerName).includes(q);
                 const matchBm = selectedBMs.includes(b.bookmaker);
                 const matchMarket = selectedMarkets.includes(b.marketType);
                 const matchVerdict = (verdict === "ALL") || (b.verdict === verdict);
                 const matchOdds = b.bookmakerOdds >= minOdds && b.bookmakerOdds <= maxOdds;
                 const matchHr = b.hitRate >= minHr && b.hitRate <= maxHr;
-                const matchSample = b.matchesSample >= minSample && b.matchesSample <= maxSample;
+                const matchSample = b.matchesSample >= minSample;
 
                 const bTeamKey = b.teamId || b.teamSide || '';
                 const matchTeam = (selectedTeam === "ALL") || (bTeamKey === selectedTeam);
 
                 if (!matchTeam) return false;
 
-                if (onlyStartingXI && b.lineupStatus && b.lineupStatus !== "UNKNOWN") {
-                    if (!b.isStartingXI) return false;
-                }
-
-                if (bufferMode) {
-                    const isVal = b.verdict === "VALUE";
-                    if (!passesBufferMode(b, isVal)) return false;
-                }
+                if (onlyStartingXI && !isLineupStarter(b)) return false;
 
                 return matchQuery && matchBm && matchMarket && matchVerdict && matchOdds && matchHr && matchSample;
             });
@@ -1560,7 +1547,7 @@
             return;
         }
 
-        let rows = buildComparisonRows(rawBets).filter(g => {
+        let rows = buildComparisonRows(bets).filter(g => {
             const matchQuery = normalizeSearchText(g.playerName).includes(q);
             const matchMarket = selectedMarkets.includes(g.marketType);
             const matchBm = selectedBMs.some(bm => !!g.books[bm]);
@@ -1568,21 +1555,14 @@
 
             const matchOdds = Object.values(g.books).some(o => o.odds >= minOdds && o.odds <= maxOdds);
             const matchHr = Object.values(g.books).some(o => o.hitRate >= minHr && o.hitRate <= maxHr) || (g.hitRate >= minHr && g.hitRate <= maxHr);
-            const matchSample = g.matchesSample >= minSample && g.matchesSample <= maxSample;
+            const matchSample = g.matchesSample >= minSample;
 
             const gTeamKey = g.teamId || g.teamSide || '';
             const matchTeam = (selectedTeam === "ALL") || (gTeamKey === selectedTeam);
 
             if (!matchTeam) return false;
 
-            if (onlyStartingXI && g.lineupStatus && g.lineupStatus !== "UNKNOWN") {
-                if (!g.isStartingXI) return false;
-            }
-
-            if (bufferMode) {
-                const hasValueBook = Object.values(g.books).some(o => o.verdict === "VALUE");
-                if (!passesBufferMode(g, hasValueBook)) return false;
-            }
+            if (onlyStartingXI && !isLineupStarter(g)) return false;
 
             return matchQuery && matchMarket && matchBm && matchVerdict && matchOdds && matchHr && matchSample;
         });
@@ -1609,9 +1589,11 @@
     });
 
     function toggleSuperSubInChart() {
+        if (document.getElementById('superSubToggle')?.disabled) return;
         useSuperSub = !useSuperSub;
         const btn = document.getElementById('superSubToggle');
-        btn.textContent = useSuperSub ? "⚡ SuperSub: WŁ" : "⚡ SuperSub: WYŁ";
+        const count = currentChartBet?.sampleValues?.filter((_, i) => superSubKnown(currentChartBet, i)).length || 0;
+        btn.textContent = `⚡ SuperSub: ${useSuperSub ? 'WŁ' : 'WYŁ'} (${count}/${currentChartBet?.sampleValues?.length || 0})`;
         btn.style.borderColor = useSuperSub ? "var(--accent)" : "var(--border)";
         btn.style.color = useSuperSub ? "var(--accent)" : "#fff";
         if (currentChartBet) {
@@ -1626,18 +1608,33 @@
         }
 
         currentChartBet = bet;
-        useSuperSub = true;
+        useSuperSub = false;
         selectedMatchIndexForShotmap = null;
 
-        const btn = document.getElementById('superSubToggle');
-        if (btn) {
-            btn.style.display = '';
-            btn.textContent = "⚡ SuperSub: WŁ";
-            btn.style.borderColor = "var(--accent)";
-            btn.style.color = "var(--accent)";
-        }
+        renderSuperSubToggle(bet);
         drawCurrentBetChart();
         document.getElementById('chartModal').classList.add('is-open');
+        loadChartShotmaps(bet);
+    }
+
+    function renderSuperSubToggle(bet) {
+        const btn = document.getElementById('superSubToggle');
+        if (btn) {
+            const known = bet.sampleValues.filter((_, i) => superSubKnown(bet, i)).length;
+            btn.style.display = '';
+            btn.disabled = known === 0;
+            btn.title = known === bet.sampleValues.length ? 'Potwierdzone dane FootyMetrics' :
+                `Potwierdzone dane SuperSub: ${known}/${bet.sampleValues.length} meczów. Braki nie są zerami.`;
+            btn.textContent = known ? `⚡ SuperSub: ${useSuperSub ? 'WŁ' : 'WYŁ'} (${known}/${bet.sampleValues.length})` : '⚡ SuperSub: brak danych';
+            btn.style.borderColor = useSuperSub ? "var(--accent)" : "var(--border)";
+            btn.style.color = useSuperSub ? "var(--accent)" : "#fff";
+        }
+    }
+
+    function superSubKnown(bet, index) {
+        return Array.isArray(bet.sampleValuesSuperSub) &&
+            bet.sampleValuesSuperSub.length === (bet.sampleValues || []).length &&
+            (bet.sampleSuperSubAvailable?.[index] ?? true);
     }
 
     function drawCurrentBetChart() {
@@ -1650,10 +1647,9 @@
             return;
         }
 
-        const hasSuperSubSample = superSubValues.length === playerValues.length;
-        const values = (useSuperSub && hasSuperSubSample) ? superSubValues : playerValues;
-        const superSubDeltas = (useSuperSub && hasSuperSubSample)
-            ? playerValues.map((v, i) => Math.max(0, (superSubValues[i] || 0) - v))
+        const values = useSuperSub ? playerValues.map((_, i) => superSubKnown(bet, i) ? superSubValues[i] : null) : playerValues;
+        const superSubDeltas = useSuperSub
+            ? playerValues.map((v, i) => superSubKnown(bet, i) ? Math.max(0, superSubValues[i] - v) : 0)
             : [];
 
         const minutes = bet.sampleMinutes || [];
@@ -1661,8 +1657,9 @@
         const opponents = bet.sampleOpponents || [];
         const dates = bet.sampleDates || [];
         const marketLabel = bet.marketLabel || MARKET_LABELS[bet.marketType] || bet.marketType;
-        const hitCount = values.filter(value => bet.isUnder ? value <= bet.line : value > bet.line).length;
-        const average = values.reduce((sum, value) => sum + value, 0) / values.length;
+        const knownValues = values.filter(value => typeof value === 'number');
+        const hitCount = knownValues.filter(value => bet.isUnder ? value <= bet.line : value > bet.line).length;
+        const average = knownValues.length ? knownValues.reduce((sum, value) => sum + value, 0) / knownValues.length : null;
         const averageMinutes = minutes.length === values.length
             ? minutes.reduce((sum, value) => sum + value, 0) / minutes.length
             : null;
@@ -1670,17 +1667,67 @@
         document.getElementById('chartTitle').textContent = `${bet.playerName} — ${marketLabel}`;
         document.getElementById('chartSubtitle').textContent = `Ostatnie ${values.length} meczów z aktualnej próbki; mecz 1 (od lewej) jest najnowszy.` +
             (useSuperSub
-                ? ' SuperSub jest wliczony do słupków; plakietka "+N" pokazuje wkład zmiennika.'
+                ? ` SuperSub: potwierdzone ${knownValues.length}/${values.length} meczów; „?” oznacza brak danych. Plakietka "+N" pokazuje wkład zmiennika.`
                 : '');
         document.getElementById('chartSummary').innerHTML = `
             <span>Linia: <b>${bet.isUnder ? 'under' : 'over'} ${bet.line}</b></span>
-            <span>Średnia: <b>${average.toFixed(2)}</b></span>
-            <span>Hit rate: <b>${Math.round((hitCount / values.length) * 100)}% (${hitCount}/${values.length})</b></span>
+            <span>Średnia: <b>${average === null ? '—' : average.toFixed(2)}</b></span>
+            <span>Hit rate: <b>${knownValues.length ? Math.round((hitCount / knownValues.length) * 100) + '%' : '—'} (${hitCount}/${knownValues.length})</b></span>
             ${averageMinutes !== null ? `<span>Śr. minut: <b>${averageMinutes.toFixed(1)}</b></span>` : ''}
         `;
 
         renderSampleChart(values, minutes, positions, opponents, dates, bet.line, bet.isUnder, marketLabel, superSubDeltas);
+        const model = bet.fairModel;
+        const extra = document.getElementById('chartModelDetails');
+        extra.replaceChildren();
+        if (model) {
+            const text = document.createElement('div');
+            text.textContent = `Fair: ${Number(bet.fairOdds).toFixed(2)} · P(model): ${(100 * model.probability).toFixed(1)}% · EV po podatku: ${bet.evWithTax ?? '—'}% · próbka efektywna: ${model.effectiveSample.toFixed(1)} · korekta profilu: ${model.matchupFactor.toFixed(3)}. Model dotyczy statystyk zawodnika, bez SuperSub.`;
+            extra.appendChild(text);
+        }
+        const notes = document.createElement('div');
+        notes.textContent = [...(bet.historyNotes || []), ...(model?.notes || [])].join(' · ');
+        extra.appendChild(notes);
         renderShotmap(bet, selectedMatchIndexForShotmap);
+    }
+
+    const chartShotmapCache = new Map();
+    async function loadChartShotmaps(bet) {
+        if (!bet.analysisId || !bet.playerId || !window.go?.main?.App?.GetAnalysisShotmaps) return;
+        const key = `${bet.analysisId}|${bet.playerId}|${bet.marketType}|${bet.sampleValues.length}`;
+        let pending = chartShotmapCache.get(key);
+        if (!pending) {
+            pending = window.go.main.App.GetAnalysisShotmaps(bet.analysisId, bet.playerId, bet.marketType, 'all', bet.sampleValues.length);
+            chartShotmapCache.set(key, pending);
+        }
+        bet.shotmapStatus = 'loading';
+        if (currentChartBet === bet) renderShotmap(bet, selectedMatchIndexForShotmap);
+        try {
+            const result = await pending;
+            if (!Array.isArray(result.sampleShots) || result.sampleShots.length !== bet.sampleValues.length) throw new Error('Niezgodna próbka map');
+            bet.sampleShots = result.sampleShots;
+            bet.sampleShotmapAvailable = Array.isArray(result.sampleShotmapAvailable)
+                ? result.sampleShotmapAvailable : result.sampleShots.map(Array.isArray);
+            bet.sampleSubShotmapAvailable = result.sampleSubShotmapAvailable;
+            bet.sampleEventIds = result.sampleEventIds;
+            if (Array.isArray(result.sampleRatings) && result.sampleRatings.length === bet.sampleValues.length) bet.sampleRatings = result.sampleRatings;
+            if (Array.isArray(result.sampleValuesSuperSub) && result.sampleValuesSuperSub.length === bet.sampleValues.length &&
+                Array.isArray(result.sampleSuperSubAvailable) && result.sampleSuperSubAvailable.length === bet.sampleValues.length) {
+                bet.sampleValuesSuperSub = result.sampleValuesSuperSub;
+                bet.sampleSuperSubAvailable = result.sampleSuperSubAvailable;
+            }
+            bet.shotmapNotes = result.notes || [];
+            bet.shotmapStatus = bet.shotmapNotes.length ? 'partial' : 'loaded';
+            if (bet.shotmapNotes.length) chartShotmapCache.delete(key);
+        } catch (error) {
+            chartShotmapCache.delete(key);
+            bet.shotmapStatus = 'error';
+            bet.shotmapNotes = [String(error)];
+        }
+        if (currentChartBet === bet) {
+            renderSuperSubToggle(bet);
+            drawCurrentBetChart();
+        }
     }
 
     function selectMatchForShotmap(index) {
@@ -1758,7 +1805,8 @@
         svg.appendChild(lineLabel);
 
         values.forEach((value, index) => {
-            const hit = isUnder ? value <= line : value > line;
+            const known = typeof value === 'number';
+            const hit = known && (isUnder ? value <= line : value > line);
             const x = margin.left + index * barSlot + (barSlot - barWidth) / 2;
             const y = yFor(value);
             const barH = Math.max(3, margin.top + plotHeight - y);
@@ -1766,7 +1814,7 @@
 
             const bar = createSvgElement('rect', {
                 x, y, width: barWidth, height: barH,
-                fill: hit ? 'var(--success)' : 'var(--danger)',
+                fill: known ? (hit ? 'var(--success)' : 'var(--danger)') : 'var(--text-muted)',
                 stroke: isSelected ? 'var(--accent)' : 'none',
                 'stroke-width': isSelected ? 3 : 0,
                 rx: 3,
@@ -1780,12 +1828,14 @@
 
             const opp = opponents[index] || 'Mecz ' + (index + 1);
             const d = dates[index] ? ` (${dates[index]})` : '';
+            const rating = currentChartBet?.sampleRatings?.[index];
+            const ratingText = typeof rating === 'number' ? ` · Rating SofaScore: ${rating.toFixed(1)}` : ' · Rating SofaScore: brak';
             const posText = positions[index] ? ` · Poz: ${positions[index]}` : '';
             const minText = minutes[index] !== undefined ? ` · ${minutes[index]} min` : '';
 
             const delta = superSubDeltas[index] || 0;
             const tooltip = createSvgElement('title');
-            tooltip.textContent = `[Kliknij, by zobaczyć strzały na mapie] vs ${opp}${d}: wynik ${value}${delta > 0 ? ` (+${delta} SuperSub)` : ''}${posText}${minText} · ${hit ? 'Trafiony' : 'Nietrafiony'}`;
+            tooltip.textContent = `[Kliknij, by zobaczyć strzały na mapie] vs ${opp}${d}: ${known ? `wynik ${value}` : 'brak potwierdzonych danych SuperSub'}${delta > 0 ? ` (+${delta} SuperSub)` : ''}${posText}${minText}${ratingText}${known ? ` · ${hit ? 'Trafiony' : 'Nietrafiony'}` : ''}`;
             bar.appendChild(tooltip);
             svg.appendChild(bar);
 
@@ -1798,7 +1848,7 @@
                 'font-weight': '700',
                 'pointer-events': 'none'
             });
-            valLabel.textContent = value;
+            valLabel.textContent = known ? value : '?';
             svg.appendChild(valLabel);
 
             if (delta > 0) {
@@ -1830,6 +1880,9 @@
                 cursor: 'pointer'
             });
             oppLabel.textContent = opp;
+            const ratingLabel = createSvgElement('text', {x: x + barWidth / 2, y: height - margin.bottom + 41, 'text-anchor': 'middle', fill: '#fbbf24', 'font-size': 10});
+            ratingLabel.textContent = typeof rating === 'number' ? `★ ${rating.toFixed(1)}` : '★ —';
+            svg.appendChild(ratingLabel);
             oppLabel.onclick = () => selectMatchForShotmap(index);
             svg.appendChild(oppLabel);
 
@@ -1892,14 +1945,19 @@
         group.replaceChildren();
 
         const matchShotsList = bet.sampleShots || [];
+        const sampleCount = (bet.sampleValues || []).length;
+        const available = Array.from({ length: sampleCount }, (_, i) =>
+            Array.isArray(matchShotsList[i]) && (bet.sampleShotmapAvailable?.[i] ?? true) &&
+            (!useSuperSub || bet.sampleSubShotmapAvailable?.[i] === true));
+        const coveredCount = available.filter(Boolean).length;
         let shotsToRender = [];
 
         const isSingleMatch = matchIndex !== null;
         if (isSingleMatch) {
-            shotsToRender = Array.isArray(matchShotsList[matchIndex]) ? matchShotsList[matchIndex] : [];
+            shotsToRender = available[matchIndex] ? matchShotsList[matchIndex] : [];
         } else {
-            matchShotsList.forEach(mShots => {
-                if (Array.isArray(mShots)) shotsToRender.push(...mShots);
+            matchShotsList.forEach((mShots, i) => {
+                if (available[i]) shotsToRender.push(...mShots);
             });
         }
         shotsToRender = shotsToRender.filter(shot => useSuperSub || !shot.isSub);
@@ -1909,15 +1967,34 @@
             const dt = (bet.sampleDates || [])[matchIndex] || '';
             filterTitle.textContent = "Wróć do całości";
             filterTitle.style.textDecoration = "underline";
-            details.innerHTML = `Strzały w meczu vs <b>${opp}</b> (${dt}): <b>${shotsToRender.length}</b>`;
+            details.replaceChildren();
+            const caption = document.createElement('div');
+            caption.textContent = `Mecz vs ${opp} (${dt}): ` +
+                (available[matchIndex] ? `${shotsToRender.length} strzałów` : 'brak danych mapy');
+            details.appendChild(caption);
         } else {
             filterTitle.textContent = "Wszystkie mecze";
             filterTitle.style.textDecoration = "none";
-            details.innerHTML = `Łącznie strzałów w całej próbce (${bet.matchesSample} spotkań): <b>${shotsToRender.length}</b>`;
+            details.textContent = coveredCount === sampleCount
+                ? `Łącznie strzałów w całej próbce (${sampleCount} spotkań): ${shotsToRender.length}`
+                : coveredCount > 0
+                    ? `Strzały w dostępnych mapach (${coveredCount} z ${sampleCount} spotkań): ${shotsToRender.length}`
+                    : `Brak danych map strzałów (0 z ${sampleCount} spotkań)`;
         }
 
+        if (bet.shotmapStatus === 'loading') {
+            const note = document.createElement('div'); note.textContent = 'Pobieranie map SofaScore…'; details.appendChild(note);
+            return;
+        }
+        if (bet.shotmapNotes?.length) {
+            const note = document.createElement('div'); note.textContent = bet.shotmapNotes.join(' · '); details.appendChild(note);
+        }
         if (shotsToRender.length === 0) {
-            details.innerHTML += `<div style="color:var(--text-muted); font-size:10px; margin-top:2px;">(Brak strzałów w wybranym zakresie)</div>`;
+            const missing = isSingleMatch ? !available[matchIndex] : coveredCount === 0;
+            const note = document.createElement('div');
+            note.style.cssText = 'color:var(--text-muted); font-size:10px; margin-top:2px;';
+            note.textContent = missing ? '(Mapa niedostępna lub niepełna)' : '(Brak strzałów w dostępnych mapach)';
+            details.appendChild(note);
             return;
         }
 
@@ -2008,6 +2085,18 @@
         });
     }
 
+    function isLineupStarter(bet) {
+        return bet.isStartingXI === true && ['STARTER', 'PREDICTED_STARTER'].includes(bet.lineupStatus);
+    }
+
+    function renderLineupBadge(status) {
+        if (status === 'STARTER') return '<span class="badge-starter" title="Potwierdzona wyjściowa XI">XI</span>';
+        if (status === 'PREDICTED_STARTER') return '<span class="badge-starter" style="color:#c084fc; background:#a855f720; border-color:#a855f755;" title="Przewidywana wyjściowa XI — skład niepotwierdzony">XI?</span>';
+        if (status === 'BENCH') return '<span class="badge-bench" title="Zawodnik wymieniony na potwierdzonej ławce rezerwowych">ŁAWKA</span>';
+        if (status === 'PREDICTED_BENCH') return '<span class="badge-bench" title="Przewidywana ławka — skład niepotwierdzony">ŁAWKA?</span>';
+        return '';
+    }
+
     function renderListMode(filtered) {
         const tbody = document.getElementById("resultsBody");
         tbody.innerHTML = "";
@@ -2023,17 +2112,12 @@
             if (b.verdict === "VALUE") badge = '<span class="badge-value">🟢 VALUE</span>';
             if (b.verdict === "TRAP") badge = '<span class="badge-trap">🔴 PUŁAPKA</span>';
 
-            let lineupBadge = '';
-            if (b.lineupStatus === 'STARTER') {
-                lineupBadge = '<span class="badge-starter" title="Potwierdzona wyjściowa XI">XI</span>';
-            } else if (b.lineupStatus === 'BENCH') {
-                lineupBadge = '<span class="badge-bench" title="Ławka rezerwowych / poza kadrą">ŁAWKA</span>';
-            }
+            const lineupBadge = renderLineupBadge(b.lineupStatus);
 
             tr.innerHTML = `
                 <td><span class="badge-bm bm-${b.bookmaker}">${b.bookmaker}</span></td>
                 <td><b>${b.playerName}</b>${lineupBadge}</td>
-                <td>${b.marketLabel}<span class="tag-src" title="Próbka z SofaScore">SOFASCORE</span></td>
+                <td>${b.marketLabel}<span class="tag-src" title="Historia statystyk: FootyMetrics">FOOTYMETRICS</span></td>
                 <td>${b.isUnder ? 'under' : 'over'} ${b.line}</td>
                 <td><b>${b.bookmakerOdds.toFixed(2)}</b></td>
                 <td>${b.fairOdds.toFixed(2)}</td>
@@ -2083,18 +2167,13 @@
 
             const spreadText = Object.keys(g.books).length >= 2 ? g.bookmakerSpread.toFixed(2) : '—';
 
-            let lineupBadge = '';
-            if (g.lineupStatus === 'STARTER') {
-                lineupBadge = '<span class="badge-starter" title="Potwierdzona wyjściowa XI">XI</span>';
-            } else if (g.lineupStatus === 'BENCH') {
-                lineupBadge = '<span class="badge-bench" title="Ławka rezerwowych / poza kadrą">ŁAWKA</span>';
-            }
+            const lineupBadge = renderLineupBadge(g.lineupStatus);
 
             const tr = document.createElement("tr");
             tr.className = 'result-row';
             tr.innerHTML = `
                 <td><b>${g.playerName}</b>${lineupBadge}</td>
-                <td>${MARKET_LABELS[g.marketType] || g.marketType}<span class="tag-src" title="Próbka z SofaScore">SOFA</span></td>
+                <td>${MARKET_LABELS[g.marketType] || g.marketType}<span class="tag-src" title="Historia statystyk: FootyMetrics">FOOTYMETRICS</span></td>
                 <td>${g.isUnder ? 'under' : 'over'} ${g.line}</td>
                 <td>${g.fairOdds.toFixed(2)}</td>
                 <td style="font-weight:700; color:var(--accent);">${g.hitRate}%</td>
@@ -2112,6 +2191,12 @@
                     e.stopPropagation();
                     addToMyBets({
                         bookmaker: bmKey,
+                        analysisId: g.analysisId,
+                        playerId: g.playerId,
+                        sampleEventIds: g.sampleEventIds || [],
+                        sampleRatings: g.sampleRatings || [],
+                        historyNotes: g.historyNotes || [],
+                        fairModel: g.fairModel,
                         playerName: g.playerName,
                         marketType: g.marketType,
                         marketLabel: MARKET_LABELS[g.marketType] || g.marketType,
@@ -2124,7 +2209,7 @@
                         evWithTax: o.evWithTax,
                         verdict: o.verdict,
                         matchesSample: g.matchesSample,
-                        statsSource: "SOFASCORE",
+                        statsSource: g.statsSource,
                         teamSide: g.teamSide,
                         teamId: g.teamId,
                         teamName: g.teamName,
@@ -2132,6 +2217,7 @@
                         isStartingXI: g.isStartingXI,
                         sampleValues: g.sampleValues,
                         sampleValuesSuperSub: g.sampleValuesSuperSub,
+                        sampleSuperSubAvailable: g.sampleSuperSubAvailable,
                         sampleMinutes: g.sampleMinutes,
                         samplePositions: g.samplePositions,
                         sampleOpponents: g.sampleOpponents,
@@ -2189,9 +2275,9 @@
             const card = document.createElement("div");
             card.className = "item-card";
             card.innerHTML = `
-                <div class="card-title">${b.playerName} ${b.lineupStatus === 'STARTER' ? '🟢' : (b.lineupStatus === 'BENCH' ? '🟡' : '')}</div>
+                <div class="card-title">${b.playerName} ${renderLineupBadge(b.lineupStatus)}</div>
                 <div style="font-size:11px; color:var(--text-muted); margin-top:-2px; margin-bottom:2px;">${b.teamName || (b.teamSide === 'HOME' ? 'Gospodarze' : (b.teamSide === 'AWAY' ? 'Goście' : ''))}</div>
-                <div class="card-sub">${b.marketLabel} (${b.isUnder ? 'under' : 'over'} ${b.line}) [SOFA]</div>
+                <div class="card-sub">${b.marketLabel} (${b.isUnder ? 'under' : 'over'} ${b.line}) [${b.statsSource || 'SOFASCORE'}]</div>
                 <div style="margin-top:4px; font-weight:700; color:var(--accent);">
                     @${b.bookmakerOdds ? b.bookmakerOdds.toFixed(2) : '-'} | HR: ${b.hitRate}% [${b.bookmaker}]
                 </div>

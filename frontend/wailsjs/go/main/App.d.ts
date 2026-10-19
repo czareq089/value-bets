@@ -4,25 +4,41 @@ import {main} from '../models';
 
 export function AnalyzeThreeBookmakers(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:number,arg7:string):Promise<Array<main.AnalyzedBet>>;
 
+export function CancelAnalysis():Promise<void>;
+
+export function CancelSofaCaptcha():Promise<void>;
+
+export function ContinueSofaCaptcha():Promise<void>;
+
 export function DeleteMatchHistory(arg1:number):Promise<Array<main.MatchHistoryEntry>>;
+
+export function DetectCalendarEventTeams(arg1:string,arg2:string,arg3:string):Promise<main.TeamDetectionResult>;
 
 export function DetectCalendarTeams(arg1:string,arg2:string):Promise<main.TeamDetectionResult>;
 
 export function DetectTeamsFromURL(arg1:string):Promise<main.TeamDetectionResult>;
 
+export function GetAnalysisProgress():Promise<main.AnalysisJob>;
+
+export function GetAnalysisSample(arg1:string,arg2:number):Promise<Array<main.AnalyzedBet>>;
+
+export function GetAnalysisShotmaps(arg1:string,arg2:number,arg3:string,arg4:string,arg5:number):Promise<Record<string, any>>;
+
 export function GetAvailableTournaments(arg1:string,arg2:string):Promise<Array<main.LeagueOption>>;
 
 export function GetBetclicCalendar(arg1:string):Promise<main.SuperbetCalendar>;
 
-export function GetPrefetchProgress():Promise<main.PrefetchProgress>;
-
 export function GetSTSCalendar(arg1:string):Promise<main.SuperbetCalendar>;
+
+export function GetSofaBrowserState():Promise<main.SofaBrowserState>;
 
 export function GetSuperbetCalendar(arg1:string):Promise<main.SuperbetCalendar>;
 
 export function LoadMatchHistory():Promise<Array<main.MatchHistoryEntry>>;
 
 export function LoadMyBets():Promise<Array<main.MyBetItem>>;
+
+export function PrepareCalendarMatch(arg1:string,arg2:string,arg3:string):Promise<main.MatchPreparation>;
 
 export function RefreshBookmakerCalendar(arg1:string,arg2:string):Promise<main.SuperbetCalendar>;
 
@@ -32,6 +48,4 @@ export function SaveMyBets(arg1:Array<main.MyBetItem>):Promise<boolean>;
 
 export function SaveTeamSofaID(arg1:string,arg2:string):Promise<boolean>;
 
-export function StartSuperbetPrefetch(arg1:number,arg2:string):Promise<void>;
-
-export function StopSuperbetPrefetch():Promise<void>;
+export function SetSofaBrowser(arg1:string):Promise<void>;
