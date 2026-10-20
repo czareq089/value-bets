@@ -34,11 +34,11 @@ export function GetRelatedStats(arg1:string,arg2:number,arg3:string,arg4:string,
 
 export function GetSTSCalendar(arg1:string):Promise<main.SuperbetCalendar>;
 
-export function GetSeasonAppearances(arg1:string,arg2:Array<number>):Promise<Record<string, any>>;
-
 export function GetSofaBrowserState():Promise<main.SofaBrowserState>;
 
 export function GetSuperbetCalendar(arg1:string):Promise<main.SuperbetCalendar>;
+
+export function GetTeamLogos(arg1:Array<Record<string, string>>):Promise<Record<string, any>>;
 
 export function LoadMatchHistory():Promise<Array<main.MatchHistoryEntry>>;
 
@@ -56,4 +56,8 @@ export function SaveMyBets(arg1:Array<main.MyBetItem>):Promise<boolean>;
 
 export function SaveTeamSofaID(arg1:string,arg2:string):Promise<boolean>;
 
+export function SelectFootyMatch(arg1:string,arg2:number):Promise<void>;
+
 export function SetSofaBrowser(arg1:string):Promise<void>;
+
+export function SetTeamLogo(arg1:Record<string, string>,arg2:string):Promise<Record<string, any>>;

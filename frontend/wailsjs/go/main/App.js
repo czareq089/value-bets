@@ -66,16 +66,16 @@ export function GetSTSCalendar(arg1) {
   return window['go']['main']['App']['GetSTSCalendar'](arg1);
 }
 
-export function GetSeasonAppearances(arg1, arg2) {
-  return window['go']['main']['App']['GetSeasonAppearances'](arg1, arg2);
-}
-
 export function GetSofaBrowserState() {
   return window['go']['main']['App']['GetSofaBrowserState']();
 }
 
 export function GetSuperbetCalendar(arg1) {
   return window['go']['main']['App']['GetSuperbetCalendar'](arg1);
+}
+
+export function GetTeamLogos(arg1) {
+  return window['go']['main']['App']['GetTeamLogos'](arg1);
 }
 
 export function LoadMatchHistory() {
@@ -110,6 +110,14 @@ export function SaveTeamSofaID(arg1, arg2) {
   return window['go']['main']['App']['SaveTeamSofaID'](arg1, arg2);
 }
 
+export function SelectFootyMatch(arg1, arg2) {
+  return window['go']['main']['App']['SelectFootyMatch'](arg1, arg2);
+}
+
 export function SetSofaBrowser(arg1) {
   return window['go']['main']['App']['SetSofaBrowser'](arg1);
+}
+
+export function SetTeamLogo(arg1, arg2) {
+  return window['go']['main']['App']['SetTeamLogo'](arg1, arg2);
 }

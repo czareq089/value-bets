@@ -1422,8 +1422,7 @@ type NormalizedProp struct {
 }
 
 type PlayerStatHistory struct {
-	footyData       *footyTable
-	footyPlayerPage string
+	footyData *footyTable
 	// Public analysis IDs belong to FootyMetrics. SofaScore IDs are optional,
 	// resolved only when the user opens this player's chart.
 	SofaPlayerID             int                                    `json:"sofaPlayerId,omitempty"`
@@ -1871,6 +1870,16 @@ func canonicalTeamCore(s string) string {
 	s = strings.ReplaceAll(s, "monachium", "munchen")
 	s = strings.ReplaceAll(s, "mgladbach", "monchengladbach")
 	s = strings.Trim(s, "-")
+	// Normalize translated city names as complete words, preserving the club
+	// name and category qualifiers (e.g. Slavia/Sparta and U19/reserves).
+	words := strings.Split(s, "-")
+	for i, word := range words {
+		switch word {
+		case "praga", "prague":
+			words[i] = "praha"
+		}
+	}
+	s = strings.Join(words, "-")
 	prefixes := []string{"1-fc-", "1-fsv-", "fc-", "sc-", "sv-", "vfb-", "vfl-", "tsg-", "se-", "ec-", "1-"}
 	for _, p := range prefixes {
 		s = strings.TrimPrefix(s, p)
@@ -2330,25 +2339,22 @@ func isShotInsideBox(x, y float64) bool {
 // be used in SofaScore URLs; chart enrichment resolves that namespace separately.
 
 type footyTeam struct {
-	Type string `json:"type"`
 	APID int    `json:"apid"`
 	Name string `json:"name"`
 }
 type footyFixture struct {
-	MainDomestic *bool     `json:"mainDomestic"`
-	APID         int       `json:"apid"`
-	Status       string    `json:"status"`
-	Timestamp    time.Time `json:"timestamp"`
-	HomeID       int       `json:"hid"`
-	AwayID       int       `json:"aid"`
-	TeamID       int       `json:"tid"`
-	LeagueID     int       `json:"lid"`
-	Home         footyTeam `json:"Home"`
-	Away         footyTeam `json:"Away"`
-	Opponent     footyTeam `json:"opponent"`
+	APID      int       `json:"apid"`
+	Status    string    `json:"status"`
+	Timestamp time.Time `json:"timestamp"`
+	HomeID    int       `json:"hid"`
+	AwayID    int       `json:"aid"`
+	TeamID    int       `json:"tid"`
+	LeagueID  int       `json:"lid"`
+	Home      footyTeam `json:"Home"`
+	Away      footyTeam `json:"Away"`
+	Opponent  footyTeam `json:"opponent"`
 }
 type footyPlayer struct {
-	PageID    string          `json:"id"`
 	APID      int             `json:"apid"`
 	Name      string          `json:"name"`
 	ShortName string          `json:"shortName"`
@@ -2356,6 +2362,74 @@ type footyPlayer struct {
 	Team      int             `json:"team"`
 	Position  string          `json:"position"`
 	TeamInfo  json.RawMessage `json:"Team,omitempty"`
+}
+
+var footyPlayerInitialPrefix = regexp.MustCompile(`^(?:\p{L}[.\s-]+)+`)
+
+func footyPlayerDisplayName(name, shortName, slug string) string {
+	display := strings.TrimSpace(name)
+	if display == "" {
+		display = strings.TrimSpace(shortName)
+	}
+	initials := footyPlayerInitialPrefix.FindString(display)
+	if display != "" && initials == "" {
+		return display
+	}
+	parsed, err := url.Parse(strings.TrimSpace(slug))
+	if err != nil {
+		return display
+	}
+	segments := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	words := strings.FieldsFunc(segments[len(segments)-1], func(r rune) bool {
+		return r == '-' || r == '_' || unicode.IsSpace(r)
+	})
+	if len(words) == 0 {
+		return display
+	}
+	for _, word := range words {
+		for _, r := range word {
+			if !unicode.IsLetter(r) && !unicode.IsMark(r) && r != '\'' && r != '’' {
+				return display
+			}
+		}
+	}
+	// Expand only the initials of this same source record, keeping the surname's
+	// supplied accents, capitalization and hyphens. Never look up another player
+	// by surname or add requests just to obtain a longer display label.
+	suffix := strings.TrimSpace(strings.TrimPrefix(display, initials))
+	suffixWords := strings.FieldsFunc(suffix, func(r rune) bool { return r == '-' || unicode.IsSpace(r) })
+	prefixLength := len(words) - len(suffixWords)
+	if display != "" {
+		initialWords := strings.FieldsFunc(initials, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsMark(r) })
+		if prefixLength < len(initialWords) || len(suffixWords) == 0 {
+			return display
+		}
+		nameKey := func(value string) string {
+			value = removeDiacritics(strings.ToLower(value))
+			return strings.NewReplacer("'", "", "’", "").Replace(value)
+		}
+		for i, initial := range initialWords {
+			given := []rune(nameKey(words[i]))
+			if len(given) < 2 || string(given[0]) != nameKey(initial) {
+				return display
+			}
+		}
+		if nameKey(strings.Join(words[prefixLength:], " ")) != nameKey(strings.Join(suffixWords, " ")) {
+			return display
+		}
+	} else {
+		prefixLength = len(words)
+	}
+	for i := 0; i < prefixLength; i++ {
+		letters := []rune(words[i])
+		letters[0] = unicode.ToUpper(letters[0])
+		words[i] = string(letters)
+	}
+	full := strings.Join(words[:prefixLength], " ")
+	if suffix != "" {
+		full += " " + suffix
+	}
+	return full
 }
 
 // FootyMetrics sends both "team" (provider ID) and "Team" (display metadata).
@@ -2368,8 +2442,6 @@ func (player *footyPlayer) UnmarshalJSON(body []byte) error {
 		return err
 	}
 	team := bytes.TrimSpace(fields["team"])
-	pageID := bytes.TrimSpace(fields["id"])
-	delete(fields, "id")
 	delete(fields, "team")
 	cleaned, err := json.Marshal(fields)
 	if err != nil {
@@ -2380,27 +2452,11 @@ func (player *footyPlayer) UnmarshalJSON(body []byte) error {
 	if err = json.Unmarshal(cleaned, &decoded); err != nil {
 		return err
 	}
-	// The site's public page ID is separate from the API/provider APID.
-	if len(pageID) > 0 && pageID[0] == '"' {
-		_ = json.Unmarshal(pageID, &decoded.PageID)
-	} else {
-		decoded.PageID = string(pageID)
-	}
-	if !regexp.MustCompile(`^[0-9]{1,12}$`).MatchString(decoded.PageID) {
-		decoded.PageID = ""
-	}
-	// /teams/table supplies shortName and slug, with no name field. Keep a
-	// human-readable name for results and retain the full slug as a matching
-	// alias; an empty display name must never erase an otherwise valid identity.
-	decoded.Name = strings.TrimSpace(decoded.Name)
+	// /teams/table may supply only shortName and a full-name slug. Prefer the
+	// complete display form while retaining shortName for bookmaker matching.
 	decoded.ShortName = strings.TrimSpace(decoded.ShortName)
 	decoded.Slug = strings.TrimSpace(decoded.Slug)
-	if decoded.Name == "" {
-		decoded.Name = decoded.ShortName
-	}
-	if decoded.Name == "" {
-		decoded.Name = strings.TrimSpace(strings.ReplaceAll(decoded.Slug, "-", " "))
-	}
+	decoded.Name = footyPlayerDisplayName(decoded.Name, decoded.ShortName, decoded.Slug)
 	if len(team) > 0 && !bytes.Equal(team, []byte("null")) {
 		if team[0] == '{' {
 			var ref footyRecord
@@ -2428,7 +2484,6 @@ func (player *footyPlayer) UnmarshalJSON(body []byte) error {
 
 type footyRecord map[string]json.RawMessage
 type footyTable struct {
-	Leagues   map[string]footySeasonLeague      `json:"leagues"`
 	Fixtures  []footyFixture                    `json:"fixtures"`
 	PivotData map[string]map[string]footyRecord `json:"pivotData"`
 	Players   []footyPlayer                     `json:"players"`
@@ -2568,7 +2623,246 @@ func footyTeamNameMatches(left, right string) bool {
 	return a != "" && b != "" && aq == bq && (a == b || sofaTeamNameVariant(a, b))
 }
 
-func resolveFootyFixture(client *ResilientClient) (footyFixture, error) {
+// Short acronyms are accepted only inside fixture resolution, where both teams,
+// category, kickoff and a unique provider event are verified together.
+func footyFixtureTeamNameMatches(left, right string) (bool, string) {
+	if footyTeamNameMatches(left, right) {
+		return true, "identity"
+	}
+	a, aq := calendarTeamIdentity(left)
+	b, bq := calendarTeamIdentity(right)
+	if a == "" || b == "" {
+		return false, "empty_identity"
+	}
+	if aq != bq {
+		return false, "different_category"
+	}
+	short, long := strings.Split(a, "-"), strings.Split(b, "-")
+	if len(short) > len(long) {
+		short, long = long, short
+	}
+	if len(short) != 1 || len(long) < 2 || len(long)-len(short) > 3 {
+		return false, "different_name"
+	}
+	acronym := short[0]
+	if len(acronym) < 2 || len(acronym) > 3 || calendarGenericWords[acronym] {
+		return false, "different_name"
+	}
+	for _, r := range acronym {
+		if r < 'a' || r > 'z' {
+			return false, "different_name"
+		}
+	}
+	found := false
+	for _, word := range long {
+		found = found || word == acronym
+	}
+	if !found {
+		return false, "different_name"
+	}
+	for _, name := range []string{left, right} {
+		words := strings.FieldsFunc(name, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
+		for _, word := range words {
+			if strings.EqualFold(word, acronym) && word == strings.ToUpper(word) {
+				return true, "acronym_with_fixture_context"
+			}
+		}
+	}
+	return false, "unconfirmed_acronym"
+}
+
+type FootyMatchChoice struct {
+	FixtureID   int       `json:"fixtureId"`
+	Home        string    `json:"home"`
+	Away        string    `json:"away"`
+	StartTime   time.Time `json:"startTime"`
+	LeagueID    int       `json:"leagueId"`
+	HomeMatched bool      `json:"homeMatched"`
+	AwayMatched bool      `json:"awayMatched"`
+	Reason      string    `json:"reason"`
+}
+
+type footyLearnedTeam struct {
+	TeamID    int       `json:"teamId"`
+	Name      string    `json:"name"`
+	Method    string    `json:"method"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	Ambiguous bool      `json:"ambiguous,omitempty"`
+}
+
+var footyIdentityMu sync.Mutex
+
+func footyIdentityKey(country, name string) string {
+	// Keep the source spelling and category in the key. Different clubs with
+	// a similar normalized core must not inherit an unrelated learned ID.
+	return calendarTeamSlug(country) + "/" + calendarTeamSlug(name)
+}
+
+// Caller holds footyIdentityMu. A broken file is never silently overwritten.
+func readFootyIdentities() (map[string]footyLearnedTeam, error) {
+	file, err := os.Open(filepath.Join(serverDataDir, "footy_team_matches.json"))
+	if errors.Is(err, os.ErrNotExist) {
+		return map[string]footyLearnedTeam{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	body, err := readBounded(file, 4<<20)
+	if err != nil {
+		return nil, err
+	}
+	var disk struct {
+		Version int                         `json:"version"`
+		Teams   map[string]footyLearnedTeam `json:"teams"`
+	}
+	if err := json.Unmarshal(body, &disk); err != nil {
+		return nil, err
+	}
+	if disk.Version != 1 || disk.Teams == nil {
+		return nil, fmt.Errorf("nieobsługiwany format dopasowań FootyMetrics")
+	}
+	return disk.Teams, nil
+}
+
+func rememberFootyFixture(seed CalendarEvent, fixture footyFixture, method string) error {
+	footyIdentityMu.Lock()
+	defer footyIdentityMu.Unlock()
+	teams, err := readFootyIdentities()
+	if err != nil {
+		return err
+	}
+	for _, side := range []struct {
+		Source string
+		Team   footyTeam
+	}{{seed.Home, fixture.Home}, {seed.Away, fixture.Away}} {
+		key := footyIdentityKey(seed.Country, side.Source)
+		old := teams[key]
+		if method != "manual" && (old.Ambiguous || (old.TeamID > 0 && old.TeamID != side.Team.APID)) {
+			old.Ambiguous = true
+			teams[key] = old
+			log.Printf("[FOOTYMETRICS-IDENTITY] conflict source=%q country=%q old_id=%d candidate_id=%d; manual choice required", side.Source, seed.Country, old.TeamID, side.Team.APID)
+			continue
+		}
+		teams[key] = footyLearnedTeam{TeamID: side.Team.APID, Name: side.Team.Name, Method: method, UpdatedAt: time.Now().UTC()}
+		log.Printf("[FOOTYMETRICS-IDENTITY] remember source=%q country=%q team_id=%d name=%q method=%s", side.Source, seed.Country, side.Team.APID, side.Team.Name, method)
+	}
+	if err := os.MkdirAll(serverDataDir, 0755); err != nil {
+		return err
+	}
+	return atomicJSON(filepath.Join(serverDataDir, "footy_team_matches.json"), struct {
+		Version int                         `json:"version"`
+		Teams   map[string]footyLearnedTeam `json:"teams"`
+	}{1, teams})
+}
+
+func footyMappedTeamMatch(source string, team footyTeam, country string, learned map[string]footyLearnedTeam) (bool, string) {
+	_, sourceCategory := calendarTeamIdentity(source)
+	_, actualCategory := calendarTeamIdentity(team.Name)
+	if sourceCategory != actualCategory {
+		return false, "different_category"
+	}
+	if known, ok := learned[footyIdentityKey(country, source)]; ok {
+		if known.Ambiguous {
+			return false, "ambiguous_learned_identity"
+		}
+		if known.TeamID > 0 {
+			return known.TeamID == team.APID, "learned_team_id"
+		}
+	}
+	return footyFixtureTeamNameMatches(source, team.Name)
+}
+
+// Only one candidate with an independently matched opponent is probed. The
+// two attack tables are reused by normal analysis through getFootyJSON's cache.
+// Never scan every team's squad in the day's calendar to guess a nickname.
+func footyFixtureRosterEvidence(client *ResilientClient, fixture footyFixture) (int, int, error) {
+	ctx, cancel := context.WithTimeout(client.ctx, 15*time.Second)
+	defer cancel()
+	scoped := *client
+	scoped.ctx = ctx
+	aliases := map[string]int{}
+	sides := map[int]int{}
+	put := func(name string, id int) {
+		name = NormalizePlayerName(name)
+		if name == "" {
+			return
+		}
+		if previous, exists := aliases[name]; exists && previous != id {
+			aliases[name] = 0
+		} else {
+			aliases[name] = id
+		}
+	}
+	for side, team := range []footyTeam{fixture.Home, fixture.Away} {
+		var table footyTable
+		if err := getFootyJSON(&scoped, footyTableURL(team.APID, "attack"), &table); err != nil {
+			return 0, 0, err
+		}
+		for _, player := range table.Players {
+			// Require an explicit current-team reference for identity evidence.
+			if player.APID <= 0 || player.Team != team.APID {
+				continue
+			}
+			if previous, exists := sides[player.APID]; exists && previous != side+1 {
+				sides[player.APID] = 0
+			} else if !exists {
+				sides[player.APID] = side + 1
+			}
+			for _, raw := range []string{player.Name, player.ShortName, strings.ReplaceAll(player.Slug, "-", " ")} {
+				name := NormalizePlayerName(raw)
+				put(name, player.APID)
+				parts := strings.Fields(name)
+				if len(parts) >= 2 {
+					first, last := parts[0], parts[len(parts)-1]
+					put(last+" "+strings.Join(parts[:len(parts)-1], " "), player.APID)
+					if initial := []rune(first); len(initial) > 0 {
+						put(string(initial[0])+" "+last, player.APID)
+						put(last+" "+string(initial[0]), player.APID)
+					}
+				}
+			}
+		}
+	}
+	matched := [2]map[int]bool{{}, {}}
+	for _, prop := range client.statsProps {
+		// Exact full-name/initial aliases only: no fuzzy surname fallback and
+		// no counting the same player again for another market or bookmaker.
+		if id := aliases[NormalizePlayerName(prop.PlayerName)]; id > 0 && sides[id] > 0 {
+			matched[sides[id]-1][id] = true
+		}
+	}
+	return len(matched[0]), len(matched[1]), nil
+}
+
+func (task *analysisTask) chooseFootyFixture(choices []FootyMatchChoice) (int, error) {
+	task.mu.Lock()
+	task.matchSelection = make(chan int, 1)
+	selection := task.matchSelection
+	task.job.MatchChoices = choices
+	task.job.Status = "waiting_match"
+	task.job.Stage = "match_choice"
+	task.job.Message = "Wybierz mecz FootyMetrics — brak jednoznacznego dopasowania drużyn"
+	task.mu.Unlock()
+	log.Printf("[FOOTYMETRICS-MATCH] waiting_for_choice analysis=%s candidates=%d", task.job.ID, len(choices))
+	defer func() {
+		task.mu.Lock()
+		task.matchSelection = nil
+		task.job.MatchChoices = nil
+		task.job.Status = "running"
+		task.job.Stage = "teams"
+		task.job.Message = "Dopasowanie meczu i drużyn w FootyMetrics"
+		task.mu.Unlock()
+	}()
+	select {
+	case <-task.ctx.Done():
+		return 0, task.ctx.Err()
+	case id := <-selection:
+		return id, nil
+	}
+}
+
+func resolveFootyFixture(client *ResilientClient, task *analysisTask, seed CalendarEvent) (footyFixture, error) {
 	if client.statsHomeName == "" || client.statsAwayName == "" || client.statsFixture.StartTime.IsZero() {
 		return footyFixture{}, fmt.Errorf("brak zweryfikowanej pary drużyn i terminu dla FootyMetrics")
 	}
@@ -2584,7 +2878,17 @@ func resolveFootyFixture(client *ResilientClient) (footyFixture, error) {
 	if start.Hour() == 23 && start.Minute() >= 50 {
 		dates = append(dates, start.AddDate(0, 0, 1))
 	}
+	footyIdentityMu.Lock()
+	learned, readErr := readFootyIdentities()
+	footyIdentityMu.Unlock()
+	if readErr != nil {
+		client.warn("Nie odczytano zapisanych dopasowań FootyMetrics: " + readErr.Error())
+	}
 	matches := map[int]footyFixture{}
+	candidates := map[int]footyFixture{}
+	choices := map[int]FootyMatchChoice{}
+	logged := map[int]bool{}
+	log.Printf("[FOOTYMETRICS-MATCH] request home=%q away=%q kickoff=%s", client.statsHomeName, client.statsAwayName, start.Format(time.RFC3339))
 	for _, date := range dates {
 		var groups []struct {
 			Fixtures []footyFixture `json:"fixtures"`
@@ -2599,22 +2903,119 @@ func resolveFootyFixture(client *ResilientClient) (footyFixture, error) {
 				if fixture.APID <= 0 || fixture.Home.APID <= 0 || fixture.Away.APID <= 0 || fixture.Home.APID == fixture.Away.APID || fixture.Timestamp.IsZero() {
 					continue
 				}
-				if fixture.Timestamp.Sub(start).Abs() > 10*time.Minute {
+				homeMatch, homeReason := footyMappedTeamMatch(client.statsHomeName, fixture.Home, seed.Country, learned)
+				awayMatch, awayReason := footyMappedTeamMatch(client.statsAwayName, fixture.Away, seed.Country, learned)
+				delta := fixture.Timestamp.Sub(start).Abs()
+				if delta > 10*time.Minute {
+					if homeMatch && awayMatch && !logged[fixture.APID] {
+						log.Printf("[FOOTYMETRICS-MATCH] candidate=%d home=%q away=%q kickoff=%s rejected=kickoff_mismatch delta=%s", fixture.APID, fixture.Home.Name, fixture.Away.Name, fixture.Timestamp.In(zone).Format(time.RFC3339), delta)
+						logged[fixture.APID] = true
+					}
 					continue
 				}
-				if footyTeamNameMatches(fixture.Home.Name, client.statsHomeName) && footyTeamNameMatches(fixture.Away.Name, client.statsAwayName) {
+				if !logged[fixture.APID] {
+					log.Printf("[FOOTYMETRICS-MATCH] candidate=%d home=%q away=%q kickoff=%s home_match=%t home_reason=%s away_match=%t away_reason=%s delta=%s", fixture.APID, fixture.Home.Name, fixture.Away.Name, fixture.Timestamp.In(zone).Format(time.RFC3339), homeMatch, homeReason, awayMatch, awayReason, delta)
+					logged[fixture.APID] = true
+				}
+				if homeMatch && awayMatch {
 					matches[fixture.APID] = fixture
+				}
+				if homeReason != "different_category" && awayReason != "different_category" {
+					candidates[fixture.APID] = fixture
+					reason := "Nazwy obu drużyn wymagają potwierdzenia"
+					if homeMatch && awayMatch {
+						reason = "Rozpoznano obie drużyny; wybierz właściwy mecz"
+					} else if homeMatch {
+						reason = "Rozpoznano gospodarzy; nazwa gości wymaga potwierdzenia"
+					} else if awayMatch {
+						reason = "Rozpoznano gości; nazwa gospodarzy wymaga potwierdzenia"
+					}
+					choices[fixture.APID] = FootyMatchChoice{FixtureID: fixture.APID, Home: fixture.Home.Name, Away: fixture.Away.Name, StartTime: fixture.Timestamp, LeagueID: fixture.LeagueID, HomeMatched: homeMatch, AwayMatched: awayMatch, Reason: reason}
 				}
 			}
 		}
 	}
-	if len(matches) != 1 {
-		return footyFixture{}, fmt.Errorf("FootyMetrics: nie potwierdzono jednoznacznie obu drużyn i terminu (%d meczów)", len(matches))
+	method := "names_or_saved_ids_and_kickoff"
+	if len(matches) == 0 {
+		var anchored []int
+		for id, choice := range choices {
+			if choice.HomeMatched || choice.AwayMatched {
+				anchored = append(anchored, id)
+			}
+		}
+		if len(anchored) == 1 {
+			id := anchored[0]
+			candidate := candidates[id]
+			homeKnown := learned[footyIdentityKey(seed.Country, seed.Home)]
+			awayKnown := learned[footyIdentityKey(seed.Country, seed.Away)]
+			conflict := homeKnown.Ambiguous || awayKnown.Ambiguous ||
+				(homeKnown.TeamID > 0 && homeKnown.TeamID != candidate.Home.APID) ||
+				(awayKnown.TeamID > 0 && awayKnown.TeamID != candidate.Away.APID)
+			if !conflict {
+				task.report("teams", "Potwierdzanie drużyn przez zawodników z oferty", 0, 0)
+				homeCount, awayCount, err := footyFixtureRosterEvidence(client, candidates[id])
+				log.Printf("[FOOTYMETRICS-MATCH] roster candidate=%d home_players=%d away_players=%d error=%v", id, homeCount, awayCount, err)
+				choice := choices[id]
+				choice.Reason += fmt.Sprintf("; zgodni zawodnicy: %d / %d", homeCount, awayCount)
+				if err != nil {
+					choice.Reason += "; nie udało się potwierdzić składów"
+				}
+				choices[id] = choice
+				if err == nil && homeCount >= 2 && awayCount >= 2 {
+					matches[id] = candidates[id]
+					method = "opponent_kickoff_and_players"
+				}
+			}
+		}
 	}
-	for _, fixture := range matches {
-		return fixture, nil
+	var selected footyFixture
+	if len(matches) == 1 {
+		for _, fixture := range matches {
+			selected = fixture
+		}
+	} else {
+		log.Printf("[FOOTYMETRICS-MATCH] manual_required home=%q away=%q kickoff=%s matches=%d candidates=%d", client.statsHomeName, client.statsAwayName, start.Format(time.RFC3339), len(matches), len(choices))
+		if len(choices) == 0 {
+			return footyFixture{}, fmt.Errorf("FootyMetrics: brak meczów zgodnych z terminem i kategorią drużyn")
+		}
+		list := make([]FootyMatchChoice, 0, len(choices))
+		for _, choice := range choices {
+			list = append(list, choice)
+		}
+		sort.Slice(list, func(i, j int) bool {
+			score := func(c FootyMatchChoice) int {
+				n := 0
+				if c.HomeMatched {
+					n++
+				}
+				if c.AwayMatched {
+					n++
+				}
+				return n
+			}
+			if score(list[i]) != score(list[j]) {
+				return score(list[i]) > score(list[j])
+			}
+			return list[i].FixtureID < list[j].FixtureID
+		})
+		id, err := task.chooseFootyFixture(list)
+		if err != nil {
+			return footyFixture{}, err
+		}
+		selected = candidates[id]
+		method = "manual"
 	}
-	return footyFixture{}, fmt.Errorf("FootyMetrics: brak meczu")
+	if err := client.ctx.Err(); err != nil {
+		return footyFixture{}, err
+	}
+	if selected.APID <= 0 || !selected.Timestamp.After(time.Now()) {
+		return footyFixture{}, fmt.Errorf("wybrany mecz FootyMetrics już się rozpoczął lub jest niepoprawny")
+	}
+	if err := rememberFootyFixture(seed, selected, method); err != nil {
+		client.warn("Nie zapisano dopasowania FootyMetrics: " + err.Error())
+	}
+	log.Printf("[FOOTYMETRICS-MATCH] resolved=%d home=%q away=%q kickoff=%s method=%s", selected.APID, selected.Home.Name, selected.Away.Name, selected.Timestamp.In(zone).Format(time.RFC3339), method)
+	return selected, nil
 }
 
 func footyTableURL(teamID int, group string) string {
@@ -2848,13 +3249,7 @@ func fetchFootyLineups(client *ResilientClient, home, away *footyTeamBundle) foo
 				if entry == nil || entry.APID <= 0 {
 					continue
 				}
-				name := strings.TrimSpace(entry.Name)
-				if name == "" {
-					name = strings.TrimSpace(entry.ShortName)
-				}
-				if name == "" {
-					name = strings.ReplaceAll(entry.Slug, "-", " ")
-				}
+				name := footyPlayerDisplayName(entry.Name, entry.ShortName, entry.Slug)
 				starters[entry.APID] = footyPlayer{APID: entry.APID, Name: name, ShortName: entry.ShortName, Slug: entry.Slug, Position: entry.Position, Team: bundle.TeamID}
 				roles[entry.APID] = strings.TrimSpace(entry.Detailed)
 			}
@@ -3064,8 +3459,15 @@ func requiredPlayerMarkets(client *ResilientClient, player SofaPlayerDetails) []
 	aliases := map[string]int{}
 	regSofaAliases(aliases, player.Name, player.ShortName, player.Slug, player.ID)
 	lookup := lookupMapInt(aliases)
+	sourceNames := map[string]string{strconv.Itoa(player.ID): player.Name}
+	resolved := map[string]bool{}
 	for _, prop := range client.statsProps {
-		if matchPlayerStrict(prop.PlayerName, lookup) == strconv.Itoa(player.ID) {
+		matched, known := resolved[prop.PlayerName]
+		if !known {
+			matched = matchPlayerStrict(prop.PlayerName, lookup, sourceNames) == strconv.Itoa(player.ID)
+			resolved[prop.PlayerName] = matched
+		}
+		if matched {
 			found[prop.MarketType] = true
 		}
 	}
@@ -4055,8 +4457,27 @@ func metricHistory(source *PlayerStatHistory, market CanonicalMarket) *PlayerSta
 }
 
 func NormalizePlayerName(s string) string {
+	// A provider alias can be "site-id/full-name" or a player profile URL.
+	// The site ID is not part of the player's name or its first initial.
+	if parsed, err := url.Parse(strings.TrimSpace(s)); err == nil {
+		parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+		if len(parts) > 1 {
+			_, prefixErr := strconv.ParseUint(parts[len(parts)-2], 10, 64)
+			if prefixErr == nil || parsed.Scheme == "https" || parsed.Scheme == "http" {
+				s = parts[len(parts)-1]
+			}
+		}
+	}
 	s = removeDiacritics(norm.NFKD.String(s))
 	s = strings.ToLower(s)
+	// Bookmakers also send "Surname, Given name". Preserve that information
+	// before removing punctuation; "Gomes, Luis" is Luis Gomes, not William Gomes.
+	if parts := strings.Split(s, ","); len(parts) == 2 {
+		suffix := strings.Trim(strings.TrimSpace(parts[1]), ".")
+		if strings.TrimSpace(parts[0]) != "" && suffix != "" && suffix != "jr" && suffix != "junior" && suffix != "ii" && suffix != "iii" && suffix != "iv" {
+			s = parts[1] + " " + parts[0]
+		}
+	}
 	s = strings.ReplaceAll(s, ",", " ")
 	s = strings.ReplaceAll(s, ".", " ")
 	s = strings.ReplaceAll(s, "-", " ")
@@ -4081,7 +4502,7 @@ func NormalizePlayerName(s string) string {
 	return strings.TrimSpace(strings.Join(filtered, " "))
 }
 
-func matchPlayerStrict(targetName string, playerMap map[string]string) string {
+func matchPlayerStrict(targetName string, playerMap map[string]string, canonicalNames map[string]string) string {
 	targetNorm := NormalizePlayerName(targetName)
 	if targetNorm == "" {
 		return ""
@@ -4091,100 +4512,186 @@ func matchPlayerStrict(targetName string, playerMap map[string]string) string {
 	}
 
 	parts := strings.Fields(targetNorm)
-	if len(parts) == 0 {
+	if len(parts) < 2 {
+		// A single-name query needs an explicit, unique source alias. Do not
+		// reinterpret an arbitrary given name as somebody else's surname.
 		return ""
 	}
+	originalParts := append([]string(nil), parts...)
 
-	if len(parts) >= 2 {
-		first := parts[0]
-		last := parts[len(parts)-1]
-
-		if len(first) == 1 {
-			targetInitial := rune(first[0])
-			for candName, id := range playerMap {
-				candParts := strings.Fields(candName)
-				if len(candParts) >= 2 && candParts[len(candParts)-1] == last {
-					if rune(candParts[0][0]) == targetInitial {
-						return id
+	// Group only forms belonging to the same provider ID. This joins a source
+	// nickname to its full legal-name slug without inventing per-player aliases.
+	// The token pass explains every query component, regardless of name order.
+	// Explicit source records below may also justify missing name components.
+	byID := map[string]map[string]bool{}
+	for alias, id := range playerMap {
+		if id == "" {
+			continue
+		}
+		if byID[id] == nil {
+			byID[id] = map[string]bool{}
+		}
+		for _, word := range strings.Fields(alias) {
+			byID[id][word] = true
+		}
+	}
+	// Longest components first keep an initial from consuming the word that
+	// is needed for an exact full-name component later in the same query.
+	sort.Slice(parts, func(i, j int) bool {
+		if len([]rune(parts[i])) != len([]rune(parts[j])) {
+			return len([]rune(parts[i])) > len([]rune(parts[j]))
+		}
+		return parts[i] < parts[j]
+	})
+	componentScore := func(query, source string) float64 {
+		if query == source {
+			return 1
+		}
+		q, c := []rune(query), []rune(source)
+		if len(q) == 1 && len(c) > 1 && q[0] == c[0] {
+			return 0.85
+		}
+		// A bounded full-word prefix covers abbreviated given names such as
+		// Samu/Samuel. Arbitrary token similarity is never sufficient.
+		shorter, longer := min(len(q), len(c)), max(len(q), len(c))
+		if shorter >= 4 && float64(shorter)/float64(longer) >= 0.6 && (strings.HasPrefix(query, source) || strings.HasPrefix(source, query)) {
+			return 0.9
+		}
+		return 0
+	}
+	// A real provider display name supplies information absent from the token
+	// index: an explicit mononym, a given-name initial, and first/last boundaries.
+	// Only this source record may justify an omitted middle name or an expansion
+	// of D. Cunha. Generated surname aliases must never receive these privileges.
+	sourceScore := func(id string) float64 {
+		source := strings.Fields(NormalizePlayerName(canonicalNames[id]))
+		if len(source) == 1 && len([]rune(source[0])) >= 3 {
+			nickname := source[0]
+			present := false
+			for _, word := range originalParts {
+				present = present || word == nickname
+			}
+			if !present {
+				return 0
+			}
+			for otherID, tokens := range byID {
+				if otherID != id && tokens[nickname] {
+					return 0
+				}
+			}
+			// A known complete name can contradict a proposed expansion of a
+			// short display name. Keep that evidence instead of ignoring it.
+			for alias, owner := range playerMap {
+				words := strings.Fields(alias)
+				if owner == id && len(words) >= 2 && words[0] == nickname && len([]rune(words[len(words)-1])) > 1 {
+					found := false
+					for _, word := range originalParts {
+						found = found || word == words[len(words)-1]
+					}
+					if !found {
+						return 0
 					}
 				}
 			}
+			return 88
 		}
-
-		if len(last) == 1 {
-			targetInitial := rune(last[0])
-			for candName, id := range playerMap {
-				candParts := strings.Fields(candName)
-				if len(candParts) >= 2 && candParts[len(candParts)-1] == first {
-					if rune(candParts[0][0]) == targetInitial {
-						return id
+		if len(source) < 2 || len(source) > len(originalParts) || len(originalParts)-len(source) > 3 {
+			return 0
+		}
+		compatible := func(query, word string) bool {
+			if componentScore(query, word) > 0 {
+				return true
+			}
+			initial, full := []rune(word), []rune(query)
+			return len(initial) == 1 && len(full) > 1 && initial[0] == full[0]
+		}
+		for shift := range originalParts {
+			query := append(append([]string{}, originalParts[shift:]...), originalParts[:shift]...)
+			if !compatible(query[0], source[0]) || query[len(query)-1] != source[len(source)-1] {
+				continue
+			}
+			if len([]rune(source[0])) == 1 {
+				conflict := false
+				for alias, owner := range playerMap {
+					words := strings.Fields(alias)
+					if owner != id || len(words) < 2 || words[len(words)-1] != source[len(source)-1] || len([]rune(words[0])) < 2 {
+						continue
+					}
+					first := []rune(words[0])
+					if first[0] == []rune(source[0])[0] && componentScore(query[0], words[0]) == 0 {
+						conflict = true
 					}
 				}
-			}
-		}
-
-		reversed := last + " " + strings.Join(parts[:len(parts)-1], " ")
-		if id, ok := playerMap[reversed]; ok {
-			return id
-		}
-	}
-
-	surname := parts[len(parts)-1]
-	var candidateIDs []string
-	for fullName, id := range playerMap {
-		fParts := strings.Fields(fullName)
-		if len(fParts) > 0 && fParts[len(fParts)-1] == surname {
-			candidateIDs = append(candidateIDs, id)
-		}
-	}
-	if len(candidateIDs) == 1 {
-		return candidateIDs[0]
-	}
-
-	var scoredCandidates []struct {
-		id    string
-		score int
-	}
-	bestScore := 0
-
-	for fullName, id := range playerMap {
-		candTokens := strings.Fields(fullName)
-		score := 0
-		for _, p := range parts {
-			for _, ct := range candTokens {
-				if p == ct {
-					score += 2
-				} else if strings.HasPrefix(ct, p) || strings.HasPrefix(p, ct) {
-					score += 1
+				if conflict {
+					continue
 				}
 			}
+			matched := 1
+			for _, word := range query[1 : len(query)-1] {
+				if matched < len(source)-1 && compatible(word, source[matched]) {
+					matched++
+				}
+			}
+			if matched != len(source)-1 {
+				continue
+			}
+			score := 96.0 - 2*float64(len(query)-len(source))
+			if len([]rune(source[0])) == 1 {
+				score -= 8
+			}
+			return score
+		}
+		return 0
+	}
+	bestID, bestScore, secondScore := "", 0.0, 0.0
+	for id, tokens := range byID {
+		words := make([]string, 0, len(tokens))
+		for word := range tokens {
+			words = append(words, word)
+		}
+		sort.Strings(words)
+		used := map[string]bool{}
+		score, exactFull := 0.0, 0
+		for _, query := range parts {
+			selected, value := "", 0.0
+			for _, word := range words {
+				if used[word] {
+					continue
+				}
+				candidateScore := componentScore(query, word)
+				if candidateScore > value {
+					selected, value = word, candidateScore
+				}
+			}
+			if value == 0 {
+				score = 0
+				break
+			}
+			used[selected] = true
+			score += value
+			if value == 1 && len([]rune(query)) > 1 {
+				exactFull++
+			}
+		}
+		if exactFull > 0 && score > 0 {
+			score = 100 * score / float64(len(parts))
+		} else {
+			score = 0
+		}
+		score = max(score, sourceScore(id))
+		if score == 0 {
+			continue
 		}
 		if score > bestScore {
-			bestScore = score
-		}
-		if score > 0 {
-			scoredCandidates = append(scoredCandidates, struct {
-				id    string
-				score int
-			}{id: id, score: score})
+			secondScore, bestScore, bestID = bestScore, score, id
+		} else if score > secondScore {
+			secondScore = score
 		}
 	}
-
-	if bestScore >= 2 {
-		var matched string
-		for _, sc := range scoredCandidates {
-			if sc.score == bestScore {
-				if matched == "" {
-					matched = sc.id
-				} else if matched != sc.id {
-					return ""
-				}
-			}
-		}
-		return matched
+	if bestScore < 85 || (secondScore > 0 && bestScore-secondScore < 8) {
+		return ""
 	}
-
-	return ""
+	return bestID
 }
 
 const fairModelVersion = "context-hit-v14-footymetrics-lineups"
@@ -4468,6 +4975,19 @@ func calculateValueBetsContext(ctx context.Context, props []NormalizedProp, home
 
 	registerPlayers(homePlayers, "HOME")
 	registerPlayers(awayPlayers, "AWAY")
+	// Resolve identity against the complete squads, including players whose
+	// history failed. Missing history must not transfer an offer to a different
+	// player who happens to have similar names and an available sample.
+	knownPlayerNames := map[string]string{}
+	for id, player := range playerHistory {
+		knownPlayerNames[id] = player.FullName
+	}
+	for alias, id := range contextData.PlayerAliases {
+		strictMap[alias] = id
+	}
+	for id, name := range contextData.PlayerNames {
+		knownPlayerNames[id] = name
+	}
 	log.Printf("[CALCULATE] Zarejestrowano w mapie dopasowań %d zawodników (Gospodarze: %d, Goście: %d)", len(playerHistory), len(homePlayers), len(awayPlayers))
 
 	getLineupStatus := func(playerID int, pName, side string) (string, bool) {
@@ -4530,8 +5050,32 @@ func calculateValueBetsContext(ctx context.Context, props []NormalizedProp, home
 		}
 		matchedID, resolved := matchedPlayers[prop.PlayerName]
 		if !resolved {
-			matchedID = matchPlayerStrict(prop.PlayerName, strictMap)
+			matchedID = matchPlayerStrict(prop.PlayerName, strictMap, knownPlayerNames)
 			matchedPlayers[prop.PlayerName] = matchedID
+			if player := playerHistory[matchedID]; player != nil {
+				log.Printf("[PLAYER-MATCH] stage=MATCHED source_name=%q normalized=%q player_id=%d player_name=%q", prop.PlayerName, NormalizePlayerName(prop.PlayerName), player.ID, player.FullName)
+			} else if matchedID != "" {
+				log.Printf("[PLAYER-MATCH] stage=NO_HISTORY source_name=%q normalized=%q player_id=%s player_name=%q reason=source_player_identified_but_history_unavailable", prop.PlayerName, NormalizePlayerName(prop.PlayerName), matchedID, knownPlayerNames[matchedID])
+			} else {
+				queryWords := strings.Fields(NormalizePlayerName(prop.PlayerName))
+				var candidates []string
+				for id, name := range knownPlayerNames {
+					shared := false
+					for _, word := range strings.Fields(NormalizePlayerName(name)) {
+						for _, query := range queryWords {
+							shared = shared || (len([]rune(query)) > 1 && word == query)
+						}
+					}
+					if shared {
+						candidates = append(candidates, fmt.Sprintf("%s (id=%s)", name, id))
+					}
+				}
+				sort.Strings(candidates)
+				if len(candidates) > 8 {
+					candidates = candidates[:8]
+				}
+				log.Printf("[PLAYER-MATCH] stage=REJECT source_name=%q normalized=%q reason=no_unambiguous_source_player candidates=%q", prop.PlayerName, NormalizePlayerName(prop.PlayerName), candidates)
+			}
 		}
 		if matchedID == "" {
 			continue
@@ -5202,6 +5746,10 @@ func calendarTeamIdentity(name string) (string, string) {
 			qualifiers = append(qualifiers, "reserves")
 		case word == "iii" || word == "iv":
 			qualifiers = append(qualifiers, word)
+		case word == "de" && i > 0 && i < len(parts)-1:
+			// Providers may omit an internal connector: Atletico de Madrid /
+			// Atletico Madrid. Keep leading/trailing words and club qualifiers.
+			continue
 		case word != "" && !calendarClubWords[word]:
 			words = append(words, word)
 		}
@@ -5261,23 +5809,24 @@ type AnalysisRequest struct {
 }
 
 type AnalysisJob struct {
-	FixtureID      string          `json:"fixtureId,omitempty"`
-	StartTime      time.Time       `json:"startTime,omitempty"`
-	ResultRevision int             `json:"resultRevision"`
-	ID             string          `json:"id"`
-	Match          string          `json:"match"`
-	Status         string          `json:"status"`
-	Stage          string          `json:"stage"`
-	Message        string          `json:"message"`
-	PlayersDone    int             `json:"playersDone"`
-	PlayersTotal   int             `json:"playersTotal"`
-	CreatedAt      time.Time       `json:"createdAt"`
-	StartedAt      time.Time       `json:"startedAt,omitempty"`
-	FinishedAt     time.Time       `json:"finishedAt,omitempty"`
-	Request        AnalysisRequest `json:"request"`
-	Warnings       []string        `json:"warnings"`
-	Result         []AnalyzedBet   `json:"result,omitempty"`
-	Error          string          `json:"error,omitempty"`
+	MatchChoices   []FootyMatchChoice `json:"matchChoices,omitempty"`
+	FixtureID      string             `json:"fixtureId,omitempty"`
+	StartTime      time.Time          `json:"startTime,omitempty"`
+	ResultRevision int                `json:"resultRevision"`
+	ID             string             `json:"id"`
+	Match          string             `json:"match"`
+	Status         string             `json:"status"`
+	Stage          string             `json:"stage"`
+	Message        string             `json:"message"`
+	PlayersDone    int                `json:"playersDone"`
+	PlayersTotal   int                `json:"playersTotal"`
+	CreatedAt      time.Time          `json:"createdAt"`
+	StartedAt      time.Time          `json:"startedAt,omitempty"`
+	FinishedAt     time.Time          `json:"finishedAt,omitempty"`
+	Request        AnalysisRequest    `json:"request"`
+	Warnings       []string           `json:"warnings"`
+	Result         []AnalyzedBet      `json:"result,omitempty"`
+	Error          string             `json:"error,omitempty"`
 }
 
 func validateMatchURL(input, provider string) error {
@@ -5360,8 +5909,10 @@ var serverDataDir = "data"
 var cacheMutex sync.Mutex
 
 type analysisMatchContext struct {
-	Pending bool
-	Input   fairModelInput
+	Pending       bool
+	Input         fairModelInput
+	PlayerAliases map[string]string
+	PlayerNames   map[string]string
 }
 type sofaClientState struct {
 	mu          sync.Mutex
@@ -5446,19 +5997,6 @@ var sourceLocks = func() [256]chan struct{} {
 }()
 
 func sourceJSON(ctx context.Context, key string, ttl time.Duration, load func() ([]byte, error), validate func([]byte) error) ([]byte, bool, error) {
-	return sourceBody(ctx, key, ttl, load, func(body []byte) error {
-		if !json.Valid(body) {
-			return fmt.Errorf("odpowiedź źródła nie jest JSON")
-		}
-		if validate != nil {
-			return validate(body)
-		}
-		return nil
-	})
-}
-
-// The cache stores bytes; each source supplies its own format validation.
-func sourceBody(ctx context.Context, key string, ttl time.Duration, load func() ([]byte, error), validate func([]byte) error) ([]byte, bool, error) {
 	digest := sha256.Sum256([]byte(key))
 	lock := sourceLocks[digest[0]]
 	select {
@@ -5481,6 +6019,9 @@ func sourceBody(ctx context.Context, key string, ttl time.Duration, load func() 
 	body, err := load()
 	if err != nil {
 		return nil, false, err
+	}
+	if !json.Valid(body) {
+		return nil, false, fmt.Errorf("odpowiedź źródła nie jest JSON")
 	}
 	if validate != nil {
 		if err = validate(body); err != nil {
@@ -5529,15 +6070,7 @@ func getFootyJSON(client *ResilientClient, endpoint string, target any) error {
 	if strings.HasSuffix(endpoint, "/lineup") {
 		ttl = time.Minute
 	}
-	body, err := getFootyBody(client, endpoint, ttl, "application/json")
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(body, target)
-}
-
-func getFootyBody(client *ResilientClient, endpoint string, ttl time.Duration, accept string) ([]byte, error) {
-	load := func() ([]byte, error) {
+	body, _, err := sourceJSON(client.ctx, "footy/"+endpoint, ttl, func() ([]byte, error) {
 		select {
 		case footySlot <- struct{}{}:
 		case <-client.ctx.Done():
@@ -5548,7 +6081,7 @@ func getFootyBody(client *ResilientClient, endpoint string, ttl time.Duration, a
 		if err != nil {
 			return nil, err
 		}
-		req.Header.Set("Accept", accept)
+		req.Header.Set("Accept", "application/json")
 		req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36")
 		req.Header.Set("Referer", "https://www.footymetrics.com/")
 		if cookie := strings.TrimSpace(os.Getenv("VALUE_BETS_FOOTY_COOKIE")); cookie != "" {
@@ -5563,20 +6096,12 @@ func getFootyBody(client *ResilientClient, endpoint string, ttl time.Duration, a
 			return nil, fmt.Errorf("FootyMetrics HTTP %d", resp.StatusCode)
 		}
 		return readBounded(resp.Body, 32<<20)
+	}, nil)
+	if err != nil {
+		return err
 	}
-	if accept == "text/html" {
-		body, _, err := sourceBody(client.ctx, "footy-page/"+endpoint, ttl, load, func(body []byte) error {
-			if !bytes.Contains(body, []byte("self.__next_f.push(")) {
-				return fmt.Errorf("FootyMetrics: strona HTML nie zawiera danych zawodnika (możliwa blokada źródła)")
-			}
-			return nil
-		})
-		return body, err
-	}
-	body, _, err := sourceJSON(client.ctx, "footy/"+endpoint, ttl, load, nil)
-	return body, err
+	return json.Unmarshal(body, target)
 }
-
 func getSofaTeamRefresh(client *ResilientClient, teamID string) (sofaTeamRefreshState, error) {
 	client.state.mu.Lock()
 	cached, ok := client.state.teamRefresh[teamID]
@@ -5703,12 +6228,6 @@ func fetchPlayerHistory(client *ResilientClient, player SofaPlayerDetails, teamN
 		return nil, fmt.Errorf("FootyMetrics: brak potwierdzonych występów %s w wybranym zakresie", player.Name)
 	}
 	full.footyData = &historyTable
-	for _, providerPlayer := range bundle.Table.Players {
-		if providerPlayer.APID == id && providerPlayer.PageID != "" && providerPlayer.Slug != "" && !strings.Contains(providerPlayer.Slug, "/") {
-			full.footyPlayerPage = "/players/" + providerPlayer.PageID + "/" + url.PathEscape(providerPlayer.Slug)
-			break
-		}
-	}
 	full.PlayerAliases = []string{player.Name, player.ShortName, strings.ReplaceAll(player.Slug, "-", " ")}
 	enrichFootyReplacements(client, full, historyTable, markets, limit)
 	full.HistoryNotes = append(full.HistoryNotes, "SofaScore jest pobierany dopiero po otwarciu wykresu. Korekta profilu EV = 1.")
@@ -6102,17 +6621,16 @@ func fetchAnalysisMatchContext(client *ResilientClient, homeID, awayID string, p
 }
 
 type analysisTask struct {
-	ctx               context.Context
-	cancel            context.CancelFunc
-	mu                sync.Mutex
-	job               AnalysisJob
-	histories         map[int]*PlayerStatHistory
-	fixture           statsFixture
-	calculation       *analysisCalculation
-	seed              CalendarEvent
-	chartGate         chan struct{}
-	appearanceGate    chan struct{}
-	seasonAppearances map[int]seasonAppearanceCounts
+	matchSelection chan int
+	ctx            context.Context
+	cancel         context.CancelFunc
+	mu             sync.Mutex
+	job            AnalysisJob
+	histories      map[int]*PlayerStatHistory
+	fixture        statsFixture
+	calculation    *analysisCalculation
+	seed           CalendarEvent
+	chartGate      chan struct{}
 	// These fields are accessed only while holding chartGate. Initial results
 	// and histories stay immutable when charts receive optional enrichment.
 	chartHistories    map[string]*PlayerStatHistory
@@ -6292,8 +6810,12 @@ func (s *calendarServer) analyze(task *analysisTask) ([]AnalyzedBet, error) {
 	}
 	client.statsHomeName, client.statsAwayName = seed.Home, seed.Away
 	client.statsFixture.StartTime = start
+	client.statsProps = props
+	task.mu.Lock()
+	task.job.Match = seed.Home + " — " + seed.Away
+	task.mu.Unlock()
 	task.report("teams", "Dopasowanie meczu i drużyn w FootyMetrics", 0, 0)
-	footyFixture, err := resolveFootyFixture(client)
+	footyFixture, err := resolveFootyFixture(client, task, seed)
 	if err != nil {
 		return nil, err
 	}
@@ -6321,12 +6843,32 @@ func (s *calendarServer) analyze(task *analysisTask) ([]AnalyzedBet, error) {
 	task.report("lineups", "Pobieranie XI z FootyMetrics", 0, 0)
 	lineups := fetchFootyLineups(client, homeBundle, awayBundle)
 	homeSquad, awaySquad := footyAnalysisSquad(homeBundle), footyAnalysisSquad(awayBundle)
+	allSquad := append(append([]SofaPlayerDetails{}, homeSquad...), awaySquad...)
+	rosterAliases := squadPlayerAliases(allSquad)
+	rosterNames := map[string]string{}
+	for _, player := range allSquad {
+		rosterNames[strconv.Itoa(player.ID)] = player.Name
+	}
 	targets := []string{}
 	for _, prop := range props {
 		targets = append(targets, prop.PlayerName)
 	}
-	homeSelected := selectSofaMarketPlayers(homeSquad, targets)
-	awaySelected := selectSofaMarketPlayers(awaySquad, targets)
+	selected := selectSofaMarketPlayers(allSquad, targets)
+	selectedIDs := map[int]bool{}
+	for _, player := range selected {
+		selectedIDs[player.ID] = true
+	}
+	var homeSelected, awaySelected []SofaPlayerDetails
+	for _, side := range []struct {
+		Squad    []SofaPlayerDetails
+		Selected *[]SofaPlayerDetails
+	}{{homeSquad, &homeSelected}, {awaySquad, &awaySelected}} {
+		for _, player := range side.Squad {
+			if selectedIDs[player.ID] {
+				*side.Selected = append(*side.Selected, player)
+			}
+		}
+	}
 	task.report("history", "Historia zawodników z FootyMetrics", 0, len(homeSelected)+len(awaySelected))
 	fetch := func(teamID, name string, selected []SofaPlayerDetails) []*PlayerStatHistory {
 		result := []*PlayerStatHistory{}
@@ -6371,7 +6913,7 @@ func (s *calendarServer) analyze(task *analysisTask) ([]AnalyzedBet, error) {
 			marketHistory.HistoryNotes = append(marketHistory.HistoryNotes, notes...)
 		}
 	}
-	contextData := analysisMatchContext{Input: fairModelInput{HomeID: footyFixture.Home.APID, AwayID: footyFixture.Away.APID, Roles: roles}}
+	contextData := analysisMatchContext{Input: fairModelInput{HomeID: footyFixture.Home.APID, AwayID: footyFixture.Away.APID, Roles: roles}, PlayerAliases: rosterAliases, PlayerNames: rosterNames}
 	result, err := calculateValueBetsContext(task.ctx, props, home, away, lineups.Home, lineups.Away, lineups.Confirmed, nil, contextData)
 	if err != nil {
 		return nil, err
@@ -6497,18 +7039,31 @@ func mergeSquad(squad, extra []SofaPlayerDetails) []SofaPlayerDetails {
 	}
 	return squad
 }
-func selectSofaMarketPlayers(squad []SofaPlayerDetails, targets []string) []SofaPlayerDetails {
+func squadPlayerAliases(squad []SofaPlayerDetails) map[string]string {
 	aliases := map[string]int{}
-	byID := map[int]SofaPlayerDetails{}
 	for _, player := range squad {
 		regSofaAliases(aliases, player.Name, player.ShortName, player.Slug, player.ID)
-		byID[player.ID] = player
 	}
-	lookup := lookupMapInt(aliases)
+	return lookupMapInt(aliases)
+}
+
+func selectSofaMarketPlayers(squad []SofaPlayerDetails, targets []string) []SofaPlayerDetails {
+	lookup := squadPlayerAliases(squad)
+	byID := map[int]SofaPlayerDetails{}
+	sourceNames := map[string]string{}
+	for _, player := range squad {
+		byID[player.ID] = player
+		sourceNames[strconv.Itoa(player.ID)] = player.Name
+	}
 	selected := map[int]bool{}
+	seen := map[string]bool{}
 	result := []SofaPlayerDetails{}
 	for _, name := range targets {
-		id, _ := strconv.Atoi(matchPlayerStrict(name, lookup))
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		id, _ := strconv.Atoi(matchPlayerStrict(name, lookup, sourceNames))
 		if id > 0 && !selected[id] {
 			result = append(result, byID[id])
 			selected[id] = true
@@ -6579,6 +7134,7 @@ func (s *calendarServer) handler() http.Handler {
 	})
 	mux.HandleFunc("GET /api/v1/tournaments", s.tournaments)
 	mux.HandleFunc("POST /api/v1/analyses", s.startAnalysis)
+	mux.HandleFunc("POST /api/v1/analyses/{id}/footy-match", s.selectFootyMatch)
 	mux.HandleFunc("GET /api/v1/analyses/{id}", func(w http.ResponseWriter, r *http.Request) {
 		task := s.clientTask(r, r.PathValue("id"))
 		if task == nil {
@@ -6602,7 +7158,6 @@ func (s *calendarServer) handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/analyses/{id}/sample", s.analysisSample)
 	mux.HandleFunc("POST /api/v1/markets/prepare", s.prepareMatch)
 	mux.HandleFunc("POST /api/v1/mybets/settle", s.settleMyBets)
-	mux.HandleFunc("POST /api/v1/analyses/{id}/appearances", s.analysisAppearances)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		clientID := r.Header.Get("X-ValueBets-Client")
 		if clientID != "" && !relayClientIDPattern.MatchString(clientID) {
@@ -6677,6 +7232,44 @@ func (s *calendarServer) analysisSample(w http.ResponseWriter, r *http.Request) 
 	}
 	jsonResponse(w, 200, result)
 }
+func (s *calendarServer) selectFootyMatch(w http.ResponseWriter, r *http.Request) {
+	task := s.clientTask(r, r.PathValue("id"))
+	if task == nil {
+		apiError(w, 404, fmt.Errorf("brak analizy"))
+		return
+	}
+	var query struct {
+		FixtureID int `json:"fixtureId"`
+	}
+	if err := decodeAPIRequest(w, r, &query); err != nil || query.FixtureID <= 0 {
+		apiError(w, 400, fmt.Errorf("wybierz poprawny mecz FootyMetrics"))
+		return
+	}
+	task.mu.Lock()
+	defer task.mu.Unlock()
+	if task.ctx.Err() != nil || task.job.Status != "waiting_match" || task.matchSelection == nil {
+		apiError(w, 409, fmt.Errorf("analiza nie oczekuje już na wybór meczu"))
+		return
+	}
+	for _, choice := range task.job.MatchChoices {
+		if choice.FixtureID == query.FixtureID && choice.StartTime.After(time.Now()) {
+			select {
+			case task.matchSelection <- choice.FixtureID:
+				task.job.Status = "running"
+				task.job.Stage = "teams"
+				task.job.Message = "Przyjęto wybrany mecz FootyMetrics"
+				log.Printf("[FOOTYMETRICS-MATCH] manual_choice analysis=%s fixture=%d home=%q away=%q", task.job.ID, choice.FixtureID, choice.Home, choice.Away)
+				jsonResponse(w, 200, true)
+				return
+			default:
+				apiError(w, 409, fmt.Errorf("wybór został już przyjęty"))
+				return
+			}
+		}
+	}
+	apiError(w, 400, fmt.Errorf("mecz nie należy do kandydatów tej analizy lub już się rozpoczął"))
+}
+
 func (s *calendarServer) startAnalysis(w http.ResponseWriter, r *http.Request) {
 	var query AnalysisRequest
 	if err := decodeAPIRequest(w, r, &query); err != nil {
@@ -6695,7 +7288,7 @@ func (s *calendarServer) startAnalysis(w http.ResponseWriter, r *http.Request) {
 	id := fmt.Sprintf("%x", bytes)
 	clientID, _ := r.Context().Value(sofaRelayContextKey{}).(string)
 	ctx, cancel := context.WithTimeout(context.WithValue(s.ctx, sofaRelayContextKey{}, clientID), 22*time.Minute)
-	task := &analysisTask{ctx: ctx, cancel: cancel, chartGate: make(chan struct{}, 1), appearanceGate: make(chan struct{}, 1), job: AnalysisJob{ID: id, Status: "queued", Stage: "queued", Message: "Oczekiwanie na analizę", CreatedAt: time.Now().UTC(), Request: query, Warnings: []string{}}}
+	task := &analysisTask{ctx: ctx, cancel: cancel, chartGate: make(chan struct{}, 1), job: AnalysisJob{ID: id, Status: "queued", Stage: "queued", Message: "Oczekiwanie na analizę", CreatedAt: time.Now().UTC(), Request: query, Warnings: []string{}}}
 	s.mu.Lock()
 	for key, old := range s.jobs {
 		job := old.snapshot()
@@ -7073,6 +7666,7 @@ func (task *analysisTask) snapshot() AnalysisJob {
 	defer task.mu.Unlock()
 	job := task.job
 	job.Warnings = append([]string{}, job.Warnings...)
+	job.MatchChoices = append([]FootyMatchChoice(nil), job.MatchChoices...)
 	// Results are immutable after publication.
 	return job
 }
@@ -8136,367 +8730,4 @@ func settleFootyBet(client *ResilientClient, bet myBetSettlementRequest) myBetSe
 	}
 	out.Note = "Statystyka FootyMetrics po FT; wynik można skorygować ręcznie."
 	return out
-}
-
-// Season counts use complete provider seasons, independently of the EV sample.
-type footySeasonLeague struct {
-	APID int    `json:"apid"`
-	ID   string `json:"id"`
-	Name string `json:"name"`
-}
-type footySeasonOption struct {
-	Short string `json:"short"`
-	APIDs string `json:"apids"`
-}
-type footySeasonStat struct {
-	Main   bool `json:"main"`
-	Season struct {
-		Short  string            `json:"short"`
-		League footySeasonLeague `json:"League"`
-	} `json:"Season"`
-}
-type seasonAppearanceCounts struct {
-	All      *int   `json:"all"`
-	Domestic *int   `json:"domestic"`
-	Europe   *int   `json:"europe"`
-	National *int   `json:"national"`
-	Season   string `json:"season"`
-	Note     string `json:"note"`
-}
-
-// Read JSON values from the published Next.js data stream, without executing JS.
-func footyPageValues(page []byte, key string) []json.RawMessage {
-	var stream strings.Builder
-	text := string(page)
-	const marker = "self.__next_f.push("
-	for {
-		pos := strings.Index(text, marker)
-		if pos < 0 {
-			break
-		}
-		text = text[pos+len(marker):]
-		var parts []json.RawMessage
-		if json.NewDecoder(strings.NewReader(text)).Decode(&parts) != nil || len(parts) < 2 {
-			continue
-		}
-		var kind int
-		var payload string
-		if json.Unmarshal(parts[0], &kind) == nil && kind == 1 && json.Unmarshal(parts[1], &payload) == nil {
-			stream.WriteString(payload)
-		}
-	}
-	text = stream.String()
-	needle := `"` + key + `":`
-	var values []json.RawMessage
-	for {
-		pos := strings.Index(text, needle)
-		if pos < 0 {
-			break
-		}
-		text = text[pos+len(needle):]
-		var value json.RawMessage
-		if json.NewDecoder(strings.NewReader(text)).Decode(&value) == nil {
-			values = append(values, value)
-		}
-	}
-	return values
-}
-
-func footySeasonWindow(short string, zone *time.Location) (time.Time, time.Time, bool) {
-	parts := strings.Split(short, "/")
-	if len(parts) < 1 || len(parts) > 2 {
-		return time.Time{}, time.Time{}, false
-	}
-	parse := func(text string) int {
-		n, err := strconv.Atoi(text)
-		if err != nil {
-			return 0
-		}
-		if len(text) == 2 {
-			n += 2000
-		}
-		if n < 2000 || n > 2100 {
-			return 0
-		}
-		return n
-	}
-	year := parse(parts[0])
-	if year == 0 {
-		return time.Time{}, time.Time{}, false
-	}
-	if len(parts) == 1 {
-		return time.Date(year, 1, 1, 0, 0, 0, 0, zone), time.Date(year+1, 1, 1, 0, 0, 0, 0, zone), true
-	}
-	end := parse(parts[1])
-	if end <= year {
-		return time.Time{}, time.Time{}, false
-	}
-	return time.Date(year, 7, 1, 0, 0, 0, 0, zone), time.Date(end, 7, 1, 0, 0, 0, 0, zone), true
-}
-
-func (s *calendarServer) analysisAppearances(w http.ResponseWriter, r *http.Request) {
-	var query struct {
-		PlayerIDs []int `json:"playerIds"`
-	}
-	if err := decodeAPIRequest(w, r, &query); err != nil {
-		apiError(w, 400, err)
-		return
-	}
-	if len(query.PlayerIDs) < 1 || len(query.PlayerIDs) > 5 {
-		apiError(w, 400, fmt.Errorf("dozwolone 1–5 zawodników"))
-		return
-	}
-	task := s.clientTask(r, r.PathValue("id"))
-	if task == nil {
-		apiError(w, 404, fmt.Errorf("analiza wygasła; wykonaj ją ponownie"))
-		return
-	}
-	task.mu.Lock()
-	histories := map[int]*PlayerStatHistory{}
-	for _, id := range query.PlayerIDs {
-		if hist := task.histories[id]; hist != nil {
-			histories[id] = hist
-		}
-	}
-	ready := task.job.Status == "completed"
-	cutoff := task.fixture.StartTime
-	task.mu.Unlock()
-	if !ready || len(histories) != len(query.PlayerIDs) {
-		apiError(w, 409, fmt.Errorf("brak zakończonej analizy tych zawodników"))
-		return
-	}
-	select {
-	case task.appearanceGate <- struct{}{}:
-		defer func() { <-task.appearanceGate }()
-	case <-r.Context().Done():
-		return
-	}
-	if task.seasonAppearances == nil {
-		task.seasonAppearances = map[int]seasonAppearanceCounts{}
-	}
-	result := map[int]seasonAppearanceCounts{}
-	for _, id := range query.PlayerIDs {
-		if cached, ok := task.seasonAppearances[id]; ok {
-			result[id] = cached
-			continue
-		}
-		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-		client, err := newSofaClient(ctx, nil)
-		if err != nil {
-			cancel()
-			result[id] = seasonAppearanceCounts{Note: err.Error()}
-			continue
-		}
-		counts := countFootySeasonAppearances(client, histories[id], cutoff)
-		client.tlsClient.CloseIdleConnections()
-		cancel()
-		result[id] = counts
-		if counts.Note != "" {
-			log.Printf("[SEASON-APPEARANCES] analysis=%s player_id=%d name=%q season=%q note=%q", r.PathValue("id"), id, histories[id].FullName, counts.Season, counts.Note)
-		} else if counts.All != nil && counts.Domestic != nil && counts.Europe != nil && counts.National != nil {
-			log.Printf("[SEASON-APPEARANCES] analysis=%s player_id=%d season=%q counts=%d/%d/%d/%d", r.PathValue("id"), id, counts.Season, *counts.All, *counts.Domestic, *counts.Europe, *counts.National)
-		}
-		if counts.All != nil && counts.Domestic != nil && counts.Europe != nil && counts.National != nil {
-			task.seasonAppearances[id] = counts
-		}
-	}
-	jsonResponse(w, 200, result)
-}
-
-func countFootySeasonAppearances(client *ResilientClient, hist *PlayerStatHistory, cutoff time.Time) seasonAppearanceCounts {
-	out := seasonAppearanceCounts{}
-	fail := func(err error) seasonAppearanceCounts { out.Note = err.Error(); return out }
-	if hist.footyPlayerPage == "" {
-		return fail(fmt.Errorf("FootyMetrics: brak potwierdzonego adresu strony zawodnika dla danych sezonu"))
-	}
-	page, err := getFootyBody(client, hist.footyPlayerPage, 15*time.Minute, "text/html")
-	if err != nil {
-		return fail(err)
-	}
-	verified := false
-	for _, raw := range footyPageValues(page, "player") {
-		var player footyPlayer
-		if json.Unmarshal(raw, &player) == nil && player.APID == hist.SourcePlayerID {
-			verified = true
-			break
-		}
-	}
-	if !verified {
-		return fail(fmt.Errorf("FootyMetrics: nie potwierdzono zawodnika w metadanych sezonu"))
-	}
-	var options []footySeasonOption
-	for _, raw := range footyPageValues(page, "initialData") {
-		var data struct {
-			Seasons []footySeasonOption `json:"seasons"`
-		}
-		if json.Unmarshal(raw, &data) == nil && len(data.Seasons) > 0 {
-			options = data.Seasons
-			break
-		}
-	}
-	mainShort := ""
-	mainLeagues := map[string]bool{}
-	for _, raw := range footyPageValues(page, "seasons") {
-		var stats []footySeasonStat
-		if json.Unmarshal(raw, &stats) != nil {
-			continue
-		}
-		for _, stat := range stats {
-			if stat.Main && stat.Season.Short != "" {
-				mainShort = stat.Season.Short
-				mainLeagues[stat.Season.League.ID] = true
-			}
-		}
-	}
-	zone, err := time.LoadLocation("Europe/Warsaw")
-	if err != nil {
-		return fail(err)
-	}
-	if _, _, ok := footySeasonWindow(mainShort, zone); !ok || len(options) == 0 {
-		return fail(fmt.Errorf("FootyMetrics: brak jednoznacznego sezonu ligi klubowej"))
-	}
-	year := cutoff.In(zone).Year()
-	if strings.Contains(mainShort, "/") {
-		if cutoff.In(zone).Month() < 7 {
-			year--
-		}
-		out.Season = fmt.Sprintf("%d/%d", year, year+1)
-	} else {
-		out.Season = strconv.Itoa(year)
-	}
-	start, end, _ := footySeasonWindow(out.Season, zone)
-	ids := map[int]bool{}
-	for _, option := range options {
-		a, b, ok := footySeasonWindow(option.Short, zone)
-		if !ok || !a.Before(end) || !b.After(start) {
-			continue
-		}
-		for _, text := range strings.Split(option.APIDs, ",") {
-			if id, err := strconv.Atoi(strings.TrimSpace(text)); err == nil && id > 0 {
-				ids[id] = true
-			}
-		}
-	}
-	if len(ids) == 0 {
-		return fail(fmt.Errorf("FootyMetrics: brak pełnego zestawu sezonów dla okresu %s", out.Season))
-	}
-	ordered := make([]int, 0, len(ids))
-	for id := range ids {
-		ordered = append(ordered, id)
-	}
-	sort.Ints(ordered)
-	seasonIDs := make([]string, 0, len(ordered))
-	for _, id := range ordered {
-		seasonIDs = append(seasonIDs, strconv.Itoa(id))
-	}
-	q := url.Values{"stat": {"shots"}, "id": {strconv.Itoa(hist.SourcePlayerID)}, "tid": {strconv.Itoa(hist.SourceTeamID)}, "period": {"s-" + strings.Join(seasonIDs, ",")}, "started": {"false"}, "location": {"both"}, "scope": {"all"}, "l": {""}, "p": {""}, "dl": {"true"}, "se": {"false"}, "sm": {"easier"}}
-	var table footyTable
-	if err := getFootyJSON(client, "/api/front/players/table?"+q.Encode(), &table); err != nil {
-		return fail(err)
-	}
-	if table.PivotData == nil || table.Leagues == nil {
-		return fail(fmt.Errorf("FootyMetrics: niepełna odpowiedź pełnego sezonu"))
-	}
-	all, domestic, europe, national := 0, 0, 0, 0
-	seen := map[int]bool{}
-	kinds := map[int]string{}
-	unknown := false
-	for _, fixture := range table.Fixtures {
-		if fixture.APID <= 0 || seen[fixture.APID] || fixture.Timestamp.Before(start) || !fixture.Timestamp.Before(end) || !fixture.Timestamp.Before(cutoff) {
-			continue
-		}
-		seen[fixture.APID] = true
-		record := table.PivotData[strconv.Itoa(hist.SourcePlayerID)][strconv.Itoa(fixture.APID)]
-		minutes, played := footyCount(record, "mins")
-		if !played || minutes <= 0 || minutes > 150 {
-			continue
-		}
-		all++
-		kind, ok := kinds[fixture.LeagueID]
-		if !ok {
-			league := table.Leagues[strconv.Itoa(fixture.LeagueID)]
-			if mainLeagues[league.ID] && league.ID != "" {
-				kind = "domestic"
-			} else {
-				kind = footySeasonCompetitionKind(client, league, fixture)
-			}
-			kinds[fixture.LeagueID] = kind
-		}
-		switch kind {
-		case "domestic":
-			domestic++
-		case "europe":
-			europe++
-		case "national":
-			national++
-		case "other":
-		default:
-			unknown = true
-		}
-	}
-	out.All = &all
-	if !unknown {
-		out.Domestic = &domestic
-		out.Europe = &europe
-		out.National = &national
-	} else {
-		out.Note = "Nie potwierdzono kategorii części rozgrywek; brak danych nie jest zerem. Kliknij, aby ponowić."
-	}
-	return out
-}
-
-func footySeasonCompetitionKind(client *ResilientClient, league footySeasonLeague, playedFixture footyFixture) string {
-	switch strings.ToLower(strings.TrimSpace(league.Name)) {
-	case "champions league", "uefa champions league", "europa league", "uefa europa league", "europa conference league", "uefa europa conference league", "conference league", "uefa conference league", "uefa super cup", "european super cup":
-		return "europe"
-	case "uefa nations league", "world cup", "friendly international", "european championship", "euro qualification":
-		return "national"
-	}
-	if strings.HasPrefix(strings.ToLower(league.Name), "wc qualification ") {
-		return "national"
-	}
-	classify := func(fixture footyFixture) string {
-		h, a := strings.ToLower(fixture.Home.Type), strings.ToLower(fixture.Away.Type)
-		if h == "national" && a == "national" {
-			return "national"
-		}
-		if fixture.MainDomestic != nil && *fixture.MainDomestic {
-			return "domestic"
-		}
-		if fixture.MainDomestic != nil && !*fixture.MainDomestic && h == "club" && a == "club" {
-			return "other"
-		}
-		return ""
-	}
-	if regexp.MustCompile(`^[0-9]{1,12}$`).MatchString(league.ID) {
-		var fixtures []footyFixture
-		if getFootyJSON(client, "/api/front/fixtures/league?league="+league.ID, &fixtures) == nil {
-			for _, fixture := range fixtures {
-				if kind := classify(fixture); kind != "" {
-					return kind
-				}
-			}
-		}
-	}
-	// Some international competitions have an empty league feed. Confirm the
-	// exact played event in the date calendar instead of assuming its category.
-	zone, err := time.LoadLocation("Europe/Warsaw")
-	if err != nil || playedFixture.Timestamp.IsZero() {
-		return ""
-	}
-	q := url.Values{"date": {playedFixture.Timestamp.In(zone).Format("2006-01-02")}, "tz": {"Europe/Warsaw"}, "late": {"1"}}
-	var groups []struct {
-		Fixtures []footyFixture `json:"fixtures"`
-		Late     []footyFixture `json:"late"`
-	}
-	if getFootyJSON(client, "/api/front/fixtures?"+q.Encode(), &groups) == nil {
-		for _, group := range groups {
-			for _, fixture := range append(group.Fixtures, group.Late...) {
-				if fixture.APID == playedFixture.APID {
-					return classify(fixture)
-				}
-			}
-		}
-	}
-	return ""
 }

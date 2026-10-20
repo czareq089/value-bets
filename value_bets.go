@@ -5,9 +5,11 @@ import (
 	"bytes"
 	"context"
 	cryptorand "crypto/rand"
+	"crypto/sha256"
 	"embed"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	fhttp "github.com/bogdanfinn/fhttp"
@@ -32,6 +34,10 @@ import (
 	"sync"
 	"time"
 	_ "time/tzdata"
+	"unicode"
+
+	"golang.org/x/net/html"
+	"golang.org/x/text/unicode/norm"
 )
 
 //go:embed all:frontend
@@ -150,6 +156,7 @@ type AnalyzedBet struct {
 	TeamSide                string             `json:"teamSide"`
 	TeamID                  string             `json:"teamId"`
 	TeamName                string             `json:"teamName"`
+	TeamCountry             string             `json:"teamCountry,omitempty"`
 	Verdict                 string             `json:"verdict"`
 	LineupStatus            string             `json:"lineupStatus"`
 	IsStartingXI            bool               `json:"isStartingXI"`
@@ -225,6 +232,7 @@ type MyBetItem struct {
 	TeamSide                string             `json:"teamSide"`
 	TeamID                  string             `json:"teamId"`
 	TeamName                string             `json:"teamName"`
+	TeamCountry             string             `json:"teamCountry,omitempty"`
 	Verdict                 string             `json:"verdict"`
 	LineupStatus            string             `json:"lineupStatus"`
 	IsStartingXI            bool               `json:"isStartingXI"`
@@ -240,27 +248,46 @@ type AnalysisRequest struct {
 	TournamentIDs string `json:"tournamentIds"`
 }
 
+type FootyMatchChoice struct {
+	FixtureID   int       `json:"fixtureId"`
+	Home        string    `json:"home"`
+	Away        string    `json:"away"`
+	StartTime   time.Time `json:"startTime"`
+	LeagueID    int       `json:"leagueId"`
+	HomeMatched bool      `json:"homeMatched"`
+	AwayMatched bool      `json:"awayMatched"`
+	Reason      string    `json:"reason"`
+}
+
 type AnalysisJob struct {
-	FixtureID      string          `json:"fixtureId,omitempty"`
-	StartTime      time.Time       `json:"startTime,omitempty"`
-	ResultRevision int             `json:"resultRevision"`
-	ID             string          `json:"id"`
-	Match          string          `json:"match"`
-	Status         string          `json:"status"`
-	Stage          string          `json:"stage"`
-	Message        string          `json:"message"`
-	PlayersDone    int             `json:"playersDone"`
-	PlayersTotal   int             `json:"playersTotal"`
-	CreatedAt      time.Time       `json:"createdAt"`
-	StartedAt      time.Time       `json:"startedAt,omitempty"`
-	FinishedAt     time.Time       `json:"finishedAt,omitempty"`
-	Request        AnalysisRequest `json:"request"`
-	Warnings       []string        `json:"warnings"`
-	Result         []AnalyzedBet   `json:"result,omitempty"`
-	Error          string          `json:"error,omitempty"`
+	MatchChoices   []FootyMatchChoice `json:"matchChoices,omitempty"`
+	FixtureID      string             `json:"fixtureId,omitempty"`
+	StartTime      time.Time          `json:"startTime,omitempty"`
+	ResultRevision int                `json:"resultRevision"`
+	ID             string             `json:"id"`
+	Match          string             `json:"match"`
+	Status         string             `json:"status"`
+	Stage          string             `json:"stage"`
+	Message        string             `json:"message"`
+	PlayersDone    int                `json:"playersDone"`
+	PlayersTotal   int                `json:"playersTotal"`
+	CreatedAt      time.Time          `json:"createdAt"`
+	StartedAt      time.Time          `json:"startedAt,omitempty"`
+	FinishedAt     time.Time          `json:"finishedAt,omitempty"`
+	Request        AnalysisRequest    `json:"request"`
+	Warnings       []string           `json:"warnings"`
+	Result         []AnalyzedBet      `json:"result,omitempty"`
+	Error          string             `json:"error,omitempty"`
 }
 
 type App struct {
+	teamLogoIndexMu      sync.Mutex
+	teamLogoFlights      map[string]chan struct{}
+	teamLogoSlots        chan struct{}
+	teamLogoBlockedUntil time.Time
+	teamLogoMu           sync.Mutex
+	teamLogoCache        *teamLogoDiskCache
+	teamLogoRefreshAfter time.Time
 	sofaMu               sync.Mutex
 	sofaRecovery         *sofaCaptchaRecovery
 	sofaBrowserState     SofaBrowserState
@@ -319,6 +346,844 @@ func getCacheFilePath(filename string) string {
 		}
 	}
 	return filename
+}
+
+// Search and image downloads run on the desktop, independently of analysis.
+// The UI receives validated image bytes; it never hotlinks the provider's CDN.
+const teamLogoMatchVersion = 4
+const teamLogoSearchMinScore = 35.0
+const teamLogoAutoMinScore = 75.0
+const teamLogoAutoMinGap = 12.0
+
+type teamLogoIndexEntry struct {
+	Label             string `json:"label"`
+	Href              string `json:"href"`
+	Kind              string `json:"kind"`
+	Preview           string `json:"preview,omitempty"`
+	Meta              string `json:"meta,omitempty"`
+	Terms             string `json:"terms,omitempty"`
+	VariantParentHref string `json:"variantParentHref,omitempty"`
+}
+type teamLogoPage struct {
+	Names     []string  `json:"names"`
+	Images    []string  `json:"images"`
+	ExpiresAt time.Time `json:"expiresAt"`
+}
+type teamLogoAsset struct {
+	ExpiresAt time.Time `json:"expiresAt"`
+}
+type teamLogoDiskCache struct {
+	Version    int                      `json:"version"`
+	UpdatedAt  time.Time                `json:"updatedAt"`
+	Index      []teamLogoIndexEntry     `json:"index"`
+	Selections map[string]string        `json:"selections"`
+	Pages      map[string]teamLogoPage  `json:"pages"`
+	Assets     map[string]teamLogoAsset `json:"assets"`
+}
+type teamLogoCandidate struct {
+	Label   string  `json:"label"`
+	Href    string  `json:"href"`
+	Country string  `json:"country"`
+	Score   float64 `json:"-"`
+}
+
+func teamLogoCachePath() string {
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dir, "ValueBets", "team_logos.json")
+}
+func teamLogoAssetPath(href string) string {
+	path := teamLogoCachePath()
+	if path == "" {
+		return ""
+	}
+	hash := sha256.Sum256([]byte(href))
+	return filepath.Join(filepath.Dir(path), "team_logos", fmt.Sprintf("%x.img", hash))
+}
+
+var teamLogoLatin = strings.NewReplacer("ł", "l", "ø", "o", "ß", "ss", "æ", "ae", "œ", "oe", "đ", "d", "ı", "i")
+var teamLogoClubTokens = map[string]bool{"fc": true, "cf": true, "afc": true, "ac": true, "as": true, "sc": true, "sk": true, "fk": true, "ks": true, "rks": true, "club": true}
+var teamLogoGeneric = map[string]bool{"united": true, "city": true, "real": true, "racing": true, "sporting": true, "atletico": true, "athletic": true, "olympique": true, "dynamo": true, "dinamo": true, "inter": true, "nacional": true, "national": true, "saint": true, "borussia": true}
+var teamLogoHrefPattern = regexp.MustCompile(`^/logos/[a-z0-9-]+$`)
+var teamLogoInitialsPattern = regexp.MustCompile(`(?i)\b(?:[a-z]\.){2,}`)
+
+func teamLogoName(name string) string {
+	var text strings.Builder
+	for _, r := range norm.NFKD.String(teamLogoLatin.Replace(strings.ToLower(name))) {
+		if unicode.Is(unicode.Mn, r) {
+			continue
+		}
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			text.WriteRune(r)
+		} else {
+			text.WriteByte(' ')
+		}
+	}
+	words := strings.Fields(text.String())
+	kept := words[:0]
+	for _, word := range words {
+		if !teamLogoClubTokens[word] {
+			kept = append(kept, word)
+		}
+	}
+	return strings.Join(kept, " ")
+}
+
+// Search identity is separate from cache keys/country names: changing matching
+// rules must not invalidate saved manual selections or downloaded images.
+func teamLogoSearchIdentity(name string) (string, string) {
+	// F.C./S.K. are club initials, not a C reserve team or a K women's suffix.
+	name = teamLogoInitialsPattern.ReplaceAllStringFunc(name, func(initials string) string {
+		return strings.ReplaceAll(initials, ".", "")
+	})
+	words := strings.Fields(teamLogoName(name))
+	kept := make([]string, 0, len(words))
+	qualifiers := map[string]bool{}
+	for i := 0; i < len(words); i++ {
+		word := words[i]
+		switch word {
+		case "women", "womens", "female", "feminino", "feminina", "femenino", "femenina", "feminin", "feminine", "kobiety", "kobiet", "wfc":
+			qualifiers["women"] = true
+			continue
+		case "reserve", "reserves", "rezerwy":
+			qualifiers["reserve:2"] = true
+			continue
+		}
+		age := ""
+		if (word == "u" || word == "under") && i+1 < len(words) {
+			age = words[i+1]
+		} else if strings.HasPrefix(word, "u") && len(word) > 1 {
+			age = strings.TrimPrefix(word, "u")
+		}
+		if value, err := strconv.Atoi(age); err == nil && value >= 10 && value <= 23 {
+			qualifiers["u"+strconv.Itoa(value)] = true
+			if word == "u" || word == "under" {
+				i++
+			}
+			continue
+		}
+		kept = append(kept, word)
+	}
+	// Strip terminal category markers after age/women words, so combinations
+	// such as "Club B U21" and "Club II Women" keep every qualifier.
+	for len(kept) > 1 {
+		qualifier := ""
+		switch kept[len(kept)-1] {
+		case "b", "ii":
+			qualifier = "reserve:2"
+		case "c", "iii":
+			qualifier = "reserve:3"
+		case "d", "iv":
+			qualifier = "reserve:4"
+		case "w", "f", "k":
+			qualifier = "women"
+		}
+		if qualifier == "" {
+			break
+		}
+		qualifiers[qualifier] = true
+		kept = kept[:len(kept)-1]
+	}
+	core := make([]string, 0, len(kept))
+	for i, word := range kept {
+		if i > 0 && i < len(kept)-1 {
+			switch word {
+			case "de", "del", "da", "do", "das", "dos":
+				continue
+			}
+		}
+		core = append(core, word)
+	}
+	category := make([]string, 0, len(qualifiers))
+	for qualifier := range qualifiers {
+		category = append(category, qualifier)
+	}
+	sort.Strings(category)
+	return strings.Join(core, " "), strings.Join(category, "|")
+}
+
+func teamLogoEntryCategory(entry teamLogoIndexEntry) string {
+	_, labelCategory := teamLogoSearchIdentity(entry.Label)
+	_, slugCategory := teamLogoSearchIdentity(strings.TrimPrefix(entry.Href, "/logos/"))
+	if labelCategory != "" && slugCategory != "" && labelCategory != slugCategory {
+		return "conflicting_category"
+	}
+	if labelCategory != "" {
+		return labelCategory
+	}
+	return slugCategory
+}
+
+func teamLogoKey(q map[string]string) string {
+	// A provider team ID and country distinguish clubs with the same short name.
+	if q["key"] != "" {
+		return q["key"]
+	}
+	return strings.Join([]string{q["teamId"], teamLogoName(q["name"]), teamLogoName(q["country"])}, "|")
+}
+func teamLogoCountryKey(name string) string {
+	key := teamLogoName(name)
+	switch key {
+	case "united states", "united states of america", "usa":
+		return "usa"
+	case "turkiye", "turkey":
+		return "turkey"
+	case "czechia", "czech republic":
+		return "czech republic"
+	case "korea republic", "south korea":
+		return "south korea"
+	}
+	return key
+}
+func teamLogoCountry(entry teamLogoIndexEntry) string {
+	parts := strings.Split(entry.Meta, "·")
+	if len(parts) > 1 {
+		return strings.TrimSpace(parts[len(parts)-1])
+	}
+	return ""
+}
+func validTeamLogoURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && u.Scheme == "https" && u.Host == "assets.footylogos.com" && u.User == nil && u.Fragment == "" &&
+		(strings.HasPrefix(u.Path, "/logos/") && strings.HasSuffix(u.Path, ".svg") || strings.HasPrefix(u.Path, "/previews/") && strings.HasSuffix(u.Path, ".webp"))
+}
+func writeTeamLogoFile(path string, body []byte) error {
+	if path == "" {
+		return fmt.Errorf("brak katalogu cache")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	file, err := os.CreateTemp(filepath.Dir(path), ".team-logo-*.tmp")
+	if err != nil {
+		return err
+	}
+	temp := file.Name()
+	defer os.Remove(temp)
+	_, err = file.Write(body)
+	closeErr := file.Close()
+	if err != nil {
+		return err
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	return os.Rename(temp, path)
+}
+func (a *App) loadTeamLogosLocked() {
+	if a.teamLogoCache != nil {
+		return
+	}
+	cache := teamLogoDiskCache{}
+	if file, err := os.Open(teamLogoCachePath()); err == nil {
+		if json.NewDecoder(io.LimitReader(file, 8<<20)).Decode(&cache) != nil {
+			cache = teamLogoDiskCache{}
+		}
+		file.Close()
+	}
+	if cache.Version != teamLogoMatchVersion {
+		cache = teamLogoDiskCache{Version: teamLogoMatchVersion}
+	}
+	if cache.Selections == nil {
+		cache.Selections = map[string]string{}
+	}
+	if cache.Pages == nil {
+		cache.Pages = map[string]teamLogoPage{}
+	}
+	if cache.Assets == nil {
+		cache.Assets = map[string]teamLogoAsset{}
+	}
+	a.teamLogoCache = &cache
+	a.teamLogoFlights = map[string]chan struct{}{}
+	a.teamLogoSlots = make(chan struct{}, 3)
+}
+func (a *App) saveTeamLogosLocked() {
+	data, err := json.Marshal(a.teamLogoCache)
+	if err == nil {
+		err = writeTeamLogoFile(teamLogoCachePath(), data)
+	}
+	if err != nil {
+		log.Printf("[TEAM-LOGOS] zapis cache: %v", err)
+	}
+}
+func (a *App) fetchTeamLogoSource(ctx context.Context, address string, limit int64) ([]byte, error) {
+	u, err := url.Parse(address)
+	if err != nil || u.Scheme != "https" || (u.Host != "www.footylogos.com" && !validTeamLogoURL(address)) {
+		return nil, fmt.Errorf("niepoprawny adres Footylogos")
+	}
+	a.teamLogoMu.Lock()
+	blocked := a.teamLogoBlockedUntil
+	slots := a.teamLogoSlots
+	a.teamLogoMu.Unlock()
+	if time.Now().Before(blocked) {
+		return nil, fmt.Errorf("limit Footylogos; ponów za %d s", max(1, int(time.Until(blocked).Seconds())))
+	}
+	select {
+	case slots <- struct{}{}:
+		defer func() { <-slots }()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	client := &http.Client{Timeout: 8 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) > 2 || req.URL.Scheme != "https" || (req.URL.Host != "www.footylogos.com" && !validTeamLogoURL(req.URL.String())) {
+			return fmt.Errorf("niedozwolone przekierowanie Footylogos")
+		}
+		return nil
+	}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "ValueBets/3.0")
+	response, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode == 429 || response.StatusCode == 503 {
+		until := time.Now().Add(time.Minute)
+		if seconds, e := strconv.Atoi(response.Header.Get("Retry-After")); e == nil && seconds > 0 {
+			until = time.Now().Add(time.Duration(min(seconds, 3600)) * time.Second)
+		} else if date, e := http.ParseTime(response.Header.Get("Retry-After")); e == nil && date.After(until) {
+			until = date
+			if limit := time.Now().Add(time.Hour); until.After(limit) {
+				until = limit
+			}
+		}
+		a.teamLogoMu.Lock()
+		a.teamLogoBlockedUntil = until
+		a.teamLogoMu.Unlock()
+	}
+	if response.StatusCode != 200 {
+		return nil, fmt.Errorf("Footylogos HTTP %d", response.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) > limit {
+		return nil, fmt.Errorf("zbyt duża odpowiedź Footylogos")
+	}
+	return body, nil
+}
+func (a *App) teamLogoIndex(ctx context.Context, force bool) ([]teamLogoIndexEntry, error) {
+	a.teamLogoIndexMu.Lock()
+	defer a.teamLogoIndexMu.Unlock()
+	a.teamLogoMu.Lock()
+	a.loadTeamLogosLocked()
+	index, updated, next := a.teamLogoCache.Index, a.teamLogoCache.UpdatedAt, a.teamLogoRefreshAfter
+	a.teamLogoMu.Unlock()
+	if !force && len(index) > 0 && time.Since(updated) < 7*24*time.Hour {
+		return index, nil
+	}
+	if time.Now().Before(next) {
+		if len(index) > 0 {
+			return index, nil
+		}
+		return nil, fmt.Errorf("katalog Footylogos chwilowo niedostępny")
+	}
+	body, err := a.fetchTeamLogoSource(ctx, "https://www.footylogos.com/data/search-index.json", 4<<20)
+	var source []teamLogoIndexEntry
+	if err == nil {
+		err = json.Unmarshal(body, &source)
+	}
+	clean := []teamLogoIndexEntry{}
+	if err == nil {
+		for _, entry := range source {
+			if (entry.Kind == "logo" || entry.Kind == "national-team") && entry.VariantParentHref == "" && teamLogoHrefPattern.MatchString(entry.Href) {
+				clean = append(clean, entry)
+			}
+		}
+		if len(clean) == 0 {
+			err = fmt.Errorf("pusty katalog Footylogos")
+		}
+	}
+	a.teamLogoMu.Lock()
+	defer a.teamLogoMu.Unlock()
+	a.teamLogoRefreshAfter = time.Now().Add(time.Minute)
+	if err != nil {
+		if len(index) > 0 {
+			return index, nil
+		}
+		return nil, err
+	}
+	a.teamLogoCache.Index = clean
+	a.teamLogoCache.UpdatedAt = time.Now()
+	a.saveTeamLogosLocked()
+	return clean, nil
+}
+func teamLogoNameScore(query, candidate string) float64 {
+	queryName, queryCategory := teamLogoSearchIdentity(query)
+	candidateName, candidateCategory := teamLogoSearchIdentity(candidate)
+	if queryCategory != candidateCategory {
+		return 0
+	}
+	q, c := strings.Fields(queryName), strings.Fields(candidateName)
+	if len(q) == 0 || len(c) == 0 {
+		return 0
+	}
+	if strings.Join(q, " ") == strings.Join(c, " ") {
+		return 100
+	}
+	found, specific := 0, false
+	for _, word := range q {
+		for _, other := range c {
+			if word == other {
+				found++
+				if !teamLogoGeneric[word] && len([]rune(word)) >= 3 {
+					specific = true
+				}
+				break
+			}
+		}
+	}
+	if !specific {
+		return 0
+	}
+	coverage := float64(found) / float64(len(q))
+	if coverage < 0.5 {
+		return 0
+	}
+	// Match anywhere in the name, in any word order: Dortmund -> Borussia Dortmund.
+	return 70*coverage + 20*float64(found)/float64(len(c))
+}
+func (a *App) searchTeamLogos(index []teamLogoIndexEntry, q map[string]string) []teamLogoCandidate {
+	a.teamLogoMu.Lock()
+	aliases := map[string][]string{}
+	for href, page := range a.teamLogoCache.Pages {
+		aliases[href] = page.Names
+	}
+	a.teamLogoMu.Unlock()
+	results := []teamLogoCandidate{}
+	country := teamLogoCountryKey(q["country"])
+	_, queryCategory := teamLogoSearchIdentity(q["name"])
+	for _, entry := range index {
+		// The entry's own label/slug establish its category. Broad searchable
+		// terms or a learned short name must never promote a reserve/youth club
+		// to the senior team's candidate list.
+		if teamLogoEntryCategory(entry) != queryCategory {
+			continue
+		}
+		ownCountry := teamLogoCountry(entry)
+		names := append([]string{entry.Label, strings.TrimPrefix(entry.Href, "/logos/")}, aliases[entry.Href]...)
+		score := 0.0
+		for _, name := range names {
+			score = max(score, teamLogoNameScore(q["name"], name))
+		}
+		// The catalogue's own searchable terms provide additional spelling/name tokens.
+		if score == 0 {
+			score = teamLogoNameScore(q["name"], entry.Terms) * 0.85
+		}
+		if score < teamLogoSearchMinScore {
+			continue
+		}
+		if country != "" && ownCountry != "" {
+			if country == teamLogoCountryKey(ownCountry) {
+				score += 25
+			} else {
+				score -= 10
+			}
+		}
+		results = append(results, teamLogoCandidate{Label: entry.Label, Href: entry.Href, Country: ownCountry, Score: score})
+	}
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].Score == results[j].Score {
+			return results[i].Label < results[j].Label
+		}
+		return results[i].Score > results[j].Score
+	})
+	if len(results) > 8 {
+		results = results[:8]
+	}
+	return results
+}
+func teamLogoImageType(body []byte) string {
+	if len(body) >= 12 && string(body[:4]) == "RIFF" && string(body[8:12]) == "WEBP" {
+		return "image/webp"
+	}
+	if len(body) >= 8 && bytes.Equal(body[:8], []byte{137, 80, 78, 71, 13, 10, 26, 10}) {
+		return "image/png"
+	}
+	if len(body) >= 3 && body[0] == 255 && body[1] == 216 && body[2] == 255 {
+		return "image/jpeg"
+	}
+
+	decoder := xml.NewDecoder(bytes.NewReader(body))
+	seen, depth := false, 0
+	for {
+		token, err := decoder.Token()
+		if err == io.EOF {
+			if seen && depth == 0 {
+				return "image/svg+xml"
+			}
+			return ""
+		}
+		if err != nil {
+			return ""
+		}
+		switch part := token.(type) {
+		case xml.StartElement:
+			if depth == 0 {
+				if seen || part.Name.Local != "svg" {
+					return ""
+				}
+				seen = true
+			}
+			depth++
+		case xml.EndElement:
+			depth--
+		case xml.CharData:
+			if depth == 0 && len(bytes.TrimSpace(part)) > 0 {
+				return ""
+			}
+		}
+	}
+}
+func teamLogoImageData(body []byte) string {
+	mime := teamLogoImageType(body)
+	if mime == "" {
+		return ""
+	}
+	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(body)
+}
+func parseTeamLogoPage(body []byte, entry teamLogoIndexEntry) teamLogoPage {
+	page := teamLogoPage{ExpiresAt: time.Now().Add(7 * 24 * time.Hour)}
+	tokens := html.NewTokenizer(bytes.NewReader(body))
+	slug := strings.TrimPrefix(entry.Href, "/logos/")
+	var collect func(any)
+	collect = func(value any) {
+		switch data := value.(type) {
+		case []any:
+			for _, item := range data {
+				collect(item)
+			}
+		case map[string]any:
+			if data["@type"] == "SportsTeam" {
+				if name, ok := data["name"].(string); ok {
+					page.Names = append(page.Names, name)
+				}
+				switch names := data["alternateName"].(type) {
+				case string:
+					page.Names = append(page.Names, names)
+				case []any:
+					for _, name := range names {
+						if text, ok := name.(string); ok {
+							page.Names = append(page.Names, text)
+						}
+					}
+				}
+			}
+			if graph, ok := data["@graph"]; ok {
+				collect(graph)
+			}
+		}
+	}
+	for {
+		kind := tokens.Next()
+		if kind == html.ErrorToken {
+			break
+		}
+		if kind != html.StartTagToken && kind != html.SelfClosingTagToken {
+			continue
+		}
+		tag := tokens.Token()
+		attrs := map[string]string{}
+		for _, attr := range tag.Attr {
+			attrs[attr.Key] = attr.Val
+		}
+		if tag.Data == "script" && attrs["type"] == "application/ld+json" && tokens.Next() == html.TextToken {
+			var data any
+			if json.Unmarshal(tokens.Text(), &data) == nil {
+				collect(data)
+			}
+		}
+		if tag.Data == "img" && validTeamLogoURL(attrs["src"]) && strings.Contains(attrs["src"], ".svg") {
+			// Identify the main team image by its own slug/name, not a presentation attribute.
+			own := strings.Contains(attrs["src"], "/"+slug+"/") || teamLogoName(attrs["alt"]) == teamLogoName(entry.Label+" logo")
+			if own && len(page.Images) == 0 {
+				page.Images = append(page.Images, attrs["src"])
+			}
+		}
+	}
+	if validTeamLogoURL(entry.Preview) {
+		page.Images = append(page.Images, entry.Preview)
+	}
+	return page
+}
+func (a *App) loadTeamLogoImage(ctx context.Context, entry teamLogoIndexEntry, force bool) (string, error) {
+	href := entry.Href
+	for {
+		a.teamLogoMu.Lock()
+		asset := a.teamLogoCache.Assets[href]
+		waiting := a.teamLogoFlights[href]
+		if waiting != nil {
+			a.teamLogoMu.Unlock()
+			select {
+			case <-waiting:
+				force = false
+				continue
+			case <-ctx.Done():
+				return "", ctx.Err()
+			}
+		}
+		if !force && time.Now().Before(asset.ExpiresAt) {
+			if body, err := os.ReadFile(teamLogoAssetPath(href)); err == nil && len(body) <= 512<<10 {
+				if data := teamLogoImageData(body); data != "" {
+					a.teamLogoMu.Unlock()
+					return data, nil
+				}
+			}
+		}
+		done := make(chan struct{})
+		a.teamLogoFlights[href] = done
+		page := a.teamLogoCache.Pages[href]
+		a.teamLogoMu.Unlock()
+		defer func() { a.teamLogoMu.Lock(); delete(a.teamLogoFlights, href); close(done); a.teamLogoMu.Unlock() }()
+		if force || !time.Now().Before(page.ExpiresAt) {
+			body, err := a.fetchTeamLogoSource(ctx, "https://www.footylogos.com"+href, 2<<20)
+			if err == nil {
+				page = parseTeamLogoPage(body, entry)
+				a.teamLogoMu.Lock()
+				a.teamLogoCache.Pages[href] = page
+				a.teamLogoMu.Unlock()
+			} else if len(page.Images) == 0 && validTeamLogoURL(entry.Preview) {
+				page.Images = []string{entry.Preview}
+			}
+		}
+		var last error
+		for _, address := range page.Images {
+			if !validTeamLogoURL(address) {
+				continue
+			}
+			body, err := a.fetchTeamLogoSource(ctx, address, 512<<10)
+			if err != nil {
+				last = err
+				continue
+			}
+			data := teamLogoImageData(body)
+			if data == "" {
+				last = fmt.Errorf("źródło nie zwróciło poprawnego obrazu")
+				continue
+			}
+			if err = writeTeamLogoFile(teamLogoAssetPath(href), body); err != nil {
+				log.Printf("[TEAM-LOGOS] plik %s: %v", href, err)
+			}
+			a.teamLogoMu.Lock()
+			a.teamLogoCache.Assets[href] = teamLogoAsset{ExpiresAt: time.Now().Add(7 * 24 * time.Hour)}
+			a.saveTeamLogosLocked()
+			a.teamLogoMu.Unlock()
+			return data, nil
+		}
+		// A stale, validated local image is usable during a temporary provider failure.
+		if body, err := os.ReadFile(teamLogoAssetPath(href)); err == nil && len(body) <= 512<<10 {
+			if data := teamLogoImageData(body); data != "" {
+				return data, nil
+			}
+		}
+		if last == nil {
+			last = fmt.Errorf("brak pliku herbu na stronie źródła")
+		}
+		return "", last
+	}
+}
+func teamLogoRejectionReason(candidates []teamLogoCandidate) string {
+	if len(candidates) == 0 {
+		return fmt.Sprintf("brak kandydatów spełniających próg wyszukiwania %.1f", teamLogoSearchMinScore)
+	}
+	reasons := []string{}
+	if candidates[0].Score < teamLogoAutoMinScore {
+		reasons = append(reasons, fmt.Sprintf("najlepszy wynik %.1f poniżej progu %.1f", candidates[0].Score, teamLogoAutoMinScore))
+	}
+	if len(candidates) > 1 {
+		gap := candidates[0].Score - candidates[1].Score
+		if gap < teamLogoAutoMinGap {
+			reasons = append(reasons, fmt.Sprintf("niejednoznaczny wynik: różnica dwóch najlepszych %.1f poniżej progu %.1f", gap, teamLogoAutoMinGap))
+		}
+	}
+	return strings.Join(reasons, "; ")
+}
+
+func logTeamLogoDecision(query map[string]string, stage, reason string, candidates []teamLogoCandidate, selected *teamLogoIndexEntry) {
+	// Keep the actual ranking visible in logs; API candidates intentionally omit Score.
+	entries := make([]map[string]any, 0, len(candidates))
+	for _, candidate := range candidates {
+		entries = append(entries, map[string]any{"name": candidate.Label, "country": candidate.Country, "score": candidate.Score, "href": candidate.Href})
+	}
+	ranking, _ := json.Marshal(entries)
+	sourceName := query["sourceName"]
+	if sourceName == "" {
+		sourceName = query["name"]
+	}
+	var selectedName, selectedCountry, selectedHref string
+	if selected != nil {
+		selectedName, selectedCountry, selectedHref = selected.Label, teamLogoCountry(*selected), selected.Href
+	}
+	identity, category := teamLogoSearchIdentity(query["name"])
+	log.Printf("[TEAM-LOGOS] stage=%s team_id=%q source_name=%q query=%q normalized=%q category=%q country=%q reason=%q min_score=%.1f min_gap=%.1f candidates=%s selected_name=%q selected_country=%q selected_href=%q",
+		stage, query["teamId"], sourceName, query["name"], identity, category, query["country"], reason,
+		teamLogoAutoMinScore, teamLogoAutoMinGap, ranking, selectedName, selectedCountry, selectedHref)
+}
+
+func (a *App) resolveTeamLogo(index []teamLogoIndexEntry, q map[string]string, selection string) map[string]any {
+	candidates := a.searchTeamLogos(index, q)
+	result := map[string]any{"status": "not_found", "note": "Nie znaleziono pewnego dopasowania. Wyszukaj klub.", "candidates": candidates}
+	rejectionReason := teamLogoRejectionReason(candidates)
+	if q["search"] == "true" {
+		reason := rejectionReason
+		if reason == "" {
+			reason = "wyszukiwanie ręczne: kandydaci dostępni do wyboru"
+		}
+		logTeamLogoDecision(q, "MANUAL_SEARCH", reason, candidates, nil)
+		if len(candidates) > 0 {
+			result["status"] = "ambiguous"
+			result["note"] = "Wybierz właściwy klub z listy."
+		}
+		return result
+	}
+	savedSelection := false
+	automaticSelection := false
+	a.teamLogoMu.Lock()
+	if selection == "" {
+		selection = a.teamLogoCache.Selections[teamLogoKey(q)]
+		savedSelection = selection != ""
+	}
+	a.teamLogoMu.Unlock()
+	if selection == "" {
+		if rejectionReason != "" {
+			logTeamLogoDecision(q, "AUTO_REJECT", rejectionReason, candidates, nil)
+			if len(candidates) > 0 {
+				result["status"] = "ambiguous"
+				result["note"] = "Wybierz właściwy klub z listy."
+			}
+			return result
+		}
+		selection = candidates[0].Href
+		automaticSelection = true
+	}
+	var entry *teamLogoIndexEntry
+	for i := range index {
+		if index[i].Href == selection {
+			entry = &index[i]
+			break
+		}
+	}
+	if entry == nil {
+		logTeamLogoDecision(q, "SELECTION_REJECT", "wybrany klub nie występuje w aktualnym katalogu", candidates, nil)
+		return result
+	}
+	if savedSelection {
+		// A saved choice can bypass an unresolved automatic match; retain its diagnostics.
+		reason := rejectionReason
+		if reason == "" {
+			reason = "zastosowano zapisany ręczny wybór; automatyczny wynik spełnia obecne progi"
+		}
+		logTeamLogoDecision(q, "MANUAL_REUSE", reason, candidates, entry)
+	}
+	if automaticSelection {
+		logTeamLogoDecision(q, "AUTO_SELECT", "zgodna kategoria drużyny i wynik spełniający progi dopasowania", candidates, entry)
+	}
+	ctx, cancel := context.WithTimeout(a.calendarContext(), 25*time.Second)
+	defer cancel()
+	data, err := a.loadTeamLogoImage(ctx, *entry, q["refresh"] == "true")
+	if err != nil {
+		a.teamLogoMu.Lock()
+		retry := max(15, int(time.Until(a.teamLogoBlockedUntil).Seconds())+1)
+		a.teamLogoMu.Unlock()
+		logTeamLogoDecision(q, "IMAGE_ERROR", err.Error(), candidates, entry)
+		result["status"] = "error"
+		result["note"] = err.Error()
+		result["retryAfter"] = retry
+		return result
+	}
+	result["status"] = "ready"
+	result["data"] = data
+	result["label"] = entry.Label
+	result["href"] = entry.Href
+	result["note"] = entry.Label + " · " + teamLogoCountry(*entry) + " · Footylogos"
+	return result
+}
+
+// GetTeamLogos searches the provider's complete catalogue, then returns local image data.
+func (a *App) GetTeamLogos(queries []map[string]string) (map[string]any, error) {
+	if len(queries) > 12 {
+		return nil, fmt.Errorf("maksymalnie 12 drużyn naraz")
+	}
+	for _, q := range queries {
+		if len(q["key"]) > 1200 || len(q["name"]) > 200 || len(q["teamId"]) > 100 || len(q["country"]) > 100 {
+			return nil, fmt.Errorf("niepoprawne zapytanie o herb")
+		}
+	}
+	ctx, cancel := context.WithTimeout(a.calendarContext(), 15*time.Second)
+	force := false
+	for _, q := range queries {
+		force = force || q["refresh"] == "true"
+	}
+	index, err := a.teamLogoIndex(ctx, force)
+	cancel()
+	if err != nil {
+		for _, query := range queries {
+			logTeamLogoDecision(query, "CATALOG_ERROR", err.Error(), nil, nil)
+		}
+		return nil, err
+	}
+	result := map[string]any{}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	workers := make(chan struct{}, 3)
+	for _, query := range queries {
+		q := query
+		workers <- struct{}{}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() { <-workers }()
+			item := a.resolveTeamLogo(index, q, "")
+			mu.Lock()
+			result[teamLogoKey(q)] = item
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
+	return result, nil
+}
+
+// SetTeamLogo persists an explicit user choice for this provider team and country.
+func (a *App) SetTeamLogo(query map[string]string, href string) (map[string]any, error) {
+	if !teamLogoHrefPattern.MatchString(href) || len(query["key"]) > 1200 || len(query["name"]) > 200 || len(query["teamId"]) > 100 || len(query["country"]) > 100 {
+		return nil, fmt.Errorf("niepoprawny wybór herbu")
+	}
+	ctx, cancel := context.WithTimeout(a.calendarContext(), 15*time.Second)
+	index, err := a.teamLogoIndex(ctx, false)
+	cancel()
+	if err != nil {
+		logTeamLogoDecision(query, "CATALOG_ERROR", err.Error(), nil, nil)
+		return nil, err
+	}
+	var selected *teamLogoIndexEntry
+	for i := range index {
+		if index[i].Href == href {
+			selected = &index[i]
+			break
+		}
+	}
+	candidates := a.searchTeamLogos(index, query)
+	if selected == nil {
+		logTeamLogoDecision(query, "SELECTION_REJECT", "ręcznie wybrany klub nie występuje w katalogu", candidates, nil)
+		return nil, fmt.Errorf("klub nie występuje w katalogu")
+	}
+	reason := teamLogoRejectionReason(candidates)
+	if reason == "" {
+		reason = "użytkownik wskazał klub ręcznie"
+	}
+	logTeamLogoDecision(query, "MANUAL_SELECT", reason, candidates, selected)
+	// The identity choice remains valid even if downloading its image temporarily fails.
+	a.teamLogoMu.Lock()
+	a.teamLogoCache.Selections[teamLogoKey(query)] = href
+	a.saveTeamLogosLocked()
+	a.teamLogoMu.Unlock()
+	return a.resolveTeamLogo(index, query, href), nil
 }
 
 func (a *App) LoadMatchHistory() []MatchHistoryEntry {
@@ -649,7 +1514,28 @@ func (a *App) GetAnalysisProgress() AnalysisJob {
 	defer a.analysisMu.Unlock()
 	job := a.analysisProgress
 	job.Warnings = append([]string{}, job.Warnings...)
+	job.MatchChoices = append([]FootyMatchChoice(nil), job.MatchChoices...)
 	return job
+}
+
+func (a *App) SelectFootyMatch(analysisID string, fixtureID int) error {
+	a.analysisMu.Lock()
+	active := a.analysisActive && a.analysisProgress.ID == analysisID && a.analysisProgress.Status == "waiting_match"
+	a.analysisMu.Unlock()
+	if !active || fixtureID <= 0 {
+		return fmt.Errorf("brak aktywnej analizy oczekującej na wybór meczu")
+	}
+	ctx, cancel := context.WithTimeout(a.calendarContext(), 15*time.Second)
+	defer cancel()
+	body, _ := json.Marshal(map[string]int{"fixtureId": fixtureID})
+	var accepted bool
+	if err := a.serverRequest(ctx, http.MethodPost, "/api/v1/analyses/"+url.PathEscape(analysisID)+"/footy-match", body, &accepted); err != nil {
+		return err
+	}
+	if !accepted {
+		return fmt.Errorf("serwer nie potwierdził wyboru meczu")
+	}
+	return nil
 }
 
 // Wails waits locally while the server performs an independent asynchronous job.
@@ -793,21 +1679,6 @@ func (a *App) GetAnalysisSample(analysisID string, limit int) ([]AnalyzedBet, er
 	}
 	var result []AnalyzedBet
 	err = a.serverRequest(ctx, http.MethodPost, "/api/v1/analyses/"+analysisID+"/sample", body, &result)
-	return result, err
-}
-
-func (a *App) GetSeasonAppearances(analysisID string, playerIDs []int) (map[string]any, error) {
-	if !regexp.MustCompile(`^[a-f0-9]{24}$`).MatchString(analysisID) || len(playerIDs) < 1 || len(playerIDs) > 5 {
-		return nil, fmt.Errorf("niepoprawna analiza lub lista zawodników")
-	}
-	body, err := json.Marshal(map[string]any{"playerIds": playerIDs})
-	if err != nil {
-		return nil, err
-	}
-	ctx, cancel := context.WithTimeout(a.calendarContext(), 3*time.Minute)
-	defer cancel()
-	var result map[string]any
-	err = a.serverRequest(ctx, http.MethodPost, "/api/v1/analyses/"+analysisID+"/appearances", body, &result)
 	return result, err
 }
 

@@ -75,7 +75,15 @@
         .item-card .card-date { font-size: 10px; color: var(--text-muted); margin-bottom: 3px; }
         .item-card .card-title { font-weight: 700; color: #fff; margin-bottom: 4px; }
         .item-card .card-sub { font-size: 11px; color: var(--text-muted); }
-        .season-appearances { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--accent); font-size: 12px; }
+        .team-logo { width: 18px; height: 18px; object-fit: contain; vertical-align: middle; margin-left: 6px; }
+        .team-logo[hidden] { display: none; }
+        .team-logo-button { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; margin-left: 6px; border: 0; background: transparent; color: var(--text-muted); vertical-align: middle; cursor: pointer; font-size: 12px; }
+        .team-logo-button .team-logo { margin: 0; }
+        .team-logo-button:hover { outline: 1px solid var(--accent); border-radius: 3px; }
+        #teamLogoPicker { z-index: 1100; }
+        #teamLogoPicker .chart-dialog { width: min(600px, 98%); }
+        .logo-candidate { display: block; width: 100%; text-align: left; padding: 10px; margin-top: 6px; color: #f1f5f9; background: var(--bg-input); border: 1px solid var(--border); border-radius: 5px; cursor: pointer; }
+        .logo-candidate:hover { border-color: var(--accent); }
         .card-del { position: absolute; right: 6px; top: 6px; color: var(--danger); border: none; background: transparent; cursor: pointer; font-weight: bold; }
 
         .main-container { flex: 1; display: flex; flex-direction: column; padding: 14px 18px; overflow-y: auto; min-width: 800px; }
@@ -159,6 +167,8 @@
         td { padding: 7px 10px; border-bottom: 1px solid #1e293b; }
         tr:hover { background: #1a2438; }
         .result-row { cursor: pointer; }
+        .player-column { width: 240px; min-width: 240px; white-space: nowrap; }
+        .player-name { white-space: nowrap; }
 
         .badge-bm { font-weight: 800; font-size: 10px; padding: 2px 5px; border-radius: 4px; }
         .bm-SUPERBET { background: rgba(245, 158, 11, 0.15); color: var(--sb-color); border: 1px solid var(--sb-color); }
@@ -190,6 +200,8 @@
             width: min(1100px, 98%); max-height: calc(100vh - 48px); overflow-y: auto;
             background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 16px;
         }
+        #chartModal .chart-dialog { width: min(1240px, 98%); }
+        #chartModal .chart-dialog > * { max-width: 1066px; margin-inline: auto; }
         .chart-header { display: flex; gap: 12px; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
         .chart-header h2 { margin: 0; color: #fff; font-size: 18px; }
         .chart-header p { margin: 4px 0 0; color: var(--text-muted); font-size: 12px; }
@@ -524,12 +536,11 @@
         </div>
     </div>
 
-    <div id="seasonAppearancesStatus" role="status" style="font-size:11px;color:var(--text-muted);margin:0 0 8px;" hidden></div>
     <div class="table-wrap">
         <table>
             <thead id="tableHead"></thead>
             <tbody id="resultsBody">
-            <tr><td colspan="12" style="text-align:center; padding: 25px; color: var(--text-muted);">Uzupełnij linki bukmacherów i kliknij Analizuj.</td></tr>
+            <tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--text-muted);">Uzupełnij linki bukmacherów i kliknij Analizuj.</td></tr>
             </tbody>
         </table>
     </div>
@@ -630,6 +641,33 @@
                 </div>
             </div>
         </section>
+    </div>
+</div>
+
+<div class="chart-modal" id="footyMatchPicker" role="dialog" aria-modal="true" aria-labelledby="footyMatchTitle" style="z-index:1200;">
+    <div class="chart-dialog" style="width:min(760px,98%);">
+        <div class="chart-header"><h2 id="footyMatchTitle">Dopasuj mecz FootyMetrics</h2></div>
+        <p id="footyMatchSource" style="font-weight:700;"></p>
+        <p class="chart-extra-note">Nie udało się jednoznacznie potwierdzić drużyn. Wybierz właściwą parę gospodarze–goście. Lista obejmuje mecze zgodne z terminem i kategorią drużyn. Dopasowanie zostanie zapamiętane na serwerze.</p>
+        <input id="footyMatchSearch" class="filter-select" type="search" aria-label="Szukaj meczu FootyMetrics" placeholder="Szukaj drużyny…" style="width:100%;" oninput="renderFootyMatchCandidates()">
+        <div id="footyMatchStatus" class="chart-extra-note" role="status" aria-live="polite"></div>
+        <div id="footyMatchCandidates" style="max-height:50vh;overflow-y:auto;"></div>
+        <button type="button" class="filter-select" onclick="cancelFootyMatchChoice()">Nie ma właściwego meczu / anuluj analizę</button>
+    </div>
+</div>
+
+<div class="chart-modal" id="teamLogoPicker" role="dialog" aria-modal="true" aria-labelledby="teamLogoPickerTitle" onclick="if (event.target === this) closeTeamLogoPicker()">
+    <div class="chart-dialog">
+        <div class="chart-header">
+            <div><h2 id="teamLogoPickerTitle">Wybierz herb drużyny</h2><p id="teamLogoPickerTeam"></p></div>
+            <button class="chart-close" type="button" aria-label="Zamknij wybór herbu" onclick="closeTeamLogoPicker()">×</button>
+        </div>
+        <input id="teamLogoSearch" class="filter-select" type="search" aria-label="Nazwa klubu w Footylogos" placeholder="Wyszukaj klub…" style="width:100%" oninput="scheduleTeamLogoSearch()">
+        <select id="teamLogoSearchCountry" class="filter-select" aria-label="Kraje w wyszukiwaniu herbów" onchange="searchTeamLogoPicker()"><option value="same">Preferuj kraj meczu</option><option value="all">Wszystkie kraje</option></select>
+        <p class="chart-extra-note">Wybór zostanie zapamiętany dla tej drużyny. Źródło herbów: Footylogos.</p>
+        <div id="teamLogoPickerStatus" class="chart-extra-note" role="status"></div>
+        <button class="filter-select" type="button" onclick="retrySelectedTeamLogo()">Ponów pobieranie herbu</button>
+        <div id="teamLogoCandidates"></div>
     </div>
 </div>
 
@@ -896,7 +934,6 @@
         currentHomeSlug = "";
         currentAwaySlug = "";
         rawBets = [];
-        document.getElementById('seasonAppearancesStatus').hidden = true;
         for (const entry of sampleViewCache.values()) if (entry.timer) clearTimeout(entry.timer);
         sampleViewCache.clear();
         sampleViewSource = rawBets;
@@ -907,7 +944,7 @@
         updateStats();
 
         document.getElementById('resultsBody').innerHTML =
-            '<tr><td colspan="12" style="text-align:center; padding: 25px; color: var(--text-muted);">Uzupełnij linki bukmacherów i kliknij Analizuj.</td></tr>';
+            '<tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--text-muted);">Uzupełnij linki bukmacherów i kliknij Analizuj.</td></tr>';
     }
 
     function toggleDropdown(id) {
@@ -991,11 +1028,101 @@
         }
     }
 
+    let footyMatchState = null;
+    let footyMatchBusy = false;
+    let footyMatchSubmitted = '';
+
+    function hideFootyMatchPicker() {
+        const picker = document.getElementById('footyMatchPicker');
+        const hadFocus = picker.contains(document.activeElement);
+        picker.classList.remove('is-open');
+        footyMatchState = null;
+        if (hadFocus) document.getElementById('cancelAnalysisButton').focus();
+    }
+
+    function updateFootyMatchPicker(state) {
+        if (state.status !== 'waiting_match' || !state.matchChoices?.length) {
+            hideFootyMatchPicker();
+            return;
+        }
+        if (footyMatchSubmitted === state.id || footyMatchBusy) return;
+        if (footyMatchState?.id === state.id) return;
+        footyMatchState = state;
+        document.getElementById('footyMatchSource').textContent = 'Mecz z oferty: ' + state.match;
+        document.getElementById('footyMatchSearch').value = '';
+        document.getElementById('footyMatchStatus').textContent = 'Najpierw pokazano mecze z rozpoznaną drużyną. Potwierdź obie strony.';
+        renderFootyMatchCandidates();
+        document.getElementById('footyMatchPicker').classList.add('is-open');
+        document.getElementById('footyMatchSearch').focus();
+    }
+
+    function renderFootyMatchCandidates() {
+        const list = document.getElementById('footyMatchCandidates');
+        list.replaceChildren();
+        if (!footyMatchState) return;
+        const normalize = value => String(value || '').toLocaleLowerCase('pl').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ł/g, 'l');
+        const search = normalize(document.getElementById('footyMatchSearch').value).trim();
+        for (const choice of footyMatchState.matchChoices || []) {
+            if (search && !normalize(choice.home + ' ' + choice.away).includes(search)) continue;
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'filter-select';
+            button.disabled = footyMatchBusy;
+            button.style.cssText = 'display:block;width:100%;height:auto;text-align:left;white-space:normal;padding:12px;margin:8px 0;';
+            const title = document.createElement('strong');
+            title.textContent = choice.home + ' — ' + choice.away;
+            const info = document.createElement('div');
+            info.className = 'chart-extra-note';
+            info.textContent = new Date(choice.startTime).toLocaleString('pl-PL', {timeZone:'Europe/Warsaw'}) + ' · ID meczu: ' + choice.fixtureId;
+            const reason = document.createElement('div');
+            reason.className = 'chart-extra-note';
+            reason.textContent = choice.reason;
+            const confirm = document.createElement('div');
+            confirm.style.color = 'var(--accent)';
+            confirm.textContent = 'Potwierdź ten mecz';
+            button.append(title, info, reason, confirm);
+            button.onclick = () => submitFootyMatch(choice.fixtureId);
+            list.appendChild(button);
+        }
+        if (!list.childElementCount) list.textContent = 'Brak kandydatów dla tego wyszukiwania.';
+    }
+
+    async function submitFootyMatch(fixtureID) {
+        if (footyMatchBusy || !footyMatchState) return;
+        const analysisID = footyMatchState.id;
+        footyMatchBusy = true;
+        renderFootyMatchCandidates();
+        document.getElementById('footyMatchStatus').textContent = 'Potwierdzanie meczu…';
+        try {
+            await window.go.main.App.SelectFootyMatch(analysisID, fixtureID);
+            footyMatchSubmitted = analysisID;
+            hideFootyMatchPicker();
+        } catch (error) {
+            document.getElementById('footyMatchStatus').textContent = String(error);
+        } finally {
+            footyMatchBusy = false;
+            renderFootyMatchCandidates();
+        }
+    }
+
+    async function cancelFootyMatchChoice() {
+        try {
+            const analysisID = footyMatchState?.id;
+            await window.go.main.App.CancelAnalysis();
+            footyMatchSubmitted = analysisID || '';
+            hideFootyMatchPicker();
+        } catch (error) {
+            document.getElementById('footyMatchStatus').textContent = String(error);
+        }
+    }
+
     async function refreshAnalysisProgress() {
         if (!analysisRunning || analysisPolling || !window.go?.main?.App?.GetAnalysisProgress) return;
         analysisPolling = true;
         try {
             const state = await window.go.main.App.GetAnalysisProgress();
+            if (!analysisRunning) return;
+            updateFootyMatchPicker(state);
             document.getElementById('analysisStrip').hidden = false;
             const bar = document.getElementById('analysisBar');
             if (state.playersTotal > 0) bar.value = Math.round(100 * state.playersDone / state.playersTotal);
@@ -1225,7 +1352,8 @@
     function renderTableHeaders() {
         const th = (key, label) => {
             const active = sortCol === key ? (sortAsc ? ' ▲' : ' ▼') : '';
-            const cls = sortCol === key ? 'class="sort-active"' : '';
+            const classes = [sortCol === key ? 'sort-active' : '', key === 'playerName' ? 'player-column' : ''].filter(Boolean).join(' ');
+            const cls = classes ? `class="${classes}"` : '';
             return `<th ${cls} onclick="setSort('${key}')">${label}${active}</th>`;
         };
 
@@ -1234,7 +1362,6 @@
                 ${th('bookmaker', 'Buk')}
                 ${th('playerName', 'Zawodnik')}
                 ${th('marketLabel', 'Rynek')}
-                <th title="Występy z minutami > 0 w bieżącym sezonie: łącznie / liga krajowa / europejskie puchary klubowe / reprezentacja. Licznik niezależny od próbki." style="cursor:help;">Mecze sezonu</th>
                 ${th('line', 'Linia')}
                 ${th('bookmakerOdds', 'Kurs')}
                 ${th('fairOdds', 'Fair Kurs')}
@@ -1248,7 +1375,6 @@
             document.getElementById('tableHead').innerHTML = `<tr>
                 ${th('playerName', 'Zawodnik')}
                 ${th('marketType', 'Rynek')}
-                <th title="Występy z minutami > 0 w bieżącym sezonie: łącznie / liga krajowa / europejskie puchary klubowe / reprezentacja. Licznik niezależny od próbki." style="cursor:help;">Mecze sezonu</th>
                 ${th('line', 'Linia')}
                 ${th('fairOdds', 'Fair Kurs')}
                 ${th('hitRate', 'Hit-Rate')}
@@ -1349,17 +1475,25 @@
         btn.style.opacity = "0.7";
         btn.innerHTML = `⏳ Analizowanie...`;
         analysisRunning = true;
+        footyMatchSubmitted = '';
         document.getElementById('analysisStrip').hidden = false;
         document.getElementById('cancelAnalysisButton').hidden = false;
         document.getElementById('analysisLabel').textContent = 'Wysyłanie zlecenia na serwer';
-        tbody.innerHTML = `<tr><td colspan="12" style="text-align:center; padding: 40px; color: var(--accent);">
+        tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 40px; color: var(--accent);">
             <div style="font-size:16px; font-weight:700; margin-bottom:8px;">Pobieranie kursów bukmacherskich i historii FootyMetrics...</div>
             <div style="font-size:12px; color:var(--text-muted);">Drużyny, zawodnicy, składy i historia z FootyMetrics oraz ważony model EV. SofaScore jest pobierany dopiero po otwarciu wykresu.</div>
         </td></tr>`;
 
+        const logoFixture = calendarEvents.find(event => event.id === calendarSelectedID);
+        const logoContext = logoFixture && [sb, betclic, sts].some(address => address &&
+            (address === logoFixture.url || Object.values(logoFixture.analysisEligibility?.links || {}).includes(address)))
+            ? {country: englishLogoCountry(logoFixture.country)} : null;
         try {
             rawBets = await window.go.main.App.AnalyzeThreeBookmakers(sb, betclic, sts, home, away, limit, selectedTournaments);
-            loadSeasonAppearances(rawBets);
+            if (logoContext) for (const bet of rawBets) {
+                bet.teamCountry = logoContext.country;
+                if (bet.analysisId) teamLogoContexts.set(bet.analysisId, logoContext);
+            }
 
 
             const progress = await window.go.main.App.GetAnalysisProgress();
@@ -1404,9 +1538,10 @@
         } catch (e) {
             document.getElementById('analysisLabel').textContent = String(e);
             alert("Błąd analizy: " + e);
-            tbody.innerHTML = `<tr><td colspan="12" style="text-align:center; padding: 25px; color: var(--danger);">Wystąpił błąd podczas analizy. Sprawdź terminal.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--danger);">Wystąpił błąd podczas analizy. Sprawdź terminal.</td></tr>`;
         } finally {
             analysisRunning = false;
+            hideFootyMatchPicker();
             document.getElementById('cancelAnalysisButton').hidden = true;
             btn.disabled = false;
             btn.style.opacity = "1";
@@ -1508,6 +1643,7 @@
                     teamSide: b.teamSide || '',
                     teamId: b.teamId || '',
                     teamName: b.teamName || '',
+                    teamCountry: b.teamCountry || '',
                     lineupStatus: b.lineupStatus || 'UNKNOWN',
                     isStartingXI: b.isStartingXI || false,
                     bookmakerSpread: 0,
@@ -1599,7 +1735,7 @@
             const body = document.getElementById('resultsBody');
             body.replaceChildren();
             const row = document.createElement('tr'), cell = document.createElement('td');
-            cell.colSpan = compareMode ? 11 : 12;
+            cell.colSpan = compareMode ? 10 : 11;
             cell.style.cssText = 'text-align:center;padding:25px;color:var(--text-muted)';
             cell.textContent = view.error || `Przeliczanie ostatnich ${maxSample} meczów…`;
             if (view.error) {
@@ -1678,7 +1814,11 @@
     }
 
     document.addEventListener('keydown', event => {
-        if (event.key === 'Escape') { closeChart(); closeRisk(); }
+        if (event.key === 'Escape') {
+            if (document.getElementById('footyMatchPicker').classList.contains('is-open')) return;
+            if (document.getElementById('teamLogoPicker').classList.contains('is-open')) closeTeamLogoPicker();
+            else { closeChart(); closeRisk(); }
+        }
     });
 
     function toggleSuperSubInChart() {
@@ -1763,7 +1903,12 @@
             ? minutes.reduce((sum, value) => sum + value, 0) / minutes.length
             : null;
 
-        document.getElementById('chartTitle').textContent = `${bet.playerName} — ${marketLabel}`;
+        const chartTitle = document.getElementById('chartTitle');
+        const playerName = document.createElement('span');
+        playerName.className = 'player-name';
+        playerName.textContent = bet.playerName;
+        chartTitle.replaceChildren(playerName, document.createTextNode(` — ${marketLabel}`));
+        attachTeamLogo(chartTitle, bet);
         document.getElementById('chartSubtitle').textContent = `Ostatnie ${values.length} meczów z aktualnej próbki; mecz 1 (od lewej) jest najnowszy.` +
             (useSuperSub
                 ? ` SuperSub: potwierdzone ${knownValues.length}/${values.length} meczów; „?” oznacza brak danych. Plakietka "+N" pokazuje wkład zmiennika.`
@@ -2447,77 +2592,167 @@
         return '';
     }
 
-    const seasonAppearanceCache = new Map();
-    function seasonAppearanceKey(bet) { return `${bet.analysisId}|${bet.playerId}`; }
-    function fillSeasonAppearanceCell(cell, bet) {
-        const entry = seasonAppearanceCache.get(seasonAppearanceKey(bet));
-        const counts = entry?.data;
-        if (entry?.loading) {
-            cell.textContent = '…'; cell.title = 'Pobieranie pełnego sezonu FootyMetrics…'; return;
-        }
-        cell.textContent = ['all', 'domestic', 'europe', 'national'].map(key => Number.isInteger(counts?.[key]) ? counts[key] : '—').join('/');
-        const note = entry?.error || counts?.note || '';
-        cell.title = `Sezon ${counts?.season || '—'} · Łącznie / liga krajowa / europejskie puchary klubowe / reprezentacja. Wyłącznie występy z minutami > 0; niezależnie od próbki.` + (note ? ` ${note}` : '');
-        if (entry?.error || (counts && ['all', 'domestic', 'europe', 'national'].some(key => !Number.isInteger(counts[key])))) {
-            cell.style.cursor = 'pointer'; cell.title += ' Kliknij, aby ponowić.';
-            cell.onclick = event => { event.stopPropagation(); loadSeasonAppearances(rawBets, bet.playerId); };
-        }
-    }
-    function renderSeasonAppearanceStatus(source) {
-        if (source !== rawBets) return;
-        const status = document.getElementById('seasonAppearancesStatus');
-        const unique = [...new Map(source.map(b => [seasonAppearanceKey(b), b])).values()];
-        const entries = unique.map(b => seasonAppearanceCache.get(seasonAppearanceKey(b)));
-        const loading = entries.filter(entry => entry?.loading).length;
-        const complete = entries.filter(entry => ['all', 'domestic', 'europe', 'national'].every(key => Number.isInteger(entry?.data?.[key]))).length;
-        const problems = entries.map(entry => entry?.error || entry?.data?.note).filter(Boolean);
-        status.hidden = !unique.length;
-        status.textContent = `Mecze sezonu: ${complete}/${unique.length} zawodników.` +
-            (loading ? ` Pobieranie: ${loading}.` : '') + (problems.length ? ` ${String(problems[0]).slice(0, 400)}` : '');
-        status.style.color = problems.length ? 'var(--sb-color)' : 'var(--text-muted)';
-    }
-    async function loadSeasonAppearances(source, retryPlayerId = null) {
-        if (!Array.isArray(source) || !source.length) return;
-        const analysisId = source[0].analysisId;
-        const unavailable = !analysisId ? 'Brak identyfikatora analizy — wykonaj nową analizę.' :
-            !window.go?.main?.App?.GetSeasonAppearances ? 'Klient nie obsługuje liczników sezonu. Zbuduj i uruchom aktualną wersję klienta.' : '';
-        if (unavailable) {
-            for (const bet of source) seasonAppearanceCache.set(seasonAppearanceKey(bet), {error: unavailable});
-            renderSeasonAppearanceStatus(source);
-            if (source === rawBets) renderFiltered();
-            return;
-        }
-        const players = [...new Set(source.filter(b => b.analysisId === analysisId).map(b => b.playerId))]
-            .filter(id => Number.isInteger(id) && id > 0 && (retryPlayerId === null || id === retryPlayerId))
-            .filter(id => { const entry = seasonAppearanceCache.get(`${analysisId}|${id}`); return !entry || (retryPlayerId !== null && !entry.loading); });
-        for (const id of players) seasonAppearanceCache.set(`${analysisId}|${id}`, {loading: true});
-        renderSeasonAppearanceStatus(source);
-        if (retryPlayerId !== null) renderFiltered();
-        for (let offset = 0; offset < players.length; offset += 3) {
-            if (source !== rawBets) {
-                for (const id of players.slice(offset)) seasonAppearanceCache.delete(`${analysisId}|${id}`);
-                return;
-            }
-            const batch = players.slice(offset, offset + 3);
+    const teamLogoCache = new Map();
+    const teamLogoQueue = new Map();
+    const teamLogoContexts = new Map();
+    let teamLogoBatchRunning = false, teamLogoTimer = null;
+    let teamLogoPickerQuery = null, teamLogoSearchTimer = null, teamLogoSearchRevision = 0;
+    let teamLogoCountries = null;
+
+    function englishLogoCountry(raw) {
+        if (!raw) return '';
+        if (!teamLogoCountries) {
+            teamLogoCountries = new Map();
             try {
-                const result = await window.go.main.App.GetSeasonAppearances(analysisId, batch);
-                for (const id of batch) {
-                    const data = result?.[String(id)];
-                    seasonAppearanceCache.set(`${analysisId}|${id}`, data ? {data} : {error: 'Brak odpowiedzi licznika sezonu.'});
+                const pl = new Intl.DisplayNames(['pl'], {type: 'region'});
+                const en = new Intl.DisplayNames(['en'], {type: 'region'});
+                for (let a = 65; a <= 90; a++) for (let b = 65; b <= 90; b++) {
+                    const code = String.fromCharCode(a, b), country = en.of(code);
+                    if (country === code) continue;
+                    for (const name of [pl.of(code), country, code]) teamLogoCountries.set(normalizeSearchText(name), country);
                 }
-            } catch (error) {
-                for (const id of batch) seasonAppearanceCache.set(`${analysisId}|${id}`, {error: String(error)});
+            } catch (_) {}
+            for (const [pl, en] of [['Anglia', 'England'], ['Szkocja', 'Scotland'], ['Walia', 'Wales'], ['Irlandia Północna', 'Northern Ireland']]) {
+                teamLogoCountries.set(normalizeSearchText(pl), en); teamLogoCountries.set(normalizeSearchText(en), en);
             }
-            renderSeasonAppearanceStatus(source);
-            if (source === rawBets) renderFiltered();
         }
+        return teamLogoCountries.get(normalizeSearchText(raw)) || '';
+    }
+    function teamLogoQuery(bet) {
+        const context = teamLogoContexts.get(bet.analysisId);
+        const query = {name: String(bet.teamName || '').trim(), teamId: String(bet.teamId || ''),
+            country: englishLogoCountry(bet.teamCountry || context?.country || '')};
+        query.key = JSON.stringify([query.teamId, query.name, query.country]);
+        return query;
+    }
+    function notifyTeamLogo(query) {
+        document.querySelectorAll('.team-logo-button').forEach(button => {
+            if (button.dataset.logoKey === query.key) renderTeamLogoButton(button, query);
+        });
+    }
+    function requestTeamLogo(query, force = false, automatic = false) {
+        const cached = teamLogoCache.get(query.key);
+        if (!force && cached && (cached.promise || Date.now() < cached.retryAt)) return cached.promise || Promise.resolve(cached.result);
+        if (!window.go?.main?.App?.GetTeamLogos) {
+            const result = {status: 'error', note: 'Uruchom aktualnego klienta.'};
+            teamLogoCache.set(query.key, {query, result, retryAt: Date.now() + 60000});
+            return Promise.resolve(result);
+        }
+        if (cached?.timer) clearTimeout(cached.timer);
+        const entry = {query, attempts: automatic ? (cached?.attempts || 0) + 1 : 1, refresh: force && !automatic};
+        entry.promise = new Promise(resolve => { entry.resolve = resolve; });
+        teamLogoCache.set(query.key, entry); teamLogoQueue.set(query.key, entry);
+        if (!teamLogoBatchRunning && !teamLogoTimer) teamLogoTimer = setTimeout(flushTeamLogoQueue, 40);
+        return entry.promise;
+    }
+    async function flushTeamLogoQueue() {
+        teamLogoTimer = null;
+        if (teamLogoBatchRunning || !teamLogoQueue.size) return;
+        teamLogoBatchRunning = true;
+        // Small batches let successful clubs appear without waiting for a large queue.
+        const batch = [...teamLogoQueue.entries()].slice(0, 3);
+        batch.forEach(([key]) => teamLogoQueue.delete(key));
+        let result = {}, failure = '';
+        try { result = await window.go.main.App.GetTeamLogos(batch.map(([, entry]) => ({...entry.query, refresh: String(entry.refresh)}))); }
+        catch (error) { failure = String(error); console.warn('Herby drużyn:', error); }
+        for (const [key, entry] of batch) {
+            const item = result?.[key] || {status: 'error', note: failure || 'Brak odpowiedzi źródła.', retryAfter: 20};
+            entry.result = item;
+            entry.retryAt = Date.now() + (item.status === 'error' ? Math.max(15, Number(item.retryAfter) || 20) * 1000 : 3600000);
+            entry.promise = null; entry.resolve(item); delete entry.resolve;
+            if (teamLogoCache.get(key) !== entry) continue;
+            notifyTeamLogo(entry.query);
+            if (item.status === 'error' && entry.attempts < 3) {
+                entry.timer = setTimeout(() => {
+                    entry.timer = null;
+                    const visible = [...document.querySelectorAll('.team-logo-button')].some(button => button.dataset.logoKey === key);
+                    if (visible && teamLogoCache.get(key) === entry) requestTeamLogo(entry.query, true, true);
+                }, Math.max(15, Number(item.retryAfter) || 20) * 1000);
+            }
+        }
+        teamLogoBatchRunning = false;
+        if (teamLogoQueue.size) teamLogoTimer = setTimeout(flushTeamLogoQueue, 40);
+    }
+    function renderTeamLogoButton(button, query) {
+        const entry = teamLogoCache.get(query.key), item = entry?.result;
+        button.replaceChildren();
+        button.title = `${query.name} · ${item?.note || 'Pobieranie herbu…'} Kliknij, aby wybrać herb.`;
+        button.setAttribute('aria-label', `Herb ${query.name}: ${item?.note || 'pobieranie'}`);
+        if (item?.status === 'ready' && /^data:image\/(svg\+xml|webp|png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(item.data || '')) {
+            const image = document.createElement('img'); image.className = 'team-logo'; image.width = image.height = 18; image.alt = ''; image.decoding = 'async';
+            image.onerror = () => { button.replaceChildren(document.createTextNode('↻')); button.title = `${query.name}: nie udało się wyświetlić herbu. Kliknij, aby ponowić lub wybrać klub.`; };
+            image.src = item.data; button.appendChild(image);
+        } else button.textContent = entry?.promise ? '…' : item?.status === 'error' ? '↻' : '?';
+    }
+    function attachTeamLogo(element, bet) {
+        const query = teamLogoQuery(bet); if (!query.name) return;
+        const button = document.createElement('button'); button.type = 'button'; button.className = 'team-logo-button'; button.dataset.logoKey = query.key;
+        button.onclick = event => { event.stopPropagation(); openTeamLogoPicker(query); };
+        button.oncontextmenu = event => { event.preventDefault(); event.stopPropagation(); openTeamLogoPicker(query); };
+        const nameElement = element.querySelector('.player-name, b');
+        if (nameElement) nameElement.insertAdjacentElement('afterend', button); else element.appendChild(button);
+        const pending = requestTeamLogo(query);
+        renderTeamLogoButton(button, query);
+        pending.then(() => { if (button.isConnected) renderTeamLogoButton(button, query); });
+    }
+    function closeTeamLogoPicker() {
+        document.getElementById('teamLogoPicker').classList.remove('is-open');
+        teamLogoPickerQuery = null; teamLogoSearchRevision++; clearTimeout(teamLogoSearchTimer);
+    }
+    function openTeamLogoPicker(query) {
+        teamLogoPickerQuery = query;
+        document.getElementById('teamLogoPickerTeam').textContent = query.name + (query.country ? ` · ${query.country}` : '');
+        document.getElementById('teamLogoSearch').value = query.name;
+        document.getElementById('teamLogoSearchCountry').value = 'same';
+        document.getElementById('teamLogoSearchCountry').hidden = !query.country;
+        document.getElementById('teamLogoPicker').classList.add('is-open');
+        searchTeamLogoPicker(); document.getElementById('teamLogoSearch').focus();
+    }
+    function scheduleTeamLogoSearch() { clearTimeout(teamLogoSearchTimer); teamLogoSearchTimer = setTimeout(searchTeamLogoPicker, 350); }
+    async function searchTeamLogoPicker() {
+        const query = teamLogoPickerQuery; if (!query) return;
+        const name = document.getElementById('teamLogoSearch').value.trim();
+        const revision = ++teamLogoSearchRevision;
+        const status = document.getElementById('teamLogoPickerStatus'), list = document.getElementById('teamLogoCandidates');
+        list.replaceChildren(); if (!name) { status.textContent = 'Wpisz nazwę klubu.'; return; }
+        status.textContent = 'Wyszukiwanie w katalogu Footylogos…';
+        try {
+            // Search returns candidates only; it does not download every result's image.
+            const search = {...query, sourceName: query.name, name, country: document.getElementById('teamLogoSearchCountry').value === 'all' ? '' : query.country, key: 'search', search: 'true'};
+            const result = await window.go.main.App.GetTeamLogos([search]);
+            if (revision !== teamLogoSearchRevision || teamLogoPickerQuery !== query) return;
+            const candidates = result?.search?.candidates || [];
+            status.textContent = candidates.length ? 'Wybierz właściwy klub:' : 'Nie znaleziono klubu. Spróbuj innej części nazwy lub pełnej nazwy.';
+            for (const candidate of candidates) {
+                const button = document.createElement('button'); button.type = 'button'; button.className = 'logo-candidate';
+                button.textContent = candidate.label + (candidate.country ? ` · ${candidate.country}` : '');
+                button.onclick = async () => {
+                    status.textContent = 'Pobieranie wybranego herbu…'; button.disabled = true;
+                    try {
+                        const item = await window.go.main.App.SetTeamLogo(query, candidate.href);
+                        const previous = teamLogoCache.get(query.key); if (previous?.timer) clearTimeout(previous.timer);
+                        teamLogoCache.set(query.key, {query, result: item, retryAt: Date.now() + (item.status === 'ready' ? 3600000 : 15000)});
+                        notifyTeamLogo(query);
+                        if (teamLogoPickerQuery === query) { if (item.status === 'ready') closeTeamLogoPicker(); else status.textContent = item.note || 'Nie udało się pobrać herbu.'; }
+                    } catch (error) { if (teamLogoPickerQuery === query) status.textContent = String(error); }
+                    finally { button.disabled = false; }
+                };
+                list.appendChild(button);
+            }
+        } catch (error) { if (revision === teamLogoSearchRevision) status.textContent = String(error); }
+    }
+    async function retrySelectedTeamLogo() {
+        const query = teamLogoPickerQuery; if (!query) return;
+        document.getElementById('teamLogoPickerStatus').textContent = 'Ponawianie pobierania…';
+        const item = await requestTeamLogo(query, true);
+        if (teamLogoPickerQuery === query) { if (item.status === 'ready') closeTeamLogoPicker(); else document.getElementById('teamLogoPickerStatus').textContent = item.note || 'Wybierz klub z listy.'; }
     }
 
     function renderListMode(filtered) {
         const tbody = document.getElementById("resultsBody");
         tbody.innerHTML = "";
         if (filtered.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="12" style="text-align:center; padding: 25px; color: var(--text-muted);">Brak zakładów spełniających kryteria.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--text-muted);">Brak zakładów spełniających kryteria.</td></tr>';
             return;
         }
 
@@ -2530,9 +2765,8 @@
 
             tr.innerHTML = `
                 <td><span class="badge-bm bm-${b.bookmaker}">${b.bookmaker}</span></td>
-                <td><b>${b.playerName}</b>${lineupBadge}</td>
+                <td class="player-column"><b>${b.playerName}</b>${lineupBadge}</td>
                 <td>${b.marketLabel}<span class="tag-src" title="Historia statystyk: FootyMetrics">FOOTYMETRICS</span></td>
-                <td class="season-appearances"></td>
                 <td>${b.isUnder ? 'under' : 'over'} ${b.line}</td>
                 <td><b>${b.bookmakerOdds.toFixed(2)}</b></td>
                 <td>${b.fairOdds.toFixed(2)}</td>
@@ -2543,7 +2777,7 @@
                 <td>${badge}</td>
             `;
 
-            fillSeasonAppearanceCell(tr.querySelector('.season-appearances'), b);
+            attachTeamLogo(tr.cells[1], b);
             tr.oncontextmenu = (e) => {
                 e.preventDefault();
                 addToMyBets(b);
@@ -2557,7 +2791,7 @@
         const tbody = document.getElementById("resultsBody");
         tbody.innerHTML = "";
         if (rows.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding: 25px; color: var(--text-muted);">Brak zdarzeń spełniających kryteria.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; padding: 25px; color: var(--text-muted);">Brak zdarzeń spełniających kryteria.</td></tr>';
             return;
         }
 
@@ -2588,9 +2822,8 @@
             const tr = document.createElement("tr");
             tr.className = 'result-row';
             tr.innerHTML = `
-                <td><b>${g.playerName}</b>${lineupBadge}</td>
+                <td class="player-column"><b>${g.playerName}</b>${lineupBadge}</td>
                 <td>${MARKET_LABELS[g.marketType] || g.marketType}<span class="tag-src" title="Historia statystyk: FootyMetrics">FOOTYMETRICS</span></td>
-                <td class="season-appearances"></td>
                 <td>${g.isUnder ? 'under' : 'over'} ${g.line}</td>
                 <td>${g.fairOdds.toFixed(2)}</td>
                 <td style="font-weight:700; color:var(--accent);">${g.hitRate}%</td>
@@ -2599,7 +2832,7 @@
                 ${bmCells}
             `;
 
-            fillSeasonAppearanceCell(tr.querySelector('.season-appearances'), g);
+            attachTeamLogo(tr.cells[0], g);
             tr.querySelectorAll('.bm-cell').forEach(cell => {
                 const bmKey = cell.dataset.bm;
                 const o = g.books[bmKey];
@@ -2632,6 +2865,7 @@
                         teamSide: g.teamSide,
                         teamId: g.teamId,
                         teamName: g.teamName,
+                        teamCountry: g.teamCountry,
                         lineupStatus: g.lineupStatus,
                         isStartingXI: g.isStartingXI,
                         sampleValues: g.sampleValues,
@@ -2672,6 +2906,7 @@
         if (myBets.some(b => b.id === id)) { removeMyBet(id); return; }
         myBets.push({
             ...bet, id, addedAt: new Date().toISOString(), includeSuperSub: false,
+            teamCountry: teamLogoQuery(bet).country,
             settlementStatus: 'pending', settlementSource: '', archivedAt: '',
             teamId: bet.teamId || bet.teamSide || "TEAM_DEFAULT",
             teamName: bet.teamName || (bet.teamSide === "HOME" ? "Gospodarze" : (bet.teamSide === "AWAY" ? "Goście" : "Drużyna"))
@@ -2787,6 +3022,7 @@
             const addText = (text, cls) => { const node = document.createElement('div'); node.className = cls; node.textContent = text; card.appendChild(node); return node; };
             const title = addText(b.playerName, 'card-title');
             title.style.paddingRight = '15px';
+            attachTeamLogo(title, b);
             const badge = document.createElement('span'); badge.innerHTML = renderLineupBadge(b.lineupStatus); title.appendChild(badge);
             const when = Date.parse(b.matchStart);
             addText((b.matchName || b.teamName || '') + (Number.isFinite(when) && when > 0 ? ' · ' + new Intl.DateTimeFormat('pl-PL', {timeZone: 'Europe/Warsaw', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'}).format(when) : ''), 'mybets-note');

@@ -1,1 +1,2587 @@
-[]
+[
+  {
+    "fixtureId": 19873243,
+    "matchStart": "2026-10-20T16:45:00Z",
+    "matchName": "Sabah — Dortmund",
+    "addedAt": "2026-10-19T21:19:31.320Z",
+    "includeSuperSub": false,
+    "settlementStatus": "pending",
+    "settlementValue": null,
+    "playerValue": null,
+    "superSubValue": null,
+    "analysisId": "ff6f911d8fc7b3d5d3a1cc0a",
+    "playerId": 32695,
+    "sampleEventIds": [
+      16434068,
+      16938931,
+      16434050,
+      17018601,
+      17018606,
+      16434034,
+      16434037,
+      16938848,
+      16434019,
+      16434025
+    ],
+    "historyNotes": [
+      "Źródło historii: FootyMetrics; wartości nie zawierają automatycznie dodanych statystyk zmienników.",
+      "Zakres historii: wszystkie rozgrywki dostępne w odpowiedzi FootyMetrics.",
+      "SofaScore jest pobierany dopiero po otwarciu wykresu. Korekta profilu EV = 1.",
+      "Źródło składów: FootyMetrics, przewidywana XI (XI?); skład nie jest potwierdzony.",
+      "Rola w modelu: pozycja ze składu FootyMetrics."
+    ],
+    "sampleRatings": [
+      5.7,
+      6.4,
+      6.2,
+      7.4,
+      6.7,
+      6,
+      7.3,
+      8.6,
+      7.9,
+      8
+    ],
+    "fairModel": {
+      "version": "context-hit-v14-footymetrics-lineups",
+      "distribution": "Weighted empirical / Jeffreys",
+      "probability": 0.729297365119197,
+      "baseMean": 1.3058823529411765,
+      "expectedCount": 1.3058823529411765,
+      "matchupFactor": 1,
+      "effectiveSample": 9.697986577181208,
+      "contextMatches": 0,
+      "role": "ST",
+      "venue": "AWAY",
+      "teamId": "68",
+      "opponentId": "138649",
+      "features": [
+        "liczności na mecz",
+        "pozycja ST",
+        "home/away",
+        "ważone trafienia linii, wygładzenie Jeffreysa"
+      ],
+      "notes": [
+        "Model eksperymentalny; parametry wymagają kalibracji.",
+        "Brak zgodnych danych dla tego rynku: korekta matchupu = 1.",
+        "Zapas ponad linię nie zwiększa szansy trafienia; zera z rozegranych występów są pełnymi nietrafieniami over. Minuty nie przeliczają historii na per90.",
+        "Średnia liczność jest opisem historii; fair kurs wynika z trafień linii i korekty matchupu."
+      ]
+    },
+    "id": "19873243|STS|32695|SHOTS_BLOCKED|0.5|false",
+    "bookmaker": "STS",
+    "playerName": "Serhou Guirassy",
+    "marketType": "SHOTS_BLOCKED",
+    "marketLabel": "zablokowane strzały",
+    "line": 0.5,
+    "isUnder": false,
+    "bookmakerOdds": 1.6,
+    "fairOdds": 1.37,
+    "hitRate": 70,
+    "edgePercent": 16.7,
+    "evWithTax": 2.7,
+    "matchesSample": 10,
+    "sampleValues": [
+      1,
+      1,
+      0,
+      2,
+      3,
+      2,
+      0,
+      1,
+      2,
+      0
+    ],
+    "sampleValuesSuperSub": [
+      1,
+      1,
+      0,
+      2,
+      3,
+      2,
+      0,
+      1,
+      2,
+      0
+    ],
+    "sampleSuperSubAvailable": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ],
+    "sampleMinutes": [
+      90,
+      30,
+      90,
+      90,
+      90,
+      74,
+      90,
+      90,
+      87,
+      90
+    ],
+    "samplePositions": [
+      "ST",
+      "",
+      "ST",
+      "ST",
+      "ST",
+      "ST",
+      "ST",
+      "ST",
+      "ST",
+      "ST"
+    ],
+    "sampleOpponents": [
+      "FC Union Berlin",
+      "Bodø / Glimt",
+      "Werder Bremen",
+      "Kenya",
+      "South Africa",
+      "VfB Stuttgart",
+      "Paderborn",
+      "Villarreal",
+      "Hoffenheim",
+      "Hamburger SV"
+    ],
+    "sampleDates": [
+      "17.10",
+      "14.10",
+      "09.10",
+      "01.10",
+      "26.09",
+      "19.09",
+      "12.09",
+      "08.09",
+      "05.09",
+      "29.08"
+    ],
+    "sampleShots": [
+      [
+        {
+          "x": 12.8,
+          "y": 70.8,
+          "shotType": "save",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 4.2,
+          "y": 44.5,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 15.1,
+          "y": 54,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 8.8,
+          "y": 44.8,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 5.4,
+          "y": 49.3,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 5,
+          "y": 57.9,
+          "shotType": "save",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 12.5,
+          "y": 40,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 4.2,
+          "y": 41.1,
+          "shotType": "goal",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 26,
+          "y": 48.9,
+          "shotType": "post",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 25.9,
+          "y": 22.1,
+          "shotType": "block",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 18.5,
+          "y": 38.7,
+          "shotType": "miss",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 24.2,
+          "y": 49.5,
+          "shotType": "block",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 13.1,
+          "y": 44.2,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 9.9,
+          "y": 65.8,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 22.1,
+          "y": 42.1,
+          "shotType": "miss",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 11.3,
+          "y": 35,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 25.6,
+          "y": 54.5,
+          "shotType": "block",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 6.8,
+          "y": 46.2,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 9.2,
+          "y": 71.1,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": true
+        }
+      ],
+      [
+        {
+          "x": 12.2,
+          "y": 38.2,
+          "shotType": "save",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 10.2,
+          "y": 58.1,
+          "shotType": "save",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 7,
+          "y": 49.5,
+          "shotType": "save",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 11.5,
+          "y": 50,
+          "shotType": "goal",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 2.4,
+          "y": 48.5,
+          "shotType": "goal",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 7.2,
+          "y": 43.7,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 8.9,
+          "y": 54,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 7,
+          "y": 34.2,
+          "shotType": "save",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 26.1,
+          "y": 34,
+          "shotType": "block",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 20.1,
+          "y": 64.2,
+          "shotType": "block",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 10.5,
+          "y": 54.6,
+          "shotType": "goal",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 4.9,
+          "y": 50.9,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 2.7,
+          "y": 42.3,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 13.6,
+          "y": 27.6,
+          "shotType": "save",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 12.6,
+          "y": 69.9,
+          "shotType": "save",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 13.8,
+          "y": 63.4,
+          "shotType": "goal",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        }
+      ]
+    ],
+    "statsSource": "FOOTYMETRICS",
+    "teamSide": "AWAY",
+    "teamId": "68",
+    "teamName": "Dortmund",
+    "verdict": "VALUE",
+    "lineupStatus": "PREDICTED_STARTER",
+    "isStartingXI": true
+  },
+  {
+    "fixtureId": 19873677,
+    "matchStart": "2026-10-20T16:45:00Z",
+    "matchName": "Fenerbahçe — Slavia Praha",
+    "addedAt": "2026-10-19T21:22:56.671Z",
+    "includeSuperSub": false,
+    "settlementStatus": "pending",
+    "settlementValue": null,
+    "playerValue": null,
+    "superSubValue": null,
+    "analysisId": "d2dd785e2aee24bc4465f685",
+    "playerId": 20333643,
+    "sampleEventIds": [
+      16483697,
+      16938852,
+      16483685,
+      16483681,
+      0,
+      16938963,
+      16483662,
+      16483636,
+      0,
+      16483642
+    ],
+    "historyNotes": [
+      "Źródło historii: FootyMetrics; wartości nie zawierają automatycznie dodanych statystyk zmienników.",
+      "Zakres historii: wszystkie rozgrywki dostępne w odpowiedzi FootyMetrics.",
+      "SofaScore jest pobierany dopiero po otwarciu wykresu. Korekta profilu EV = 1.",
+      "Źródło składów: FootyMetrics, przewidywana XI (XI?); skład nie jest potwierdzony.",
+      "Rola w modelu: pozycja ze składu FootyMetrics."
+    ],
+    "sampleRatings": [
+      7.8,
+      6.3,
+      7,
+      10,
+      null,
+      7.9,
+      6.8,
+      6.8,
+      null,
+      8.6
+    ],
+    "fairModel": {
+      "version": "context-hit-v14-footymetrics-lineups",
+      "distribution": "Weighted empirical / Jeffreys",
+      "probability": 0.8394625176803394,
+      "baseMean": 0.9625,
+      "expectedCount": 0.9625,
+      "matchupFactor": 1,
+      "effectiveSample": 9.552238805970148,
+      "contextMatches": 0,
+      "role": "RW",
+      "venue": "HOME",
+      "teamId": "88",
+      "opponentId": "216",
+      "features": [
+        "liczności na mecz",
+        "pozycja RW",
+        "home/away",
+        "ważone trafienia linii, wygładzenie Jeffreysa"
+      ],
+      "notes": [
+        "Model eksperymentalny; parametry wymagają kalibracji.",
+        "Brak zgodnych danych dla tego rynku: korekta matchupu = 1.",
+        "Zapas ponad linię nie zwiększa szansy trafienia; zera z rozegranych występów są pełnymi nietrafieniami over. Minuty nie przeliczają historii na per90.",
+        "Średnia liczność jest opisem historii; fair kurs wynika z trafień linii i korekty matchupu."
+      ]
+    },
+    "id": "19873677|STS|20333643|SHOTS_BLOCKED|0.5|false",
+    "bookmaker": "STS",
+    "playerName": "Mason Greenwood",
+    "marketType": "SHOTS_BLOCKED",
+    "marketLabel": "zablokowane strzały",
+    "line": 0.5,
+    "isUnder": false,
+    "bookmakerOdds": 1.47,
+    "fairOdds": 1.19,
+    "hitRate": 90,
+    "edgePercent": 23.4,
+    "evWithTax": 8.6,
+    "matchesSample": 10,
+    "sampleValues": [
+      1,
+      2,
+      1,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "sampleValuesSuperSub": [
+      1,
+      2,
+      1,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "sampleSuperSubAvailable": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ],
+    "sampleMinutes": [
+      67,
+      69,
+      80,
+      90,
+      90,
+      90,
+      90,
+      64,
+      80,
+      85
+    ],
+    "samplePositions": [
+      "CAM",
+      "RW",
+      "RW",
+      "RW",
+      "RW",
+      "RW",
+      "RW",
+      "RW",
+      "RW",
+      "RW"
+    ],
+    "sampleOpponents": [
+      "Alanyaspor",
+      "Aston Villa",
+      "Rizespor",
+      "Eyüpspor",
+      "Gaziantep F.K.",
+      "Roma",
+      "Beşiktaş",
+      "Samsunspor",
+      "Lyon",
+      "Konyaspor"
+    ],
+    "sampleDates": [
+      "17.10",
+      "14.10",
+      "10.10",
+      "20.09",
+      "14.09",
+      "10.09",
+      "05.09",
+      "30.08",
+      "26.08",
+      "22.08"
+    ],
+    "sampleShots": [
+      [
+        {
+          "x": 12.6,
+          "y": 37,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 10.8,
+          "y": 63.6,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 11.5,
+          "y": 50,
+          "shotType": "save",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 11.3,
+          "y": 57.5,
+          "shotType": "save",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 18.1,
+          "y": 49.4,
+          "shotType": "goal",
+          "inBox": false,
+          "onTarget": true,
+          "isSub": true
+        }
+      ],
+      [
+        {
+          "x": 18.4,
+          "y": 67.7,
+          "shotType": "block",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 20.4,
+          "y": 70.5,
+          "shotType": "block",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 18.7,
+          "y": 49.3,
+          "shotType": "save",
+          "inBox": false,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 7.4,
+          "y": 62.6,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": true
+        }
+      ],
+      [
+        {
+          "x": 14.6,
+          "y": 61.7,
+          "shotType": "save",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 13.8,
+          "y": 43.3,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 17.2,
+          "y": 28,
+          "shotType": "miss",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 14.4,
+          "y": 62.5,
+          "shotType": "goal",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": true
+        }
+      ],
+      [
+        {
+          "x": 11.5,
+          "y": 36.3,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 25.9,
+          "y": 45.2,
+          "shotType": "miss",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 8.7,
+          "y": 51.2,
+          "shotType": "goal",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 9.7,
+          "y": 39.7,
+          "shotType": "save",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 9.3,
+          "y": 71.5,
+          "shotType": "save",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 11.5,
+          "y": 50,
+          "shotType": "goal",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        }
+      ],
+      null,
+      [
+        {
+          "x": 5.5,
+          "y": 69.3,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 25,
+          "y": 31.1,
+          "shotType": "miss",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 11.4,
+          "y": 36.2,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 5.8,
+          "y": 68.5,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 26.6,
+          "y": 49.7,
+          "shotType": "miss",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 28.5,
+          "y": 46.6,
+          "shotType": "block",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 12.1,
+          "y": 32.7,
+          "shotType": "save",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 21.9,
+          "y": 32.8,
+          "shotType": "save",
+          "inBox": false,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 11.9,
+          "y": 62.8,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 54.3,
+          "y": 59.1,
+          "shotType": "miss",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": true
+        }
+      ],
+      null,
+      [
+        {
+          "x": 13.6,
+          "y": 58.7,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 12.5,
+          "y": 33,
+          "shotType": "goal",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 11.5,
+          "y": 50,
+          "shotType": "goal",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 11.5,
+          "y": 50,
+          "shotType": "save",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 11.5,
+          "y": 40.9,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 12,
+          "y": 69.7,
+          "shotType": "save",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": true
+        }
+      ]
+    ],
+    "statsSource": "FOOTYMETRICS",
+    "teamSide": "HOME",
+    "teamId": "88",
+    "teamName": "Fenerbahçe",
+    "verdict": "VALUE",
+    "lineupStatus": "PREDICTED_STARTER",
+    "isStartingXI": true
+  },
+  {
+    "fixtureId": 19873677,
+    "matchStart": "2026-10-20T16:45:00Z",
+    "matchName": "Fenerbahçe — Slavia Praha",
+    "addedAt": "2026-10-19T21:23:05.084Z",
+    "includeSuperSub": false,
+    "settlementStatus": "pending",
+    "settlementValue": null,
+    "playerValue": null,
+    "superSubValue": null,
+    "analysisId": "d2dd785e2aee24bc4465f685",
+    "playerId": 20333643,
+    "sampleEventIds": [
+      16483697,
+      16938852,
+      16483685,
+      16483681,
+      0,
+      16938963,
+      16483662,
+      16483636,
+      0,
+      16483642
+    ],
+    "historyNotes": [
+      "Źródło historii: FootyMetrics; wartości nie zawierają automatycznie dodanych statystyk zmienników.",
+      "Zakres historii: wszystkie rozgrywki dostępne w odpowiedzi FootyMetrics.",
+      "SofaScore jest pobierany dopiero po otwarciu wykresu. Korekta profilu EV = 1.",
+      "Źródło składów: FootyMetrics, przewidywana XI (XI?); skład nie jest potwierdzony.",
+      "Rola w modelu: pozycja ze składu FootyMetrics."
+    ],
+    "sampleRatings": [
+      7.8,
+      6.3,
+      7,
+      10,
+      null,
+      7.9,
+      6.8,
+      6.8,
+      null,
+      8.6
+    ],
+    "fairModel": {
+      "version": "context-hit-v14-footymetrics-lineups",
+      "distribution": "Weighted empirical / Jeffreys",
+      "probability": 0.8734087694483733,
+      "baseMean": 3.6875,
+      "expectedCount": 3.6875,
+      "matchupFactor": 1,
+      "effectiveSample": 9.552238805970148,
+      "contextMatches": 0,
+      "role": "RW",
+      "venue": "HOME",
+      "teamId": "88",
+      "opponentId": "216",
+      "features": [
+        "liczności na mecz",
+        "pozycja RW",
+        "home/away",
+        "ważone trafienia linii, wygładzenie Jeffreysa"
+      ],
+      "notes": [
+        "Model eksperymentalny; parametry wymagają kalibracji.",
+        "Brak zgodnych danych dla tego rynku: korekta matchupu = 1.",
+        "Zapas ponad linię nie zwiększa szansy trafienia; zera z rozegranych występów są pełnymi nietrafieniami over. Minuty nie przeliczają historii na per90.",
+        "Średnia liczność jest opisem historii; fair kurs wynika z trafień linii i korekty matchupu."
+      ]
+    },
+    "id": "19873677|STS|20333643|SHOTS_TOTAL|2.5|false",
+    "bookmaker": "STS",
+    "playerName": "Mason Greenwood",
+    "marketType": "SHOTS_TOTAL",
+    "marketLabel": "strzały",
+    "line": 2.5,
+    "isUnder": false,
+    "bookmakerOdds": 1.37,
+    "fairOdds": 1.14,
+    "hitRate": 90,
+    "edgePercent": 19.7,
+    "evWithTax": 5.3,
+    "matchesSample": 10,
+    "sampleValues": [
+      4,
+      3,
+      3,
+      6,
+      4,
+      3,
+      3,
+      3,
+      2,
+      5
+    ],
+    "sampleValuesSuperSub": [
+      5,
+      4,
+      4,
+      6,
+      4,
+      3,
+      3,
+      4,
+      2,
+      6
+    ],
+    "sampleSuperSubAvailable": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ],
+    "sampleMinutes": [
+      67,
+      69,
+      80,
+      90,
+      90,
+      90,
+      90,
+      64,
+      80,
+      85
+    ],
+    "samplePositions": [
+      "CAM",
+      "RW",
+      "RW",
+      "RW",
+      "RW",
+      "RW",
+      "RW",
+      "RW",
+      "RW",
+      "RW"
+    ],
+    "sampleOpponents": [
+      "Alanyaspor",
+      "Aston Villa",
+      "Rizespor",
+      "Eyüpspor",
+      "Gaziantep F.K.",
+      "Roma",
+      "Beşiktaş",
+      "Samsunspor",
+      "Lyon",
+      "Konyaspor"
+    ],
+    "sampleDates": [
+      "17.10",
+      "14.10",
+      "10.10",
+      "20.09",
+      "14.09",
+      "10.09",
+      "05.09",
+      "30.08",
+      "26.08",
+      "22.08"
+    ],
+    "sampleShots": [
+      [
+        {
+          "x": 12.6,
+          "y": 37,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 10.8,
+          "y": 63.6,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 11.5,
+          "y": 50,
+          "shotType": "save",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 11.3,
+          "y": 57.5,
+          "shotType": "save",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 18.1,
+          "y": 49.4,
+          "shotType": "goal",
+          "inBox": false,
+          "onTarget": true,
+          "isSub": true
+        }
+      ],
+      [
+        {
+          "x": 18.4,
+          "y": 67.7,
+          "shotType": "block",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 20.4,
+          "y": 70.5,
+          "shotType": "block",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 18.7,
+          "y": 49.3,
+          "shotType": "save",
+          "inBox": false,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 7.4,
+          "y": 62.6,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": true
+        }
+      ],
+      [
+        {
+          "x": 14.6,
+          "y": 61.7,
+          "shotType": "save",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 13.8,
+          "y": 43.3,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 17.2,
+          "y": 28,
+          "shotType": "miss",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 14.4,
+          "y": 62.5,
+          "shotType": "goal",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": true
+        }
+      ],
+      [
+        {
+          "x": 11.5,
+          "y": 36.3,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 25.9,
+          "y": 45.2,
+          "shotType": "miss",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 8.7,
+          "y": 51.2,
+          "shotType": "goal",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 9.7,
+          "y": 39.7,
+          "shotType": "save",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 9.3,
+          "y": 71.5,
+          "shotType": "save",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 11.5,
+          "y": 50,
+          "shotType": "goal",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        }
+      ],
+      null,
+      [
+        {
+          "x": 5.5,
+          "y": 69.3,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 25,
+          "y": 31.1,
+          "shotType": "miss",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 11.4,
+          "y": 36.2,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 5.8,
+          "y": 68.5,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 26.6,
+          "y": 49.7,
+          "shotType": "miss",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 28.5,
+          "y": 46.6,
+          "shotType": "block",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 12.1,
+          "y": 32.7,
+          "shotType": "save",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 21.9,
+          "y": 32.8,
+          "shotType": "save",
+          "inBox": false,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 11.9,
+          "y": 62.8,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 54.3,
+          "y": 59.1,
+          "shotType": "miss",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": true
+        }
+      ],
+      null,
+      [
+        {
+          "x": 13.6,
+          "y": 58.7,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 12.5,
+          "y": 33,
+          "shotType": "goal",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 11.5,
+          "y": 50,
+          "shotType": "goal",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 11.5,
+          "y": 50,
+          "shotType": "save",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 11.5,
+          "y": 40.9,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 12,
+          "y": 69.7,
+          "shotType": "save",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": true
+        }
+      ]
+    ],
+    "statsSource": "FOOTYMETRICS",
+    "teamSide": "HOME",
+    "teamId": "88",
+    "teamName": "Fenerbahçe",
+    "verdict": "VALUE",
+    "lineupStatus": "PREDICTED_STARTER",
+    "isStartingXI": true
+  },
+  {
+    "fixtureId": 19873677,
+    "matchStart": "2026-10-20T16:45:00Z",
+    "matchName": "Fenerbahçe — Slavia Praha",
+    "addedAt": "2026-10-19T21:27:46.054Z",
+    "includeSuperSub": false,
+    "settlementStatus": "pending",
+    "settlementValue": null,
+    "playerValue": null,
+    "superSubValue": null,
+    "analysisId": "d2dd785e2aee24bc4465f685",
+    "playerId": 37632496,
+    "sampleEventIds": [
+      16453890,
+      16939017,
+      16453882,
+      15534168,
+      15534169,
+      15534172,
+      15534167,
+      16453831,
+      16453832,
+      16939012
+    ],
+    "historyNotes": [
+      "Źródło historii: FootyMetrics; wartości nie zawierają automatycznie dodanych statystyk zmienników.",
+      "Zakres historii: wszystkie rozgrywki dostępne w odpowiedzi FootyMetrics.",
+      "SofaScore jest pobierany dopiero po otwarciu wykresu. Korekta profilu EV = 1.",
+      "Źródło składów: FootyMetrics, przewidywana XI (XI?); skład nie jest potwierdzony.",
+      "Brak pozycji w aktualnym składzie; rola w modelu to ostatnia znana pozycja z historii FootyMetrics."
+    ],
+    "sampleRatings": [
+      7.5,
+      6.5,
+      6.9,
+      7.4,
+      8.3,
+      7.1,
+      7.5,
+      6.2,
+      7.9,
+      7.2
+    ],
+    "fairModel": {
+      "version": "context-hit-v14-footymetrics-lineups",
+      "distribution": "Weighted empirical / Jeffreys",
+      "probability": 0.7673734177215188,
+      "baseMean": 2.226890756302521,
+      "expectedCount": 2.226890756302521,
+      "matchupFactor": 1,
+      "effectiveSample": 8.640024405125077,
+      "contextMatches": 0,
+      "role": "LCM",
+      "venue": "AWAY",
+      "teamId": "216",
+      "opponentId": "88",
+      "features": [
+        "liczności na mecz",
+        "pozycja LCM",
+        "home/away",
+        "ważone trafienia linii, wygładzenie Jeffreysa"
+      ],
+      "notes": [
+        "Model eksperymentalny; parametry wymagają kalibracji.",
+        "Brak zgodnych danych dla tego rynku: korekta matchupu = 1.",
+        "Zapas ponad linię nie zwiększa szansy trafienia; zera z rozegranych występów są pełnymi nietrafieniami over. Minuty nie przeliczają historii na per90.",
+        "Średnia liczność jest opisem historii; fair kurs wynika z trafień linii i korekty matchupu."
+      ]
+    },
+    "id": "19873677|SUPERBET|37632496|SHOTS_TOTAL|1.5|false",
+    "bookmaker": "SUPERBET",
+    "playerName": "Wiktor Nowak",
+    "marketType": "SHOTS_TOTAL",
+    "marketLabel": "Zawodnik - liczba strzałów",
+    "line": 1.5,
+    "isUnder": false,
+    "bookmakerOdds": 1.64,
+    "fairOdds": 1.3,
+    "hitRate": 70,
+    "edgePercent": 25.8,
+    "evWithTax": 10.7,
+    "matchesSample": 10,
+    "sampleValues": [
+      4,
+      2,
+      3,
+      1,
+      1,
+      2,
+      2,
+      2,
+      3,
+      0
+    ],
+    "sampleValuesSuperSub": [
+      4,
+      2,
+      3,
+      1,
+      3,
+      2,
+      2,
+      2,
+      3,
+      0
+    ],
+    "sampleSuperSubAvailable": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ],
+    "sampleMinutes": [
+      86,
+      28,
+      90,
+      89,
+      63,
+      90,
+      44,
+      90,
+      90,
+      82
+    ],
+    "samplePositions": [
+      "LCM",
+      "",
+      "LCM",
+      "CDM",
+      "RCDM",
+      "RCM",
+      "",
+      "RCM",
+      "RCM",
+      "RCM"
+    ],
+    "sampleOpponents": [
+      "Hradec Králové",
+      "Sabah",
+      "Zlín",
+      "Bosnia and Herzegovina",
+      "Romania",
+      "Sweden",
+      "Bosnia and Herzegovina",
+      "Viktoria Plzeň",
+      "Teplice",
+      "Lens"
+    ],
+    "sampleDates": [
+      "17.10",
+      "13.10",
+      "09.10",
+      "05.10",
+      "02.10",
+      "28.09",
+      "25.09",
+      "20.09",
+      "13.09",
+      "10.09"
+    ],
+    "sampleShots": [
+      [
+        {
+          "x": 12.7,
+          "y": 61.3,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 24.3,
+          "y": 51.7,
+          "shotType": "miss",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 20.5,
+          "y": 29.4,
+          "shotType": "block",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 22.6,
+          "y": 65.5,
+          "shotType": "miss",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 11.5,
+          "y": 74.4,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 13,
+          "y": 39.9,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 18.1,
+          "y": 35.5,
+          "shotType": "block",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 10.6,
+          "y": 39,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 4.6,
+          "y": 48.1,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 19.1,
+          "y": 52.2,
+          "shotType": "save",
+          "inBox": false,
+          "onTarget": true,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 8.3,
+          "y": 31.9,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 20.3,
+          "y": 42.9,
+          "shotType": "block",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": true
+        },
+        {
+          "x": 14.2,
+          "y": 32.7,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": true
+        }
+      ],
+      [
+        {
+          "x": 21,
+          "y": 53.9,
+          "shotType": "miss",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 15.4,
+          "y": 59.3,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 12.6,
+          "y": 48.7,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 26.5,
+          "y": 42.7,
+          "shotType": "miss",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 10.2,
+          "y": 59.6,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 24.1,
+          "y": 45,
+          "shotType": "block",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 22.2,
+          "y": 54.6,
+          "shotType": "save",
+          "inBox": false,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 8.9,
+          "y": 65,
+          "shotType": "goal",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 26.8,
+          "y": 49.8,
+          "shotType": "save",
+          "inBox": false,
+          "onTarget": true,
+          "isSub": false
+        }
+      ],
+      []
+    ],
+    "statsSource": "FOOTYMETRICS",
+    "teamSide": "AWAY",
+    "teamId": "216",
+    "teamName": "Slavia Praha",
+    "verdict": "VALUE",
+    "lineupStatus": "UNKNOWN",
+    "isStartingXI": false
+  },
+  {
+    "fixtureId": 19873677,
+    "matchStart": "2026-10-20T16:45:00Z",
+    "matchName": "Fenerbahçe — Slavia Praha",
+    "addedAt": "2026-10-19T21:27:46.881Z",
+    "includeSuperSub": false,
+    "settlementStatus": "pending",
+    "settlementValue": null,
+    "playerValue": null,
+    "superSubValue": null,
+    "analysisId": "d2dd785e2aee24bc4465f685",
+    "playerId": 38205156,
+    "sampleEventIds": [
+      16453890,
+      16939017,
+      16453882,
+      16453816,
+      16453925,
+      16453918,
+      16453945,
+      16073313,
+      16073310,
+      14029226
+    ],
+    "historyNotes": [
+      "Źródło historii: FootyMetrics; wartości nie zawierają automatycznie dodanych statystyk zmienników.",
+      "Zakres historii: wszystkie rozgrywki dostępne w odpowiedzi FootyMetrics.",
+      "SofaScore jest pobierany dopiero po otwarciu wykresu. Korekta profilu EV = 1.",
+      "Źródło składów: FootyMetrics, przewidywana XI (XI?); skład nie jest potwierdzony.",
+      "Brak pozycji w aktualnym składzie; rola w modelu to ostatnia znana pozycja z historii FootyMetrics."
+    ],
+    "sampleRatings": [
+      7.3,
+      6.9,
+      7.2,
+      7,
+      7,
+      7.4,
+      6.7,
+      7.1,
+      7.5,
+      6.4
+    ],
+    "fairModel": {
+      "version": "context-hit-v14-footymetrics-lineups",
+      "distribution": "Weighted empirical / Jeffreys",
+      "probability": 0.7060889929742389,
+      "baseMean": 2.3749999999999996,
+      "expectedCount": 2.3749999999999996,
+      "matchupFactor": 1,
+      "effectiveSample": 9.728643216080403,
+      "contextMatches": 0,
+      "role": "",
+      "venue": "AWAY",
+      "teamId": "216",
+      "opponentId": "88",
+      "features": [
+        "liczności na mecz",
+        "home/away",
+        "ważone trafienia linii, wygładzenie Jeffreysa"
+      ],
+      "notes": [
+        "Model eksperymentalny; parametry wymagają kalibracji.",
+        "Brak aktualnej pozycji: bez ważenia według roli.",
+        "Brak zgodnych danych dla tego rynku: korekta matchupu = 1.",
+        "Zapas ponad linię nie zwiększa szansy trafienia; zera z rozegranych występów są pełnymi nietrafieniami over. Minuty nie przeliczają historii na per90.",
+        "Średnia liczność jest opisem historii; fair kurs wynika z trafień linii i korekty matchupu."
+      ]
+    },
+    "id": "19873677|SUPERBET|38205156|SHOTS_TOTAL|1.5|false",
+    "bookmaker": "SUPERBET",
+    "playerName": "Mubarak Suleiman",
+    "marketType": "SHOTS_TOTAL",
+    "marketLabel": "Zawodnik - liczba strzałów",
+    "line": 1.5,
+    "isUnder": false,
+    "bookmakerOdds": 1.64,
+    "fairOdds": 1.42,
+    "hitRate": 70,
+    "edgePercent": 15.8,
+    "evWithTax": 1.9,
+    "matchesSample": 10,
+    "sampleValues": [
+      1,
+      2,
+      3,
+      1,
+      2,
+      3,
+      5,
+      2,
+      1,
+      3
+    ],
+    "sampleValuesSuperSub": [
+      1,
+      2,
+      3,
+      1,
+      2,
+      3,
+      5,
+      4,
+      1,
+      3
+    ],
+    "sampleSuperSubAvailable": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ],
+    "sampleMinutes": [
+      44,
+      28,
+      90,
+      90,
+      90,
+      90,
+      90,
+      32,
+      27,
+      23
+    ],
+    "samplePositions": [
+      "",
+      "",
+      "LWB",
+      "LWB",
+      "LWB",
+      "LWB",
+      "LWB",
+      "RCAM",
+      "",
+      ""
+    ],
+    "sampleOpponents": [
+      "Hradec Králové",
+      "Sabah",
+      "Zlín",
+      "Bohemians 1905",
+      "Slovan Liberec",
+      "Pardubice",
+      "Baník Ostrava",
+      "Viktoria Plzeň",
+      "Hradec Králové",
+      "Hradec Králové"
+    ],
+    "sampleDates": [
+      "17.10",
+      "13.10",
+      "09.10",
+      "22.08",
+      "16.08",
+      "09.08",
+      "01.08",
+      "24.05",
+      "17.05",
+      "19.04"
+    ],
+    "sampleShots": [
+      [
+        {
+          "x": 13.5,
+          "y": 62.4,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 22.8,
+          "y": 37.6,
+          "shotType": "save",
+          "inBox": false,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 27.9,
+          "y": 50.9,
+          "shotType": "miss",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 17.6,
+          "y": 37,
+          "shotType": "miss",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 17.2,
+          "y": 30.5,
+          "shotType": "miss",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 7.4,
+          "y": 41.2,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 6.3,
+          "y": 41.5,
+          "shotType": "goal",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 13.9,
+          "y": 45.8,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 26.3,
+          "y": 41.1,
+          "shotType": "miss",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 9.4,
+          "y": 27.6,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 20,
+          "y": 39.3,
+          "shotType": "block",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 12.9,
+          "y": 48,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 6.4,
+          "y": 48.9,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 12,
+          "y": 68.5,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 25.1,
+          "y": 50.7,
+          "shotType": "block",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 3.2,
+          "y": 36.1,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 10.2,
+          "y": 41.7,
+          "shotType": "save",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 11.3,
+          "y": 50.7,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 4.3,
+          "y": 49.8,
+          "shotType": "goal",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 3,
+          "y": 38,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": true
+        },
+        {
+          "x": 14.6,
+          "y": 60,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": true
+        }
+      ],
+      [
+        {
+          "x": 26.8,
+          "y": 48.1,
+          "shotType": "miss",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 23.2,
+          "y": 64.4,
+          "shotType": "miss",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 5.8,
+          "y": 31.7,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 14.8,
+          "y": 38.7,
+          "shotType": "save",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        }
+      ]
+    ],
+    "statsSource": "FOOTYMETRICS",
+    "teamSide": "AWAY",
+    "teamId": "216",
+    "teamName": "Slavia Praha",
+    "verdict": "VALUE",
+    "lineupStatus": "UNKNOWN",
+    "isStartingXI": false
+  },
+  {
+    "fixtureId": 19873677,
+    "matchStart": "2026-10-20T16:45:00Z",
+    "matchName": "Fenerbahçe — Slavia Praha",
+    "addedAt": "2026-10-19T21:27:48.466Z",
+    "includeSuperSub": false,
+    "settlementStatus": "pending",
+    "settlementValue": null,
+    "playerValue": null,
+    "superSubValue": null,
+    "analysisId": "d2dd785e2aee24bc4465f685",
+    "playerId": 1488486,
+    "sampleEventIds": [
+      16453890,
+      16939017,
+      15534108,
+      15534112,
+      15534116,
+      15534109,
+      16453831,
+      16453832,
+      16939012,
+      16453939
+    ],
+    "historyNotes": [
+      "Źródło historii: FootyMetrics; wartości nie zawierają automatycznie dodanych statystyk zmienników.",
+      "Zakres historii: wszystkie rozgrywki dostępne w odpowiedzi FootyMetrics.",
+      "SofaScore jest pobierany dopiero po otwarciu wykresu. Korekta profilu EV = 1.",
+      "Źródło składów: FootyMetrics, przewidywana XI (XI?); skład nie jest potwierdzony.",
+      "Rola w modelu: pozycja ze składu FootyMetrics."
+    ],
+    "sampleRatings": [
+      6.3,
+      6.4,
+      8,
+      6.5,
+      6.9,
+      6.9,
+      6.9,
+      6.7,
+      9.2,
+      7.2
+    ],
+    "fairModel": {
+      "version": "context-hit-v14-footymetrics-lineups",
+      "distribution": "Weighted empirical / Jeffreys",
+      "probability": 0.713998731232819,
+      "baseMean": 2.1956521739130435,
+      "expectedCount": 2.1956521739130435,
+      "matchupFactor": 1,
+      "effectiveSample": 8.515090543259555,
+      "contextMatches": 0,
+      "role": "LWB",
+      "venue": "AWAY",
+      "teamId": "216",
+      "opponentId": "88",
+      "features": [
+        "liczności na mecz",
+        "pozycja LWB",
+        "home/away",
+        "ważone trafienia linii, wygładzenie Jeffreysa"
+      ],
+      "notes": [
+        "Model eksperymentalny; parametry wymagają kalibracji.",
+        "Brak zgodnych danych dla tego rynku: korekta matchupu = 1.",
+        "Zapas ponad linię nie zwiększa szansy trafienia; zera z rozegranych występów są pełnymi nietrafieniami over. Minuty nie przeliczają historii na per90.",
+        "Średnia liczność jest opisem historii; fair kurs wynika z trafień linii i korekty matchupu."
+      ]
+    },
+    "id": "19873677|SUPERBET|1488486|SHOTS_TOTAL|1.5|false",
+    "bookmaker": "SUPERBET",
+    "playerName": "Danijel Sturm",
+    "marketType": "SHOTS_TOTAL",
+    "marketLabel": "Zawodnik - liczba strzałów",
+    "line": 1.5,
+    "isUnder": false,
+    "bookmakerOdds": 1.95,
+    "fairOdds": 1.4,
+    "hitRate": 70,
+    "edgePercent": 39.2,
+    "evWithTax": 22.5,
+    "matchesSample": 10,
+    "sampleValues": [
+      3,
+      0,
+      2,
+      3,
+      4,
+      0,
+      1,
+      2,
+      4,
+      4
+    ],
+    "sampleValuesSuperSub": [
+      5,
+      0,
+      2,
+      3,
+      4,
+      0,
+      1,
+      2,
+      4,
+      4
+    ],
+    "sampleSuperSubAvailable": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ],
+    "sampleMinutes": [
+      46,
+      90,
+      90,
+      89,
+      90,
+      90,
+      75,
+      44,
+      90,
+      80
+    ],
+    "samplePositions": [
+      "LCAM",
+      "LW",
+      "LM",
+      "LM",
+      "LM",
+      "LM",
+      "LCAM",
+      "",
+      "LCAM",
+      "RCAM"
+    ],
+    "sampleOpponents": [
+      "Hradec Králové",
+      "Sabah",
+      "Scotland",
+      "Switzerland",
+      "North Macedonia",
+      "Scotland",
+      "Viktoria Plzeň",
+      "Teplice",
+      "Lens",
+      "Zbrojovka Brno"
+    ],
+    "sampleDates": [
+      "17.10",
+      "13.10",
+      "06.10",
+      "03.10",
+      "29.09",
+      "26.09",
+      "20.09",
+      "13.09",
+      "10.09",
+      "05.09"
+    ],
+    "sampleShots": [
+      [
+        {
+          "x": 4.9,
+          "y": 32.5,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 19.8,
+          "y": 35.8,
+          "shotType": "miss",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 24.2,
+          "y": 66.6,
+          "shotType": "miss",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 13.6,
+          "y": 41.8,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": true
+        },
+        {
+          "x": 12.9,
+          "y": 46.8,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": true
+        }
+      ],
+      [],
+      [
+        {
+          "x": 7.9,
+          "y": 45.6,
+          "shotType": "goal",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 8.8,
+          "y": 32.2,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 13.8,
+          "y": 27.6,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 24.1,
+          "y": 31.8,
+          "shotType": "block",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 21.9,
+          "y": 34,
+          "shotType": "save",
+          "inBox": false,
+          "onTarget": true,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 9.2,
+          "y": 72.4,
+          "shotType": "save",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 8.5,
+          "y": 38.7,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 11.3,
+          "y": 44.2,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 15,
+          "y": 51.3,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        }
+      ],
+      [],
+      [
+        {
+          "x": 15.2,
+          "y": 32.4,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 2.3,
+          "y": 67.8,
+          "shotType": "save",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 27,
+          "y": 56.8,
+          "shotType": "block",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 24.3,
+          "y": 31.3,
+          "shotType": "block",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 18.5,
+          "y": 49,
+          "shotType": "goal",
+          "inBox": false,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 19.1,
+          "y": 68,
+          "shotType": "goal",
+          "inBox": false,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 5.3,
+          "y": 35.5,
+          "shotType": "miss",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        }
+      ],
+      [
+        {
+          "x": 29,
+          "y": 44.3,
+          "shotType": "miss",
+          "inBox": false,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 18.8,
+          "y": 68.5,
+          "shotType": "save",
+          "inBox": false,
+          "onTarget": true,
+          "isSub": false
+        },
+        {
+          "x": 4.3,
+          "y": 49,
+          "shotType": "block",
+          "inBox": true,
+          "onTarget": false,
+          "isSub": false
+        },
+        {
+          "x": 15.6,
+          "y": 43.4,
+          "shotType": "save",
+          "inBox": true,
+          "onTarget": true,
+          "isSub": false
+        }
+      ]
+    ],
+    "statsSource": "FOOTYMETRICS",
+    "teamSide": "AWAY",
+    "teamId": "216",
+    "teamName": "Slavia Praha",
+    "verdict": "VALUE",
+    "lineupStatus": "PREDICTED_STARTER",
+    "isStartingXI": true
+  }
+]
