@@ -211,6 +211,7 @@
         .sample-chart { display: block; width: 100%; min-height: 330px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 7px; }
 
         .chart-extra-panel { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px; }
+        .chart-extra-panel[hidden] { display: none; }
         .chart-extra-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
         .chart-extra-note { font-size: 12px; color: var(--text-muted); margin: 8px 0; }
         .chart-lines-table { max-height: 310px; overflow: auto; border: 1px solid var(--border); border-radius: 7px; }
@@ -606,7 +607,7 @@
                 </div>
             </div>
         </div>
-        <section class="chart-extra-panel" aria-labelledby="chartLinesTitle">
+        <section id="chartLinesPanel" class="chart-extra-panel" aria-labelledby="chartLinesTitle">
             <div class="chart-extra-toolbar">
                 <b id="chartLinesTitle">Inne linie tego rynku</b>
                 <select id="chartLinesScope" class="filter-select" aria-label="Zakres linii" onchange="renderChartLines()">
@@ -623,7 +624,7 @@
                 </table>
             </div>
         </section>
-        <section class="chart-extra-panel" aria-label="Składy SofaScore">
+        <section id="lineupSection" class="chart-extra-panel" aria-label="Składy SofaScore">
             <div class="chart-extra-toolbar">
                 <b>Składy SofaScore</b>
                 <nav class="lineup-tabs" role="tablist" aria-label="Wybór meczu składu">
@@ -746,6 +747,7 @@
     let currentAwaySlug = "";
 
     let currentChartBet = null;
+    let chartFromMyBets = false;
     let useSuperSub = true;
     let selectedMatchIndexForShotmap = null;
     let calendarEvents = [];
@@ -1809,6 +1811,7 @@
         document.getElementById('chartModal').classList.remove('is-open');
         document.getElementById('lineupWidget').removeAttribute('src');
         currentChartBet = null;
+        chartFromMyBets = false;
         chartLinesState = null;
     }
 
@@ -1837,26 +1840,34 @@
         }
     }
 
-    function openSampleChart(bet) {
+    function openSampleChart(bet, fromMyBets = false) {
         if (!bet || !Array.isArray(bet.sampleValues) || bet.sampleValues.length === 0) {
             alert('Brak danych próbki dla tego zdarzenia.');
             return;
         }
 
         currentChartBet = bet;
+        chartFromMyBets = fromMyBets;
         chartLinesState = null;
         useSuperSub = false;
         selectedMatchIndexForShotmap = null;
 
         lineupScope = 'current';
+        document.getElementById('chartLinesPanel').hidden = fromMyBets;
+        document.getElementById('lineupSection').hidden = fromMyBets;
+        if (fromMyBets) document.getElementById('lineupWidget').removeAttribute('src');
         setupRelatedStats(bet);
         renderSuperSubToggle(bet);
         drawCurrentBetChart();
         document.getElementById('chartModal').classList.add('is-open');
-        loadChartLines(bet);
-        loadRelatedStats();
-        loadCurrentLineup();
-        loadChartShotmaps(bet);
+        // MyBets displays its saved sample and maps without depending on an
+        // in-memory server analysis or making optional enrichment requests.
+        if (!fromMyBets) {
+            loadChartLines(bet);
+            loadRelatedStats();
+            loadCurrentLineup();
+            loadChartShotmaps(bet);
+        }
     }
 
     function renderSuperSubToggle(bet) {
@@ -1941,9 +1952,11 @@
         notes.textContent = [...(bet.historyNotes || []), ...(model?.notes || [])].join(' · ');
         extra.appendChild(notes);
         renderShotmap(bet, selectedMatchIndexForShotmap);
-        drawRelatedStats();
-        renderChartLines();
-        renderLineupWidget();
+        if (!chartFromMyBets) {
+            drawRelatedStats();
+            renderChartLines();
+            renderLineupWidget();
+        }
     }
 
     let chartLinesState = null;
@@ -1961,7 +1974,7 @@
     }
 
     async function loadChartLines(bet, force = false) {
-        if (!bet) return;
+        if (!bet || chartFromMyBets) return;
         const state = {bet};
         chartLinesState = state;
         renderChartLines();
@@ -2084,7 +2097,7 @@
     const relatedStatCache = new Map();
     function setupRelatedStats(bet) {
         const panel = document.getElementById('relatedStatsPanel');
-        panel.hidden = !SHOT_MARKETS.includes(bet.marketType);
+        panel.hidden = chartFromMyBets || !SHOT_MARKETS.includes(bet.marketType);
         const select = document.getElementById('relatedStatSelect');
         select.replaceChildren();
         if (panel.hidden) return;
@@ -2101,7 +2114,7 @@
     }
     async function loadRelatedStats(force = false) {
         const bet = currentChartBet;
-        if (!bet || !SHOT_MARKETS.includes(bet.marketType)) return;
+        if (!bet || chartFromMyBets || !SHOT_MARKETS.includes(bet.marketType)) return;
         const market = document.getElementById('relatedStatSelect').value;
         const key = relatedStatKey(bet, market);
         let entry = relatedStatCache.get(key);
@@ -2148,7 +2161,7 @@
     }
     async function loadCurrentLineup(force = false) {
         const bet = currentChartBet;
-        if (!bet) return;
+        if (!bet || chartFromMyBets) return;
         let entry = lineupEventCache.get(bet.analysisId);
         if (!entry || force) {
             entry = {status: 'loading'};
@@ -2165,7 +2178,7 @@
     }
     function renderLineupWidget() {
         const bet = currentChartBet;
-        if (!bet) return;
+        if (!bet || chartFromMyBets) return;
         const frame = document.getElementById('lineupWidget');
         const status = document.getElementById('lineupStatus');
         const current = lineupScope === 'current';
@@ -2193,7 +2206,7 @@
 
     const chartShotmapCache = new Map();
     async function loadChartShotmaps(bet) {
-        if (!bet.analysisId || !bet.playerId || !window.go?.main?.App?.GetAnalysisShotmaps) return;
+        if (chartFromMyBets || !bet.analysisId || !bet.playerId || !window.go?.main?.App?.GetAnalysisShotmaps) return;
         const key = `${bet.analysisId}|${bet.playerId}|${bet.marketType}|${bet.sampleValues.length}|${bet.sampleFrom || ''}|${bet.sampleTo || ''}`;
         let pending = chartShotmapCache.get(key);
         if (!pending) {
@@ -3061,7 +3074,7 @@
             const del = document.createElement('button'); del.className = 'card-del'; del.textContent = '✕'; del.title = 'Usuń typ';
             del.onclick = event => { event.stopPropagation(); removeMyBet(b.id); }; card.appendChild(del);
             if (Array.isArray(b.sampleValues) && b.sampleValues.length) {
-                addText('Kliknij, aby zobaczyć zapisaną próbkę analizy', 'mybets-note'); card.onclick = () => openSampleChart(b);
+                addText('Kliknij, aby zobaczyć zapisaną próbkę analizy', 'mybets-note'); card.onclick = () => openSampleChart(b, true);
             } else { card.style.cursor = 'default'; }
             container.appendChild(card);
         });
