@@ -102,9 +102,9 @@
         .input-group input { width: 100%; background: var(--bg-input); border: 1px solid var(--border); color: #fff; padding: 6px 10px; border-radius: 6px; font-size: 12px; height: 34px; outline: none; }
         .input-group input:focus { border-color: var(--accent); }
 
-        .slider-wrap { display: flex; align-items: center; gap: 10px; height: 34px; }
-        .slider-wrap input[type=range] { flex: 1; accent-color: var(--accent); cursor: pointer; }
-        .slider-val { font-size: 12px; font-weight: 700; color: var(--accent); min-width: 45px; }
+        .sample-limit-wrap { display: flex; align-items: center; gap: 8px; }
+        .sample-limit-wrap input[type=range] { flex: 1; accent-color: var(--accent); padding: 0; border: none; cursor: pointer; }
+        .sample-limit-wrap span { color: var(--accent); font-size: 12px; font-weight: 700; min-width: 48px; }
 
         .btn-primary { background: var(--success); color: #022c22; font-weight: 700; padding: 0 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; height: 34px; transition: all 0.2s ease; }
         .btn-primary:hover { filter: brightness(1.1); }
@@ -132,31 +132,25 @@
         .dropdown-actions { display: flex; justify-content: space-between; padding-bottom: 6px; margin-bottom: 6px; border-bottom: 1px solid var(--border); }
         .dropdown-action-btn { background: transparent; border: none; color: var(--accent); font-size: 11px; font-weight: 700; cursor: pointer; }
 
-        .fullwidth-slider-bar {
-            display: flex; align-items: center; gap: 12px; background: var(--bg-card); border: 1px solid var(--border);
-            border-radius: 6px; padding: 6px 12px; margin-bottom: 12px; width: 100%;
-        }
-        .fullwidth-slider-bar label { font-size: 11px; color: var(--text-muted); font-weight: 700; white-space: nowrap; }
-        .fullwidth-slider-bar input[type=range] { flex: 1; accent-color: var(--accent); cursor: pointer; height: 6px; }
-        .fullwidth-slider-bar .slider-val { font-size: 13px; font-weight: 800; color: var(--accent); min-width: 50px; text-align: right; font-variant-numeric: tabular-nums; }
-
-        .range-filters { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; }
-        .range-filter-block { display: flex; align-items: center; gap: 10px; }
+        .filter-bar { background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin-bottom: 12px; }
+        .range-filters { display: flex; flex-wrap: wrap; gap: 10px 12px; align-items: center; }
+        .range-filter-block { display: flex; align-items: center; gap: 6px; }
         .range-filter-block label { white-space: nowrap; font-size: 12px; font-weight: 700; }
+        .range-inputs { display: flex; align-items: center; gap: 4px; color: var(--text-muted); }
+        .range-inputs input { width: 60px; }
+        .range-filters input { background: var(--bg-input); border: 1px solid var(--border); color: #fff; padding: 5px; border-radius: 6px; height: 32px; font-size: 12px; }
+        .range-filter-block .btn-ghost { padding: 0 8px; white-space: nowrap; }
+        .range-filters input:focus { outline: 1px solid var(--accent); }
+        .range-filters input:invalid { border-color: var(--danger); }
+        .range-filter-block input[type=date] { width: 145px; color-scheme: dark; }
+        .sample-date-note { width: 100%; font-size: 11px; color: var(--text-muted); }
+        .sample-range-value { color: var(--accent); font-size: 12px; font-weight: 700; min-width: 48px; }
         .dual-range { position: relative; width: 160px; height: 20px; }
         .dual-range-track { position: absolute; top: 9px; left: 0; right: 0; height: 3px; background: var(--border); border-radius: 2px; }
         .dual-range-fill { position: absolute; height: 3px; background: var(--accent); border-radius: 2px; }
-        .dual-range input[type="range"] {
-            position: absolute; top: 0; left: 0; width: 100%; height: 20px; margin: 0; background: none;
-            pointer-events: none; -webkit-appearance: none; appearance: none;
-        }
-        .dual-range input[type="range"]::-webkit-slider-thumb {
-            pointer-events: auto; -webkit-appearance: none; appearance: none; width: 14px; height: 14px;
-            border-radius: 50%; background: var(--accent); cursor: pointer; border: 2px solid #fff;
-        }
-        .dual-range input[type="range"]::-moz-range-thumb {
-            pointer-events: auto; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); cursor: pointer; border: 2px solid #fff;
-        }
+        .dual-range input[type=range] { position: absolute; top: 0; left: 0; width: 100%; height: 20px; margin: 0; padding: 0; border: none; background: none; pointer-events: none; -webkit-appearance: none; appearance: none; }
+        .dual-range input[type=range]::-webkit-slider-thumb { pointer-events: auto; -webkit-appearance: none; appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); cursor: pointer; border: 2px solid #fff; }
+        .dual-range input[type=range]::-moz-range-thumb { pointer-events: auto; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); cursor: pointer; border: 2px solid #fff; }
 
         .table-wrap { flex: 1; overflow-x: auto; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; }
         table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
@@ -408,10 +402,10 @@
                 <input type="text" id="awayIdInput" placeholder="Wykrywa się samo..." onchange="checkAndLoadTournaments()">
             </div>
             <div class="input-group">
-                <label>Zakres próbki:</label>
-                <div class="slider-wrap">
-                    <input type="range" id="matchSlider" min="1" max="30" value="10" oninput="document.getElementById('sliderVal').innerText = this.value + ' m.'">
-                    <span class="slider-val" id="sliderVal">10 m.</span>
+                <label for="matchLimitInput">Pobierz historię (mecze):</label>
+                <div class="sample-limit-wrap">
+                    <input type="range" id="matchLimitInput" min="1" max="30" step="1" value="10" oninput="updateSampleSliders()">
+                    <span id="matchLimitValue">10 m.</span>
                 </div>
             </div>
             <div style="display: flex; gap: 6px;">
@@ -426,35 +420,39 @@
         </div>
     </div>
 
-    <!-- ZAKRESY SUWAKÓW (FILTRY) -->
-    <div class="fullwidth-slider-bar range-filters">
+    <!-- Zakresy zatwierdzane po wpisaniu: Enter lub opuszczenie pola. -->
+    <div class="filter-bar range-filters">
         <div class="range-filter-block">
             <label>Kurs:</label>
-            <div class="dual-range" id="oddsRangeWrap">
-                <div class="dual-range-track"><div class="dual-range-fill" id="oddsRangeFill"></div></div>
-                <input type="range" id="oddsMinSlider" min="1.05" max="5.00" step="0.01" value="1.05" oninput="onOddsRangeInput()">
-                <input type="range" id="oddsMaxSlider" min="1.05" max="5.00" step="0.01" value="5.00" oninput="onOddsRangeInput()">
+            <div class="range-inputs">
+                <input type="number" id="oddsMinInput" min="1.01" step="0.01" value="1.01" inputmode="decimal" aria-label="Kurs od" onchange="onNumberRangeChange('odds', this)">
+                <span>–</span>
+                <input type="number" id="oddsMaxInput" min="1.01" step="0.01" value="5.00" inputmode="decimal" aria-label="Kurs do" onchange="onNumberRangeChange('odds', this)">
             </div>
-            <span class="slider-val" id="oddsRangeVal">1.05 – 5.00</span>
         </div>
         <div class="range-filter-block">
             <label>Hit Rate (%):</label>
-            <div class="dual-range" id="hrRangeWrap">
-                <div class="dual-range-track"><div class="dual-range-fill" id="hrRangeFill"></div></div>
-                <input type="range" id="hrMinSlider" min="0" max="100" step="1" value="0" oninput="onHrRangeInput()">
-                <input type="range" id="hrMaxSlider" min="0" max="100" step="1" value="100" oninput="onHrRangeInput()">
+            <div class="range-inputs">
+                <input type="number" id="hrMinInput" min="0" max="100" step="1" value="0" inputmode="numeric" aria-label="Hit rate od" onchange="onNumberRangeChange('hr', this)">
+                <span>–</span>
+                <input type="number" id="hrMaxInput" min="0" max="100" step="1" value="100" inputmode="numeric" aria-label="Hit rate do" onchange="onNumberRangeChange('hr', this)">
             </div>
-            <span class="slider-val" id="hrRangeVal">0 – 100</span>
         </div>
         <div class="range-filter-block">
-            <label title="Dolna granica: minimum dostępnych występów. Górna: liczba najnowszych meczów do obliczeń; starsze są odcinane.">Próbka (mecze):</label>
-            <div class="dual-range" id="sampleRangeWrap">
+            <label title="Minimum dostępnych występów i limit najnowszych meczów do obliczeń po zastosowaniu dat.">Próbka (mecze):</label>
+            <div class="dual-range">
                 <div class="dual-range-track"><div class="dual-range-fill" id="sampleRangeFill"></div></div>
-                <input type="range" id="sampleMinSlider" min="1" max="30" step="1" value="1" oninput="onSampleRangeInput(this)">
-                <input type="range" id="sampleMaxSlider" min="1" max="30" step="1" value="30" oninput="onSampleRangeInput(this)">
+                <input type="range" id="sampleMinInput" min="1" max="30" step="1" value="1" aria-label="Minimum występów" oninput="onSampleRangeInput(this)">
+                <input type="range" id="sampleMaxInput" min="1" max="30" step="1" value="30" aria-label="Limit najnowszych występów" oninput="onSampleRangeInput(this)">
             </div>
-            <span class="slider-val" id="sampleRangeVal">1 – 30</span>
+            <span class="sample-range-value" id="sampleRangeValue">1 – 30</span>
         </div>
+        <div class="range-filter-block">
+            <label for="sampleFromInput">Próbka od:</label>
+            <input type="date" id="sampleFromInput" onchange="onSampleDatesChange()">
+            <button class="btn-ghost" onclick="clearSampleDates()">Wyczyść datę</button>
+        </div>
+        <div class="sample-date-note">Filtry używają już pobranych występów. Data początku jest włącznie (czas polski); po niej stosowany jest limit meczów. Kurs i hit rate zatwierdza Enter lub opuszczenie pola.</div>
     </div>
 
     <!-- PASKI FILTROWANIA -->
@@ -831,10 +829,7 @@
         setInterval(refreshCalendarStatuses, 15000);
         renderTableHeaders();
         updateDropdownLabels();
-
-        updateDualRangeFill(document.getElementById("oddsMinSlider"), document.getElementById("oddsMaxSlider"), document.getElementById("oddsRangeFill"));
-        updateDualRangeFill(document.getElementById("hrMinSlider"), document.getElementById("hrMaxSlider"), document.getElementById("hrRangeFill"));
-        updateDualRangeFill(document.getElementById("sampleMinSlider"), document.getElementById("sampleMaxSlider"), document.getElementById("sampleRangeFill"));
+        updateSampleSliders();
 
         window.addEventListener('click', (e) => {
             if (!e.target.closest('.dropdown-check-list')) {
@@ -875,51 +870,67 @@
         } catch(e) {}
     };
 
-    function updateDualRangeFill(minEl, maxEl, fillEl) {
-        if (!minEl || !maxEl || !fillEl) return;
-        const min = parseFloat(minEl.min);
-        const max = parseFloat(minEl.max);
-        const vMin = parseFloat(minEl.value);
-        const vMax = parseFloat(maxEl.value);
-        const pctMin = ((vMin - min) / (max - min)) * 100;
-        const pctMax = ((vMax - min) / (max - min)) * 100;
-        fillEl.style.left = pctMin + "%";
-        fillEl.style.width = Math.max(0, pctMax - pctMin) + "%";
+    function validateNumberInput(input) {
+        if (input.value === '' || !Number.isFinite(input.valueAsNumber)) {
+            input.setCustomValidity('Wpisz liczbę.');
+            input.reportValidity();
+            return false;
+        }
+        input.setCustomValidity('');
+        return input.reportValidity();
     }
 
-    function onOddsRangeInput() {
-        const minEl = document.getElementById("oddsMinSlider");
-        const maxEl = document.getElementById("oddsMaxSlider");
-        if (parseFloat(minEl.value) > parseFloat(maxEl.value)) {
-            [minEl.value, maxEl.value] = [maxEl.value, minEl.value];
+    function onNumberRangeChange(prefix, changed) {
+        if (!validateNumberInput(changed)) return;
+        const min = document.getElementById(`${prefix}MinInput`);
+        const max = document.getElementById(`${prefix}MaxInput`);
+        if (!validateNumberInput(min) || !validateNumberInput(max)) return;
+        if (Number(min.value) > Number(max.value)) {
+            changed.setCustomValidity('Dolna granica nie może być większa od górnej.');
+            changed.reportValidity();
+            return;
         }
-        document.getElementById("oddsRangeVal").innerText =
-            `${parseFloat(minEl.value).toFixed(2)} – ${parseFloat(maxEl.value).toFixed(2)}`;
-        updateDualRangeFill(minEl, maxEl, document.getElementById("oddsRangeFill"));
         renderFiltered();
     }
 
-    function onHrRangeInput() {
-        const minEl = document.getElementById("hrMinSlider");
-        const maxEl = document.getElementById("hrMaxSlider");
-        if (parseFloat(minEl.value) > parseFloat(maxEl.value)) {
-            [minEl.value, maxEl.value] = [maxEl.value, minEl.value];
-        }
-        document.getElementById("hrRangeVal").innerText = `${minEl.value} – ${maxEl.value}`;
-        updateDualRangeFill(minEl, maxEl, document.getElementById("hrRangeFill"));
-        renderFiltered();
+    function updateSampleSliders() {
+        document.getElementById('matchLimitValue').textContent = document.getElementById('matchLimitInput').value + ' m.';
+        const min = document.getElementById('sampleMinInput');
+        const max = document.getElementById('sampleMaxInput');
+        document.getElementById('sampleRangeValue').textContent = `${min.value} – ${max.value}`;
+        const span = Number(min.max) - Number(min.min);
+        const fill = document.getElementById('sampleRangeFill');
+        fill.style.left = (Number(min.value) - Number(min.min)) / span * 100 + '%';
+        fill.style.width = (Number(max.value) - Number(min.value)) / span * 100 + '%';
     }
 
     function onSampleRangeInput(changed) {
-        const minEl = document.getElementById("sampleMinSlider");
-        const maxEl = document.getElementById("sampleMaxSlider");
-        if (parseFloat(minEl.value) > parseFloat(maxEl.value)) {
-            if (changed === minEl) maxEl.value = minEl.value;
-            else minEl.value = maxEl.value;
+        const min = document.getElementById('sampleMinInput');
+        const max = document.getElementById('sampleMaxInput');
+        if (Number(min.value) > Number(max.value)) {
+            if (changed === min) max.value = min.value;
+            else min.value = max.value;
         }
-        document.getElementById("sampleRangeVal").innerText = `${minEl.value} – ${maxEl.value}`;
-        updateDualRangeFill(minEl, maxEl, document.getElementById("sampleRangeFill"));
+        updateSampleSliders();
         renderFiltered();
+    }
+
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Enter' && event.target.matches('input[type=number]')) event.target.blur();
+    });
+
+    function sampleDateSelection() {
+        return {from: document.getElementById('sampleFromInput').value, to: ''};
+    }
+
+    function onSampleDatesChange() {
+        if (!document.getElementById('sampleFromInput').reportValidity()) return;
+        renderFiltered();
+    }
+
+    function clearSampleDates() {
+        document.getElementById('sampleFromInput').value = '';
+        onSampleDatesChange();
     }
 
     function clearAllInputs() {
@@ -930,6 +941,7 @@
             if (el) el.value = '';
         });
 
+        document.getElementById('sampleFromInput').value = '';
         currentMatchKey = null;
         currentHomeSlug = "";
         currentAwaySlug = "";
@@ -1425,36 +1437,14 @@
         checkAndLoadTournaments();
     }
 
-    function syncMinOddsSliderRange() {
-        const minEl = document.getElementById("oddsMinSlider");
-        const maxEl = document.getElementById("oddsMaxSlider");
-        if (!minEl || !maxEl) return;
-
-        if (rawBets.length === 0) {
-            minEl.min = maxEl.min = "1.05";
-            minEl.max = maxEl.max = "5.00";
-            minEl.value = "1.05";
-            maxEl.value = "5.00";
-            document.getElementById("oddsRangeVal").innerText = "1.05 – 5.00";
-            updateDualRangeFill(minEl, maxEl, document.getElementById("oddsRangeFill"));
-            return;
-        }
-
-        let allOdds = [];
-        rawBets.forEach(b => {
-            if (b.bookmakerOdds && b.bookmakerOdds > 1) allOdds.push(b.bookmakerOdds);
-        });
-
-        if (allOdds.length > 0) {
-            const minO = Math.floor(Math.min(...allOdds) * 100) / 100;
-            const maxO = Math.ceil(Math.max(...allOdds) * 100) / 100;
-            minEl.min = maxEl.min = minO.toFixed(2);
-            minEl.max = maxEl.max = (maxO > minO ? maxO : minO + 1.0).toFixed(2);
-            minEl.value = minO.toFixed(2);
-            maxEl.value = maxEl.max;
-            document.getElementById("oddsRangeVal").innerText = `${minEl.value} – ${maxEl.value}`;
-            updateDualRangeFill(minEl, maxEl, document.getElementById("oddsRangeFill"));
-        }
+    function resetOddsInputs() {
+        const odds = rawBets.map(bet => bet.bookmakerOdds).filter(value => Number.isFinite(value) && value > 1);
+        const min = document.getElementById('oddsMinInput');
+        const max = document.getElementById('oddsMaxInput');
+        min.value = '1.01';
+        max.value = (odds.length ? Math.max(1.01, Math.ceil(Math.max(...odds) * 100) / 100) : 5).toFixed(2);
+        min.setCustomValidity('');
+        max.setCustomValidity('');
     }
 
     async function runAnalysis() {
@@ -1467,7 +1457,9 @@
         if (!sb && !betclic && !sts) { alert('Podaj co najmniej jeden link do meczu.'); return; }
         let home = '';
         let away = '';
-        const limit = parseInt(document.getElementById('matchSlider').value, 10) || 10;
+        const limitInput = document.getElementById('matchLimitInput');
+        if (!validateNumberInput(limitInput)) return;
+        const limit = Number(limitInput.value);
 
         const selectedTournaments = 'ALL';
 
@@ -1501,7 +1493,7 @@
                 ? 'Analiza zakończona z uwagami: ' + progress.warnings.join(' · ')
                 : `Analiza zakończona: ${rawBets.length} wyników`;
             updateTeamDropdown(rawBets);
-            syncMinOddsSliderRange();
+            resetOddsInputs();
             renderFiltered();
 
             let title = "";
@@ -1571,9 +1563,8 @@
                 document.getElementById('awayIdInput').value = item.awayStatsId || '';
 
                 if (item.sampleLimit && item.sampleLimit > 0) {
-                    const slider = document.getElementById('matchSlider');
-                    slider.value = item.sampleLimit;
-                    document.getElementById('sliderVal').innerText = item.sampleLimit + ' m.';
+                    document.getElementById('matchLimitInput').value = item.sampleLimit;
+                    updateSampleSliders();
                 }
 
                 currentMatchKey = (item.homeStatsId && item.awayStatsId)
@@ -1617,6 +1608,7 @@
             if (!groups.has(key)) {
                 groups.set(key, {
                     analysisId: b.analysisId,
+                    sampleFrom: b.sampleFrom || '', sampleTo: b.sampleTo || '',
                     fixtureId: b.fixtureId, matchStart: b.matchStart, matchName: b.matchName,
                     playerId: b.playerId,
                     sampleEventIds: b.sampleEventIds || [],
@@ -1672,20 +1664,27 @@
     let sampleViewSource = null;
     const sampleViewCache = new Map();
 
+    function sampleViewKey(limit, from, to) {
+        return `${limit}|${from || ''}|${to || ''}`;
+    }
+
     function sampleView(limit) {
         if (sampleViewSource !== rawBets) {
             for (const entry of sampleViewCache.values()) if (entry.timer) clearTimeout(entry.timer);
             sampleViewCache.clear();
             sampleViewSource = rawBets;
         }
-        if (rawBets.every(bet => bet.matchesSample <= limit)) return {bets: rawBets};
-        if (sampleViewCache.has(limit)) return sampleViewCache.get(limit);
-        // Coalesce slider movement; keep completed samples for immediate restore.
-        for (const [cap, entry] of sampleViewCache) {
-            if (entry.timer) { clearTimeout(entry.timer); sampleViewCache.delete(cap); }
+        const {from, to} = sampleDateSelection();
+        if (from && to && from > to) return {error: 'Data końca próbki nie może być wcześniejsza niż początek.'};
+        if (!rawBets.length || (!from && !to && rawBets.every(bet => bet.matchesSample <= limit))) return {bets: rawBets};
+        const key = sampleViewKey(limit, from, to);
+        if (sampleViewCache.has(key)) return sampleViewCache.get(key);
+        // Coalesce quick edits; cache completed views without another source fetch.
+        for (const [cachedKey, entry] of sampleViewCache) {
+            if (entry.timer) { clearTimeout(entry.timer); sampleViewCache.delete(cachedKey); }
         }
         const entry = {};
-        sampleViewCache.set(limit, entry);
+        sampleViewCache.set(key, entry);
         const source = rawBets;
         entry.timer = setTimeout(async () => {
             entry.timer = null;
@@ -1693,29 +1692,33 @@
                 const analysisIds = [...new Set(source.map(bet => bet.analysisId))];
                 if (analysisIds.length !== 1 || !analysisIds[0]) throw new Error('Przeliczenie próbki wymaga ponownej analizy meczu.');
                 if (!window.go?.main?.App?.GetAnalysisSample) throw new Error('Uruchom aktualnego klienta, aby zmieniać próbkę.');
-                const result = await window.go.main.App.GetAnalysisSample(analysisIds[0], limit);
+                const result = await window.go.main.App.GetAnalysisSample(analysisIds[0], limit, from, to);
                 if (!Array.isArray(result)) throw new Error('Serwer nie zwrócił przeliczonej próbki.');
                 entry.bets = result;
             } catch (error) {
                 entry.error = String(error);
             }
             if (source === sampleViewSource) {
-                for (const [cap, cached] of sampleViewCache) {
+                for (const [cachedKey, cached] of sampleViewCache) {
                     if (sampleViewCache.size <= 5) break;
-                    if (cap !== limit && (cached.bets || cached.error)) sampleViewCache.delete(cap);
+                    if (cachedKey !== key && (cached.bets || cached.error)) sampleViewCache.delete(cachedKey);
                 }
             }
-            if (source === rawBets && Number(document.getElementById('sampleMaxSlider').value) === limit) renderFiltered();
+            const current = sampleDateSelection();
+            if (source === rawBets && sampleViewKey(Number(document.getElementById('sampleMaxInput').value), current.from, current.to) === key) renderFiltered();
         }, 180);
         return entry;
     }
 
     function retrySampleView() {
-        sampleViewCache.delete(Number(document.getElementById('sampleMaxSlider').value));
+        const {from, to} = sampleDateSelection();
+        sampleViewCache.delete(sampleViewKey(Number(document.getElementById('sampleMaxInput').value), from, to));
         renderFiltered();
     }
 
     function renderFiltered() {
+        const inputs = document.querySelectorAll('.range-filters input');
+        if (Array.from(inputs).some(input => !input.validity.valid || (input.type === 'number' && input.value === ''))) return;
         const q = normalizeSearchText(document.getElementById("searchBox").value);
         const selectedBMs = Array.from(document.querySelectorAll('.bm-cb:checked')).map(cb => cb.value);
         const selectedMarkets = Array.from(document.querySelectorAll('.market-cb:checked')).map(cb => cb.value);
@@ -1723,12 +1726,12 @@
         const verdict = document.getElementById("verdictFilter").value;
         const onlyStartingXI = document.getElementById("startingXIToggle")?.checked;
 
-        const minOdds = parseFloat(document.getElementById("oddsMinSlider")?.value || "1.05");
-        const maxOdds = parseFloat(document.getElementById("oddsMaxSlider")?.value || "5.00");
-        const minHr = parseFloat(document.getElementById("hrMinSlider")?.value || "0");
-        const maxHr = parseFloat(document.getElementById("hrMaxSlider")?.value || "100");
-        const minSample = parseInt(document.getElementById("sampleMinSlider")?.value || "1", 10);
-        const maxSample = parseInt(document.getElementById("sampleMaxSlider")?.value || "30", 10);
+        const minOdds = parseFloat(document.getElementById("oddsMinInput")?.value || "1.01");
+        const maxOdds = parseFloat(document.getElementById("oddsMaxInput")?.value || "5.00");
+        const minHr = parseFloat(document.getElementById("hrMinInput")?.value || "0");
+        const maxHr = parseFloat(document.getElementById("hrMaxInput")?.value || "100");
+        const minSample = parseInt(document.getElementById("sampleMinInput")?.value || "1", 10);
+        const maxSample = parseInt(document.getElementById("sampleMaxInput")?.value || "30", 10);
 
         const view = sampleView(maxSample);
         if (!view.bets) {
@@ -1737,7 +1740,7 @@
             const row = document.createElement('tr'), cell = document.createElement('td');
             cell.colSpan = compareMode ? 10 : 11;
             cell.style.cssText = 'text-align:center;padding:25px;color:var(--text-muted)';
-            cell.textContent = view.error || `Przeliczanie ostatnich ${maxSample} meczów…`;
+            cell.textContent = view.error || `Przeliczanie pobranej historii: daty i limit ${maxSample} meczów…`;
             if (view.error) {
                 const retry = document.createElement('button');
                 retry.className = 'btn-ghost'; retry.textContent = 'Ponów'; retry.onclick = retrySampleView;
@@ -1929,6 +1932,11 @@
             text.textContent = `Fair: ${Number(bet.fairOdds).toFixed(2)} · P(model): ${(100 * model.probability).toFixed(1)}% · EV po podatku: ${bet.evWithTax ?? '—'}% · próbka efektywna: ${model.effectiveSample.toFixed(1)} · korekta profilu: ${model.matchupFactor.toFixed(3)}. Model dotyczy statystyk zawodnika, bez SuperSub.`;
             extra.appendChild(text);
         }
+        if (bet.sampleFrom || bet.sampleTo) {
+            const range = document.createElement('div');
+            range.textContent = `Daty próbki: ${bet.sampleFrom || 'bez dolnej granicy'} – ${bet.sampleTo || 'bez górnej granicy'} (włącznie, czas polski).`;
+            extra.appendChild(range);
+        }
         const notes = document.createElement('div');
         notes.textContent = [...(bet.historyNotes || []), ...(model?.notes || [])].join(' · ');
         extra.appendChild(notes);
@@ -1947,7 +1955,8 @@
     }
 
     function sameChartSample(a, b) {
-        return ['sampleValues', 'sampleDates', 'sampleOpponents', 'sampleMinutes', 'samplePositions']
+        return (a.sampleFrom || '') === (b.sampleFrom || '') && (a.sampleTo || '') === (b.sampleTo || '') &&
+            ['sampleValues', 'sampleDates', 'sampleOpponents', 'sampleMinutes', 'samplePositions']
             .every(field => JSON.stringify(a[field] || []) === JSON.stringify(b[field] || []));
     }
 
@@ -1963,12 +1972,12 @@
             let source = sources.find(bets => bets.some(offer => sameChartMarket(offer, bet) && sameChartSample(offer, bet)));
             if (!source) {
                 const limit = bet.sampleValues.length;
-                const key = `${bet.analysisId}|${limit}`;
+                const key = `${bet.analysisId}|${limit}|${bet.sampleFrom || ''}|${bet.sampleTo || ''}`;
                 if (force) chartLinesSampleCache.delete(key);
                 let pending = chartLinesSampleCache.get(key);
                 if (!pending) {
                     if (!window.go?.main?.App?.GetAnalysisSample) throw new Error('Uruchom aktualnego klienta, aby pobrać inne linie.');
-                    pending = window.go.main.App.GetAnalysisSample(bet.analysisId, limit);
+                    pending = window.go.main.App.GetAnalysisSample(bet.analysisId, limit, bet.sampleFrom || '', bet.sampleTo || '');
                     chartLinesSampleCache.set(key, pending);
                     // Keep offers for recently opened saved analyses; no bookmaker or SofaScore requests.
                     while (chartLinesSampleCache.size > 8) chartLinesSampleCache.delete(chartLinesSampleCache.keys().next().value);
@@ -2088,7 +2097,7 @@
         select.value = bet.marketType === 'SHOTS_TOTAL' ? 'SHOTS_ON_TARGET' : 'SHOTS_TOTAL';
     }
     function relatedStatKey(bet, market) {
-        return `${bet.analysisId}|${bet.playerId}|${bet.marketType}|${market}|${bet.sampleValues.length}`;
+        return `${bet.analysisId}|${bet.playerId}|${bet.marketType}|${market}|${bet.sampleValues.length}|${bet.sampleFrom || ''}|${bet.sampleTo || ''}`;
     }
     async function loadRelatedStats(force = false) {
         const bet = currentChartBet;
@@ -2102,7 +2111,7 @@
             drawRelatedStats();
             try {
                 if (!bet.analysisId || !window.go?.main?.App?.GetRelatedStats) throw new Error('Wykonaj analizę ponownie, aby pobrać powiązane statystyki.');
-                entry.data = await window.go.main.App.GetRelatedStats(bet.analysisId, bet.playerId, bet.marketType, market, bet.sampleValues.length);
+                entry.data = await window.go.main.App.GetRelatedStats(bet.analysisId, bet.playerId, bet.marketType, market, bet.sampleValues.length, bet.sampleFrom || '', bet.sampleTo || '');
                 if (!Array.isArray(entry.data.sampleValues) || entry.data.sampleValues.length !== bet.sampleValues.length) throw new Error('Niezgodna próbka powiązanej statystyki');
                 entry.status = 'loaded';
             } catch (error) { entry.status = 'error'; entry.error = String(error); }
@@ -2185,10 +2194,10 @@
     const chartShotmapCache = new Map();
     async function loadChartShotmaps(bet) {
         if (!bet.analysisId || !bet.playerId || !window.go?.main?.App?.GetAnalysisShotmaps) return;
-        const key = `${bet.analysisId}|${bet.playerId}|${bet.marketType}|${bet.sampleValues.length}`;
+        const key = `${bet.analysisId}|${bet.playerId}|${bet.marketType}|${bet.sampleValues.length}|${bet.sampleFrom || ''}|${bet.sampleTo || ''}`;
         let pending = chartShotmapCache.get(key);
         if (!pending) {
-            pending = window.go.main.App.GetAnalysisShotmaps(bet.analysisId, bet.playerId, bet.marketType, 'all', bet.sampleValues.length);
+            pending = window.go.main.App.GetAnalysisShotmaps(bet.analysisId, bet.playerId, bet.marketType, 'all', bet.sampleValues.length, bet.sampleFrom || '', bet.sampleTo || '');
             chartShotmapCache.set(key, pending);
         }
         bet.shotmapStatus = 'loading';
@@ -2843,6 +2852,7 @@
                     addToMyBets({
                         bookmaker: bmKey,
                         analysisId: g.analysisId,
+                        sampleFrom: g.sampleFrom || '', sampleTo: g.sampleTo || '',
                         fixtureId: g.fixtureId, matchStart: g.matchStart, matchName: g.matchName,
                         playerId: g.playerId,
                         sampleEventIds: g.sampleEventIds || [],

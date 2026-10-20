@@ -3,6 +3,7 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	cryptorand "crypto/rand"
 	"crypto/sha256"
@@ -1463,6 +1464,8 @@ type PlayerStatHistory struct {
 }
 
 type AnalyzedBet struct {
+	SampleFrom              string             `json:"sampleFrom,omitempty"`
+	SampleTo                string             `json:"sampleTo,omitempty"`
 	FixtureID               int                `json:"fixtureId,omitempty"`
 	MatchStart              time.Time          `json:"matchStart,omitempty"`
 	MatchName               string             `json:"matchName,omitempty"`
@@ -5242,17 +5245,28 @@ func matchSofaTeamPair(client *ResilientClient, home, away []SofaTeamItem, match
 				continue
 			}
 			seenTeams[team.ID] = true
-			body, err := client.withScope("rozpoznanie-druzyn-terminarz-" + strconv.Itoa(team.ID)).GetSofa(fmt.Sprintf("/team/%d/events/next/0", team.ID))
-			var response SofaTeamEventsResponse
-			if err == nil {
-				err = json.Unmarshal(body, &response)
+			pages := []string{"next/0"}
+			if !match.StartTime.IsZero() {
+				// Charts can be opened after kickoff or full time. A past fixture
+				// still establishes both identities when its kickoff agrees.
+				pages = append(pages, "last/0")
 			}
-			if err != nil {
-				complete, lastErr = false, err
-				continue
+			var response SofaTeamEventsResponse
+			for _, page := range pages {
+				body, err := client.withScope("rozpoznanie-druzyn-terminarz-" + strconv.Itoa(team.ID) + "-" + page).GetSofa(fmt.Sprintf("/team/%d/events/%s", team.ID, page))
+				var feed SofaTeamEventsResponse
+				if err == nil {
+					err = json.Unmarshal(body, &feed)
+				}
+				if err != nil {
+					complete, lastErr = false, err
+					continue
+				}
+				response.Events = append(response.Events, feed.Events...)
 			}
 			for _, event := range response.Events {
-				if event.ID <= 0 || event.StartTS <= 0 || event.Status.Code >= 100 {
+				status := strings.ToLower(event.Status.Type)
+				if event.ID <= 0 || event.StartTS <= 0 || status == "canceled" || status == "cancelled" || status == "postponed" {
 					continue
 				}
 				when := time.Unix(event.StartTS, 0)
@@ -5260,7 +5274,7 @@ func matchSofaTeamPair(client *ResilientClient, home, away []SofaTeamItem, match
 					if delta := when.Sub(match.StartTime); delta < -10*time.Minute || delta > 10*time.Minute {
 						continue
 					}
-				} else if when.Before(time.Now().Add(-2 * time.Hour)) {
+				} else if event.Status.Code >= 100 || when.Before(time.Now().Add(-2*time.Hour)) {
 					continue
 				}
 				if gender := strings.ToUpper(event.HomeTeam.Gender); gender != "" && gender != match.Gender {
@@ -6186,6 +6200,78 @@ func latestPlayerHistory(hist *PlayerStatHistory, limit int) *PlayerStatHistory 
 	}
 	return &result
 }
+
+type sampleDateRange struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+// Dates are inclusive calendar days in the same zone as the displayed history.
+// The upper bound uses the next local midnight, including DST transitions.
+func (dates sampleDateRange) bounds() (from, until time.Time, err error) {
+	zone, err := time.LoadLocation("Europe/Warsaw")
+	if err != nil {
+		return from, until, err
+	}
+	if dates.From != "" {
+		from, err = time.ParseInLocation("2006-01-02", dates.From, zone)
+		if err != nil {
+			return from, until, fmt.Errorf("niepoprawna data początku próbki")
+		}
+	}
+	if dates.To != "" {
+		var end time.Time
+		end, err = time.ParseInLocation("2006-01-02", dates.To, zone)
+		if err != nil {
+			return from, until, fmt.Errorf("niepoprawna data końca próbki")
+		}
+		if !from.IsZero() && end.Before(from) {
+			return from, until, fmt.Errorf("data końca próbki nie może być wcześniejsza niż początek")
+		}
+		until = end.AddDate(0, 0, 1)
+	}
+	return from, until, nil
+}
+
+func datedMetricHistory(hist *PlayerStatHistory, market CanonicalMarket, limit int, from, until time.Time) *PlayerStatHistory {
+	if from.IsZero() && until.IsZero() {
+		return latestMetricHistory(hist, market, limit)
+	}
+	metric := metricHistory(hist, market)
+	indexes := []int{}
+	for i := 0; i < metric.Matches; i++ {
+		// A day/month label cannot establish the year; use the source timestamp.
+		if i >= len(metric.MatchStartedAt) || metric.MatchStartedAt[i].IsZero() {
+			continue
+		}
+		started := metric.MatchStartedAt[i]
+		if (!from.IsZero() && started.Before(from)) || (!until.IsZero() && !started.Before(until)) {
+			continue
+		}
+		indexes = append(indexes, i)
+		if limit > 0 && len(indexes) >= limit {
+			break
+		}
+	}
+	result := subsetMetricHistory(metric, market, indexes)
+	result.HistoryNotes = append(append([]string(nil), metric.HistoryNotes...), "Próbka widoku: filtr dat zastosowany do już pobranej historii, następnie limit najnowszych meczów. Filtr nie pobiera wcześniejszych występów.")
+	return result
+}
+
+func datedPlayerHistory(hist *PlayerStatHistory, limit int, from, until time.Time) *PlayerStatHistory {
+	if from.IsZero() && until.IsZero() {
+		return latestPlayerHistory(hist, limit)
+	}
+	result := *hist
+	result.MarketHistories = map[CanonicalMarket]*PlayerStatHistory{}
+	result.Matches = 0
+	for market := range hist.MarketHistories {
+		metric := datedMetricHistory(hist, market, limit, from, until)
+		result.MarketHistories[market] = metric
+		result.Matches = max(result.Matches, metric.Matches)
+	}
+	return &result
+}
 func fetchPlayerHistory(client *ResilientClient, player SofaPlayerDetails, teamName string, limit int, tournaments string, markets []CanonicalMarket) (*PlayerStatHistory, error) {
 	bundle, err := getFootyTeam(client, client.statsTeamID)
 	if err != nil {
@@ -6494,7 +6580,17 @@ func (task *analysisTask) ensureChartTeams(client *ResilientClient) error {
 		if isWomenEvent(task.seed) {
 			gender = "F"
 		}
-		detected := detectTeamsBySlugs(client, calendarTeamSlug(task.seed.Home), calendarTeamSlug(task.seed.Away), sofaMatchContext{StartTime: task.fixture.StartTime, Gender: gender})
+		// The analysis already confirmed the provider's club names and IDs.
+		// Prefer those names over translated bookmaker labels for enrichment.
+		home, away := task.chartTeamNames[0], task.chartTeamNames[1]
+		if home == "" {
+			home = task.seed.Home
+		}
+		if away == "" {
+			away = task.seed.Away
+		}
+		log.Printf("[SOFA-CHART] team_lookup bookmaker_home=%q bookmaker_away=%q source_home=%q source_away=%q kickoff=%s", task.seed.Home, task.seed.Away, home, away, task.fixture.StartTime.Format(time.RFC3339))
+		detected := detectTeamsBySlugs(client, calendarTeamSlug(home), calendarTeamSlug(away), sofaMatchContext{StartTime: task.fixture.StartTime, Gender: gender})
 		if detected.HomeID == "" || detected.AwayID == "" {
 			return fmt.Errorf("SofaScore: nie potwierdzono drużyn dla składu i wykresu: %s", strings.Join(detected.Warnings, "; "))
 		}
@@ -6634,6 +6730,7 @@ type analysisTask struct {
 	// These fields are accessed only while holding chartGate. Initial results
 	// and histories stay immutable when charts receive optional enrichment.
 	chartHistories    map[string]*PlayerStatHistory
+	chartTeamNames    [2]string
 	sofaTeams         TeamDetectionResult
 	sofaLineupEventID int
 	sofaSquads        map[string][]SofaPlayerDetails
@@ -6828,6 +6925,7 @@ func (s *calendarServer) analyze(task *analysisTask) ([]AnalyzedBet, error) {
 	task.mu.Lock()
 	task.fixture = fixture
 	task.seed = seed
+	task.chartTeamNames = [2]string{homeName, awayName}
 	task.job.FixtureID = fixture.ID
 	task.job.StartTime = fixture.StartTime
 	task.job.Match = homeName + " — " + awayName
@@ -7074,10 +7172,62 @@ func selectSofaMarketPlayers(squad []SofaPlayerDetails, targets []string) []Sofa
 }
 
 func jsonResponse(w http.ResponseWriter, status int, value any) {
+	jsonRequestResponse(w, nil, status, value)
+}
+
+// Large analysis responses have a separate transfer budget in the client.
+// Marshal before sending headers so serialization errors cannot produce HTTP 200.
+func jsonRequestResponse(w http.ResponseWriter, r *http.Request, status int, value any) {
+	started := time.Now()
+	raw, err := json.Marshal(value)
+	if err != nil {
+		log.Printf("[API-RESPONSE] JSON error: %v", err)
+		http.Error(w, "nie udało się zakodować odpowiedzi API", http.StatusInternalServerError)
+		return
+	}
+	payload := raw
+	if r != nil {
+		if r.Context().Err() != nil {
+			return
+		}
+		w.Header().Add("Vary", "Accept-Encoding")
+		acceptsGzip := false
+		for _, coding := range strings.Split(r.Header.Get("Accept-Encoding"), ",") {
+			parts := strings.Split(coding, ";")
+			if !strings.EqualFold(strings.TrimSpace(parts[0]), "gzip") {
+				continue
+			}
+			quality := 1.0
+			for _, parameter := range parts[1:] {
+				key, value, ok := strings.Cut(strings.TrimSpace(parameter), "=")
+				if ok && strings.EqualFold(key, "q") {
+					quality, _ = strconv.ParseFloat(value, 64)
+				}
+			}
+			acceptsGzip = quality > 0
+		}
+		if acceptsGzip && len(raw) >= 1024 {
+			var compressed bytes.Buffer
+			writer := gzip.NewWriter(&compressed)
+			_, writeErr := writer.Write(raw)
+			closeErr := writer.Close()
+			if writeErr == nil && closeErr == nil && compressed.Len() < len(raw) {
+				payload = compressed.Bytes()
+				w.Header().Set("Content-Encoding", "gzip")
+			}
+		}
+		if r.Context().Err() != nil {
+			return
+		}
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
 	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(value); err != nil {
-		log.Printf("API response: %v", err)
+	written, err := w.Write(payload)
+	if r != nil && (err != nil || len(raw) >= 1<<20) {
+		log.Printf("[API-RESPONSE] method=%s path=%s peer=%s status=%d json_bytes=%d wire_bytes=%d written=%d elapsed=%s context_error=%v error=%v", r.Method, r.URL.Path, r.RemoteAddr, status, len(raw), len(payload), written, time.Since(started).Round(time.Millisecond), r.Context().Err(), err)
+	} else if err != nil {
+		log.Printf("[API-RESPONSE] status=%d bytes=%d written=%d elapsed=%s error=%v", status, len(payload), written, time.Since(started).Round(time.Millisecond), err)
 	}
 }
 func apiError(w http.ResponseWriter, status int, err error) {
@@ -7141,7 +7291,12 @@ func (s *calendarServer) handler() http.Handler {
 			apiError(w, 404, fmt.Errorf("brak analizy w pamięci serwera; uruchom analizę ponownie"))
 			return
 		}
-		jsonResponse(w, 200, task.snapshot())
+		job := task.snapshot()
+		if r.URL.Query().Get("summary") == "1" {
+			job.Result = nil
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		jsonRequestResponse(w, r, 200, job)
 	})
 	mux.HandleFunc("POST /api/v1/analyses/{id}/cancel", func(w http.ResponseWriter, r *http.Request) {
 		task := s.clientTask(r, r.PathValue("id"))
@@ -7188,6 +7343,7 @@ func (s *calendarServer) clientTask(r *http.Request, id string) *analysisTask {
 
 func (s *calendarServer) analysisSample(w http.ResponseWriter, r *http.Request) {
 	var query struct {
+		sampleDateRange
 		Limit int `json:"limit"`
 	}
 	if err := decodeAPIRequest(w, r, &query); err != nil {
@@ -7196,6 +7352,11 @@ func (s *calendarServer) analysisSample(w http.ResponseWriter, r *http.Request) 
 	}
 	if query.Limit < 1 || query.Limit > 30 {
 		apiError(w, 400, fmt.Errorf("próbka musi zawierać od 1 do 30 meczów"))
+		return
+	}
+	from, until, err := query.bounds()
+	if err != nil {
+		apiError(w, 400, err)
 		return
 	}
 	task := s.clientTask(r, r.PathValue("id"))
@@ -7214,7 +7375,7 @@ func (s *calendarServer) analysisSample(w http.ResponseWriter, r *http.Request) 
 	latest := func(players []*PlayerStatHistory) []*PlayerStatHistory {
 		result := make([]*PlayerStatHistory, 0, len(players))
 		for _, hist := range players {
-			result = append(result, latestPlayerHistory(hist, limit))
+			result = append(result, datedPlayerHistory(hist, limit, from, until))
 		}
 		return result
 	}
@@ -7225,12 +7386,13 @@ func (s *calendarServer) analysisSample(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	for i := range result {
+		result[i].SampleFrom, result[i].SampleTo = query.From, query.To
 		result[i].AnalysisID = r.PathValue("id")
 		result[i].FixtureID, _ = strconv.Atoi(task.fixture.ID)
 		result[i].MatchStart = task.fixture.StartTime
 		result[i].MatchName = task.seed.Home + " — " + task.seed.Away
 	}
-	jsonResponse(w, 200, result)
+	jsonRequestResponse(w, r, 200, result)
 }
 func (s *calendarServer) selectFootyMatch(w http.ResponseWriter, r *http.Request) {
 	task := s.clientTask(r, r.PathValue("id"))
@@ -7450,6 +7612,7 @@ func fetchPlayerShotmap(client *ResilientClient, eventID, playerID int, expected
 
 func (s *calendarServer) analysisShotmaps(w http.ResponseWriter, r *http.Request) {
 	var query struct {
+		sampleDateRange
 		AnalysisID string          `json:"analysisId"`
 		PlayerID   int             `json:"playerId"`
 		Market     CanonicalMarket `json:"market"`
@@ -7462,6 +7625,11 @@ func (s *calendarServer) analysisShotmaps(w http.ResponseWriter, r *http.Request
 	}
 	if !analysisIDPattern.MatchString(query.AnalysisID) || query.PlayerID <= 0 || query.Limit < 0 || query.Limit > 30 || (query.Mode != "" && query.Mode != "all") {
 		apiError(w, 400, fmt.Errorf("niepoprawna próbka map"))
+		return
+	}
+	from, until, err := query.bounds()
+	if err != nil {
+		apiError(w, 400, err)
 		return
 	}
 	task := s.clientTask(r, query.AnalysisID)
@@ -7491,13 +7659,13 @@ func (s *calendarServer) analysisShotmaps(w http.ResponseWriter, r *http.Request
 	case <-r.Context().Done():
 		return
 	}
-	key := fmt.Sprintf("%d/%s/%d", query.PlayerID, query.Market, query.Limit)
+	key := fmt.Sprintf("%d/%s/%d/%s/%s", query.PlayerID, query.Market, query.Limit, query.From, query.To)
 	if task.chartHistories == nil {
 		task.chartHistories = map[string]*PlayerStatHistory{}
 	}
 	hist := task.chartHistories[key]
 	if hist == nil {
-		hist = latestMetricHistory(history, query.Market, query.Limit)
+		hist = datedMetricHistory(history, query.Market, query.Limit, from, until)
 		hist.HistoryNotes = append([]string(nil), hist.HistoryNotes...)
 		task.chartHistories[key] = hist
 	}
@@ -7579,6 +7747,7 @@ func shotMarket(market CanonicalMarket) bool {
 
 func (s *calendarServer) analysisRelatedStats(w http.ResponseWriter, r *http.Request) {
 	var query struct {
+		sampleDateRange
 		AnalysisID string          `json:"analysisId"`
 		PlayerID   int             `json:"playerId"`
 		BaseMarket CanonicalMarket `json:"baseMarket"`
@@ -7591,6 +7760,11 @@ func (s *calendarServer) analysisRelatedStats(w http.ResponseWriter, r *http.Req
 	}
 	if query.Limit < 1 || query.Limit > 30 || !shotMarket(query.BaseMarket) || !shotMarket(query.Market) {
 		apiError(w, 400, fmt.Errorf("niepoprawna statystyka powiązana"))
+		return
+	}
+	from, until, err := query.bounds()
+	if err != nil {
+		apiError(w, 400, err)
 		return
 	}
 	task := s.clientTask(r, query.AnalysisID)
@@ -7612,7 +7786,7 @@ func (s *calendarServer) analysisRelatedStats(w http.ResponseWriter, r *http.Req
 		apiError(w, 409, fmt.Errorf("brak próbki podstawowej"))
 		return
 	}
-	base := latestMetricHistory(history, query.BaseMarket, query.Limit)
+	base := datedMetricHistory(history, query.BaseMarket, query.Limit, from, until)
 	indexes := map[int]int{}
 	for i, id := range history.SourceEventIDs {
 		if id > 0 {

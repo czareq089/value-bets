@@ -98,6 +98,8 @@ export namespace main {
 	    }
 	}
 	export class AnalyzedBet {
+	    sampleFrom?: string;
+	    sampleTo?: string;
 	    fixtureId?: number;
 	    // Go type: time
 	    matchStart?: any;
@@ -144,6 +146,8 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sampleFrom = source["sampleFrom"];
+	        this.sampleTo = source["sampleTo"];
 	        this.fixtureId = source["fixtureId"];
 	        this.matchStart = this.convertValues(source["matchStart"], null);
 	        this.matchName = source["matchName"];
@@ -471,6 +475,8 @@ export namespace main {
 		}
 	}
 	export class MyBetItem {
+	    sampleFrom?: string;
+	    sampleTo?: string;
 	    fixtureId?: number;
 	    // Go type: time
 	    matchStart?: any;
@@ -528,6 +534,8 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sampleFrom = source["sampleFrom"];
+	        this.sampleTo = source["sampleTo"];
 	        this.fixtureId = source["fixtureId"];
 	        this.matchStart = this.convertValues(source["matchStart"], null);
 	        this.matchName = source["matchName"];

@@ -22,15 +22,15 @@ export function GetAnalysisLineupEvent(arg1:string):Promise<Record<string, any>>
 
 export function GetAnalysisProgress():Promise<main.AnalysisJob>;
 
-export function GetAnalysisSample(arg1:string,arg2:number):Promise<Array<main.AnalyzedBet>>;
+export function GetAnalysisSample(arg1:string,arg2:number,arg3:string,arg4:string):Promise<Array<main.AnalyzedBet>>;
 
-export function GetAnalysisShotmaps(arg1:string,arg2:number,arg3:string,arg4:string,arg5:number):Promise<Record<string, any>>;
+export function GetAnalysisShotmaps(arg1:string,arg2:number,arg3:string,arg4:string,arg5:number,arg6:string,arg7:string):Promise<Record<string, any>>;
 
 export function GetAvailableTournaments(arg1:string,arg2:string):Promise<Array<main.LeagueOption>>;
 
 export function GetBetclicCalendar(arg1:string):Promise<main.SuperbetCalendar>;
 
-export function GetRelatedStats(arg1:string,arg2:number,arg3:string,arg4:string,arg5:number):Promise<Record<string, any>>;
+export function GetRelatedStats(arg1:string,arg2:number,arg3:string,arg4:string,arg5:number,arg6:string,arg7:string):Promise<Record<string, any>>;
 
 export function GetSTSCalendar(arg1:string):Promise<main.SuperbetCalendar>;
 

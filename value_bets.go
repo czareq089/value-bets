@@ -122,6 +122,8 @@ type FairModelDetails struct {
 }
 
 type AnalyzedBet struct {
+	SampleFrom              string             `json:"sampleFrom,omitempty"`
+	SampleTo                string             `json:"sampleTo,omitempty"`
 	FixtureID               int                `json:"fixtureId,omitempty"`
 	MatchStart              time.Time          `json:"matchStart,omitempty"`
 	MatchName               string             `json:"matchName,omitempty"`
@@ -187,6 +189,8 @@ type MatchHistoryEntry struct {
 }
 
 type MyBetItem struct {
+	SampleFrom              string             `json:"sampleFrom,omitempty"`
+	SampleTo                string             `json:"sampleTo,omitempty"`
 	FixtureID               int                `json:"fixtureId,omitempty"`
 	MatchStart              time.Time          `json:"matchStart,omitempty"`
 	MatchName               string             `json:"matchName,omitempty"`
@@ -1539,7 +1543,7 @@ func (a *App) SelectFootyMatch(analysisID string, fixtureID int) error {
 }
 
 // Wails waits locally while the server performs an independent asynchronous job.
-// Each poll has a short timeout; no long-lived HTTP analysis request is needed.
+// Progress polls are small. Result downloads have their own longer timeout.
 func (a *App) CancelAnalysis() error {
 	a.CancelSofaCaptcha()
 	a.analysisMu.Lock()
@@ -1604,6 +1608,7 @@ func (a *App) AnalyzeThreeBookmakers(sb, betclic, sts, home, away string, limit 
 	a.setAnalysisProgress(job)
 	id := job.ID
 	lastRevision := 0
+	var downloadedResult []AnalyzedBet
 	failures := 0
 	for {
 		timer := time.NewTimer(1500 * time.Millisecond)
@@ -1615,8 +1620,26 @@ func (a *App) AnalyzeThreeBookmakers(sb, betclic, sts, home, away string, limit 
 		}
 		pollCtx, pollCancel := context.WithTimeout(ctx, 20*time.Second)
 		var nextJob AnalysisJob
-		err = a.serverRequest(pollCtx, http.MethodGet, "/api/v1/analyses/"+url.PathEscape(id)+"?afterRevision="+fmt.Sprint(lastRevision), nil, &nextJob)
+		err = a.serverRequest(pollCtx, http.MethodGet, "/api/v1/analyses/"+url.PathEscape(id)+"?summary=1", nil, &nextJob)
 		pollCancel()
+		if err == nil && (nextJob.ResultRevision > lastRevision || nextJob.Status == "completed") {
+			if nextJob.ResultRevision > lastRevision || downloadedResult == nil {
+				state := nextJob
+				state.Status, state.Stage = "running", "downloading"
+				state.Message = "Pobieranie wyniku analizy z serwera"
+				a.setAnalysisProgress(state)
+				transferStarted := time.Now()
+				resultCtx, resultCancel := context.WithTimeout(ctx, 2*time.Minute)
+				err = a.serverRequest(resultCtx, http.MethodGet, "/api/v1/analyses/"+url.PathEscape(id), nil, &nextJob)
+				resultCancel()
+				log.Printf("[ANALYSIS-TRANSFER] analysis=%s records=%d elapsed=%s error=%v", id, len(nextJob.Result), time.Since(transferStarted).Round(time.Millisecond), err)
+				if err == nil {
+					downloadedResult = nextJob.Result
+				}
+			} else {
+				nextJob.Result = downloadedResult
+			}
+		}
 		if err != nil {
 			failures++
 			state := a.GetAnalysisProgress()
@@ -1649,14 +1672,14 @@ func (a *App) AnalyzeThreeBookmakers(sb, betclic, sts, home, away string, limit 
 }
 
 // Coordinates are fetched on chart opening without changing the saved sample.
-func (a *App) GetAnalysisShotmaps(analysisID string, playerID int, market, mode string, limit int) (map[string]any, error) {
+func (a *App) GetAnalysisShotmaps(analysisID string, playerID int, market, mode string, limit int, from, to string) (map[string]any, error) {
 	if err := a.ensureSofaRelay(a.calendarContext()); err != nil {
 		return nil, err
 	}
 	if !regexp.MustCompile(`^[a-f0-9]{24}$`).MatchString(analysisID) || playerID <= 0 || limit < 0 || limit > 30 {
 		return nil, fmt.Errorf("niepoprawna analiza lub zawodnik")
 	}
-	body, err := json.Marshal(map[string]any{"analysisId": analysisID, "playerId": playerID, "market": market, "mode": mode, "limit": limit})
+	body, err := json.Marshal(map[string]any{"analysisId": analysisID, "playerId": playerID, "market": market, "mode": mode, "limit": limit, "from": from, "to": to})
 	if err != nil {
 		return nil, err
 	}
@@ -1667,13 +1690,13 @@ func (a *App) GetAnalysisShotmaps(analysisID string, playerID int, market, mode 
 	return result, err
 }
 
-func (a *App) GetAnalysisSample(analysisID string, limit int) ([]AnalyzedBet, error) {
+func (a *App) GetAnalysisSample(analysisID string, limit int, from, to string) ([]AnalyzedBet, error) {
 	if !regexp.MustCompile(`^[a-f0-9]{24}$`).MatchString(analysisID) || limit < 1 || limit > 30 {
 		return nil, fmt.Errorf("niepoprawna analiza lub długość próbki")
 	}
-	ctx, cancel := context.WithTimeout(a.calendarContext(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(a.calendarContext(), 2*time.Minute)
 	defer cancel()
-	body, err := json.Marshal(map[string]int{"limit": limit})
+	body, err := json.Marshal(map[string]any{"limit": limit, "from": from, "to": to})
 	if err != nil {
 		return nil, err
 	}
@@ -1682,13 +1705,13 @@ func (a *App) GetAnalysisSample(analysisID string, limit int) ([]AnalyzedBet, er
 	return result, err
 }
 
-func (a *App) GetRelatedStats(analysisID string, playerID int, baseMarket, market string, limit int) (map[string]any, error) {
+func (a *App) GetRelatedStats(analysisID string, playerID int, baseMarket, market string, limit int, from, to string) (map[string]any, error) {
 	if !regexp.MustCompile(`^[a-f0-9]{24}$`).MatchString(analysisID) || playerID <= 0 || limit < 1 || limit > 30 {
 		return nil, fmt.Errorf("niepoprawna próbka")
 	}
 	ctx, cancel := context.WithTimeout(a.calendarContext(), 20*time.Second)
 	defer cancel()
-	body, err := json.Marshal(map[string]any{"analysisId": analysisID, "playerId": playerID, "baseMarket": baseMarket, "market": market, "limit": limit})
+	body, err := json.Marshal(map[string]any{"analysisId": analysisID, "playerId": playerID, "baseMarket": baseMarket, "market": market, "limit": limit, "from": from, "to": to})
 	if err != nil {
 		return nil, err
 	}

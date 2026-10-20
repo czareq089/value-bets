@@ -42,12 +42,12 @@ export function GetAnalysisProgress() {
   return window['go']['main']['App']['GetAnalysisProgress']();
 }
 
-export function GetAnalysisSample(arg1, arg2) {
-  return window['go']['main']['App']['GetAnalysisSample'](arg1, arg2);
+export function GetAnalysisSample(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['GetAnalysisSample'](arg1, arg2, arg3, arg4);
 }
 
-export function GetAnalysisShotmaps(arg1, arg2, arg3, arg4, arg5) {
-  return window['go']['main']['App']['GetAnalysisShotmaps'](arg1, arg2, arg3, arg4, arg5);
+export function GetAnalysisShotmaps(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
+  return window['go']['main']['App']['GetAnalysisShotmaps'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
 }
 
 export function GetAvailableTournaments(arg1, arg2) {
@@ -58,8 +58,8 @@ export function GetBetclicCalendar(arg1) {
   return window['go']['main']['App']['GetBetclicCalendar'](arg1);
 }
 
-export function GetRelatedStats(arg1, arg2, arg3, arg4, arg5) {
-  return window['go']['main']['App']['GetRelatedStats'](arg1, arg2, arg3, arg4, arg5);
+export function GetRelatedStats(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
+  return window['go']['main']['App']['GetRelatedStats'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
 }
 
 export function GetSTSCalendar(arg1) {
